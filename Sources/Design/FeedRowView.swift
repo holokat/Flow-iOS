@@ -222,6 +222,48 @@ struct FeedRowView: View {
     private let reactionPublishService = NoteReactionPublishService()
     private let reportPublishService = NoteReportPublishService()
 
+    init(
+        item: FeedItem,
+        initialEngagementSnapshot: NoteReactionEventSnapshot? = nil,
+        reactionCount: Int = 0,
+        isLikedByCurrentUser: Bool = false,
+        commentCount: Int = 0,
+        repostCount: Int = 0,
+        showReactions: Bool = true,
+        onAvatarTap: (() -> Void)? = nil,
+        avatarMenuActions: AvatarMenuActions? = nil,
+        onHashtagTap: ((String) -> Void)? = nil,
+        onProfileTap: ((String) -> Void)? = nil,
+        onOpenThread: (() -> Void)? = nil,
+        onRepostActorTap: ((String) -> Void)? = nil,
+        onReferencedEventTap: ((FeedItem) -> Void)? = nil,
+        onRelayTap: ((URL) -> Void)? = nil,
+        onReplyTap: (() -> Void)? = nil,
+        onOptimisticPublished: ((FeedItem) -> Void)? = nil,
+        onMuteConversation: ((String) -> Void)? = nil,
+        suppressReplyContextForDirectReplyTargetEventID: String? = nil
+    ) {
+        self.item = item
+        self.reactionCount = reactionCount
+        self.isLikedByCurrentUser = isLikedByCurrentUser
+        self.commentCount = commentCount
+        self.repostCount = repostCount
+        self.showReactions = showReactions
+        self.onAvatarTap = onAvatarTap
+        self.avatarMenuActions = avatarMenuActions
+        self.onHashtagTap = onHashtagTap
+        self.onProfileTap = onProfileTap
+        self.onOpenThread = onOpenThread
+        self.onRepostActorTap = onRepostActorTap
+        self.onReferencedEventTap = onReferencedEventTap
+        self.onRelayTap = onRelayTap
+        self.onReplyTap = onReplyTap
+        self.onOptimisticPublished = onOptimisticPublished
+        self.onMuteConversation = onMuteConversation
+        self.suppressReplyContextForDirectReplyTargetEventID = suppressReplyContextForDirectReplyTargetEventID
+        _reactionSnapshot = State(initialValue: initialEngagementSnapshot)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if item.isRepost {

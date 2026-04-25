@@ -786,13 +786,8 @@ struct HomeFeedView: View {
     private func feedRow(_ item: FeedItem, visibleReplyCounts: [String: Int]) -> some View {
         FeedRowView(
             item: item,
-            reactionCount: reactionStats.reactionCount(for: item.displayEventID),
-            isLikedByCurrentUser: reactionStats.isReactedByCurrentUser(
-                for: item.displayEventID,
-                currentPubkey: auth.currentAccount?.pubkey
-            ),
+            initialEngagementSnapshot: reactionStats.currentSnapshot(for: item.displayEventID),
             commentCount: visibleReplyCounts[item.displayEventID.lowercased()] ?? 0,
-            repostCount: reactionStats.repostCount(for: item.displayEventID),
             showReactions: appSettings.reactionsVisibleInFeeds,
             avatarMenuActions: .init(
                 followLabel: followStore.isFollowing(item.displayAuthorPubkey) ? "Unfollow" : "Follow",

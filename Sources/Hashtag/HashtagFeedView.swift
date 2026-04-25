@@ -7,7 +7,7 @@ struct HashtagFeedView: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var relaySettings: RelaySettingsStore
     @StateObject private var viewModel: HashtagFeedViewModel
-    @ObservedObject private var reactionStats = NoteReactionStatsService.shared
+    private let reactionStats = NoteReactionStatsService.shared
     @ObservedObject private var followStore = FollowStore.shared
     @ObservedObject private var muteStore = MuteStore.shared
     @ObservedObject private var hashtagFavoritesStore = HashtagFavoritesStore.shared
@@ -84,13 +84,8 @@ struct HashtagFeedView: View {
                 ForEach(visibleItems) { item in
                     FeedRowView(
                         item: item,
-                        reactionCount: reactionStats.reactionCount(for: item.displayEventID),
-                        isLikedByCurrentUser: reactionStats.isReactedByCurrentUser(
-                            for: item.displayEventID,
-                            currentPubkey: auth.currentAccount?.pubkey
-                        ),
+                        initialEngagementSnapshot: reactionStats.currentSnapshot(for: item.displayEventID),
                         commentCount: visibleReplyCounts[item.displayEventID.lowercased()] ?? 0,
-                        repostCount: reactionStats.repostCount(for: item.displayEventID),
                         showReactions: appSettings.reactionsVisibleInFeeds,
                         avatarMenuActions: .init(
                             followLabel: followStore.isFollowing(item.displayAuthorPubkey) ? "Unfollow" : "Follow",
@@ -304,7 +299,7 @@ struct RelayFeedView: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var relaySettings: RelaySettingsStore
     @StateObject private var viewModel: RelayFeedViewModel
-    @ObservedObject private var reactionStats = NoteReactionStatsService.shared
+    private let reactionStats = NoteReactionStatsService.shared
     @ObservedObject private var followStore = FollowStore.shared
     @ObservedObject private var muteStore = MuteStore.shared
     @ObservedObject private var relayFavoritesStore = RelayFavoritesStore.shared
@@ -377,13 +372,8 @@ struct RelayFeedView: View {
                 ForEach(visibleItems) { item in
                     FeedRowView(
                         item: item,
-                        reactionCount: reactionStats.reactionCount(for: item.displayEventID),
-                        isLikedByCurrentUser: reactionStats.isReactedByCurrentUser(
-                            for: item.displayEventID,
-                            currentPubkey: auth.currentAccount?.pubkey
-                        ),
+                        initialEngagementSnapshot: reactionStats.currentSnapshot(for: item.displayEventID),
                         commentCount: visibleReplyCounts[item.displayEventID.lowercased()] ?? 0,
-                        repostCount: reactionStats.repostCount(for: item.displayEventID),
                         showReactions: appSettings.reactionsVisibleInFeeds,
                         avatarMenuActions: .init(
                             followLabel: followStore.isFollowing(item.displayAuthorPubkey) ? "Unfollow" : "Follow",

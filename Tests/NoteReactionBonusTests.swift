@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 import NostrSDK
 @testable import Flow
@@ -73,6 +74,81 @@ final class NoteReactionBonusTests: XCTestCase {
             service.currentUserReaction(for: targetEventID, currentPubkey: reactorPubkey)?.bonusCount,
             6
         )
+    }
+
+    @MainActor
+    func testCurrentSnapshotSeedsIndependentRowsBeforePerEventPublisherUpdates() async {
+        let targetA = String(repeating: "a", count: 64)
+        let targetB = String(repeating: "b", count: 64)
+        let reactor = String(repeating: "c", count: 64)
+        let service = NoteReactionStatsService(
+            relayClient: SpyReactionRelayClient(),
+            store: NoteReactionStatsStore(fileManager: ReactionTestFileManager(rootURL: temporaryRootURL()))
+        )
+
+        service.registerPublishedReaction(
+            makeReactionEvent(
+                id: String(repeating: "d", count: 64),
+                pubkey: reactor,
+                targetEventID: targetA,
+                targetPubkey: String(repeating: "e", count: 64),
+                bonusCount: 0
+            ),
+            targetEventID: targetA
+        )
+
+        let seededRowA = service.currentSnapshot(for: targetA)
+        let seededRowB = service.currentSnapshot(for: targetB)
+
+        var rowAUpdates: [Int] = []
+        var rowBUpdates: [Int] = []
+        let cancellableA = service.publisher(for: targetA).sink { rowAUpdates.append($0.reactionCount) }
+        let cancellableB = service.publisher(for: targetB).sink { rowBUpdates.append($0.reactionCount) }
+        defer {
+            cancellableA.cancel()
+            cancellableB.cancel()
+        }
+
+        service.registerPublishedReaction(
+            makeReactionEvent(
+                id: String(repeating: "e", count: 64),
+                pubkey: String(repeating: "f", count: 64),
+                targetEventID: targetA,
+                targetPubkey: String(repeating: "1", count: 64),
+                bonusCount: 0
+            ),
+            targetEventID: targetA
+        )
+
+        XCTAssertEqual(seededRowA.reactionCount, 1)
+        XCTAssertEqual(seededRowB.reactionCount, 0)
+        XCTAssertEqual(service.currentSnapshot(for: targetB).reactionCount, 0)
+        XCTAssertEqual(rowAUpdates.first, 1)
+        XCTAssertEqual(rowAUpdates.last, 2)
+        XCTAssertEqual(rowBUpdates, [0])
+    }
+
+    @MainActor
+    func testCurrentSnapshotReturnsLatestStateWithoutObservation() async {
+        let eventID = String(repeating: "f", count: 64)
+        let reactor = String(repeating: "1", count: 64)
+        let service = NoteReactionStatsService(
+            relayClient: SpyReactionRelayClient(),
+            store: NoteReactionStatsStore(fileManager: ReactionTestFileManager(rootURL: temporaryRootURL()))
+        )
+
+        service.registerPublishedReaction(
+            makeReactionEvent(
+                id: String(repeating: "2", count: 64),
+                pubkey: reactor,
+                targetEventID: eventID,
+                targetPubkey: String(repeating: "3", count: 64),
+                bonusCount: 0
+            ),
+            targetEventID: eventID
+        )
+
+        XCTAssertEqual(service.currentSnapshot(for: eventID).reactionCount, 1)
     }
 
     @MainActor

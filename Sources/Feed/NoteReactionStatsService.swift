@@ -127,6 +127,10 @@ final class NoteReactionStatsService: ObservableObject {
             .eraseToAnyPublisher()
     }
 
+    func currentSnapshot(for eventID: String) -> NoteReactionEventSnapshot {
+        snapshot(for: eventID)
+    }
+
     func reactionCount(for eventID: String) -> Int {
         snapshot(for: eventID).reactionCount
     }
