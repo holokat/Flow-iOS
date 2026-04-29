@@ -151,7 +151,9 @@ struct SettingsMutedContentView: View {
         Section {
             ForEach(orderedKeywordLists) { list in
                 NavigationLink {
-                    SettingsMutedKeywordListDetailView(listID: list.id)
+                    SettingsDetailNavigationHost(title: list.title) {
+                        SettingsMutedKeywordListDetailView(listID: list.id)
+                    }
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 10) {
@@ -210,12 +212,14 @@ struct SettingsMutedContentView: View {
 
                 ForEach(orderedMutedPubkeys, id: \.self) { pubkey in
                     NavigationLink {
-                        ProfileView(
-                            pubkey: pubkey,
-                            relayURL: effectivePrimaryRelayURL,
-                            readRelayURLs: effectiveReadRelayURLs,
-                            writeRelayURLs: effectiveWriteRelayURLs
-                        )
+                        SettingsDetailNavigationHost(title: "Muted User") {
+                            ProfileView(
+                                pubkey: pubkey,
+                                relayURL: effectivePrimaryRelayURL,
+                                readRelayURLs: effectiveReadRelayURLs,
+                                writeRelayURLs: effectiveWriteRelayURLs
+                            )
+                        }
                     } label: {
                         MutedUserRow(
                             pubkey: pubkey,

@@ -124,10 +124,11 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
     }
 
     func testProfileHeaderBannerUsesMoreImmersiveHeight() {
-        XCTAssertGreaterThanOrEqual(ProfileHeaderBannerMetrics.height, 260)
-        XCTAssertGreaterThanOrEqual(
+        XCTAssertEqual(ProfileHeaderBannerMetrics.height, LongFormArticleReaderLayout.heroMinHeight)
+        XCTAssertEqual(
             ProfileHeaderBannerMetrics.fadeHeight,
-            ProfileHeaderBannerMetrics.height * 0.68
+            ProfileHeaderBannerMetrics.height * 0.5,
+            accuracy: 0.0001
         )
     }
 
@@ -161,6 +162,40 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertLessThanOrEqual(ComposeToolbarLayout.trailingItemSpacing, 8)
         XCTAssertGreaterThan(ComposeToolbarLayout.draftButtonBackgroundOpacity, 0)
         XCTAssertLessThanOrEqual(ComposeToolbarLayout.draftButtonBackgroundOpacity, 1)
+    }
+
+    func testFlowTransitionMotionTimingsMatchTransitionReferenceAndRespectReduceMotion() {
+        XCTAssertEqual(FlowTransitionMotion.duration(.badgePop, reduceMotion: false), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(FlowTransitionMotion.duration(.textSwap, reduceMotion: false), 0.2, accuracy: 0.0001)
+        XCTAssertEqual(FlowTransitionMotion.duration(.sidePanelOpen, reduceMotion: false), 0.4, accuracy: 0.0001)
+        XCTAssertEqual(FlowTransitionMotion.duration(.numberPop, reduceMotion: false), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(FlowTransitionMotion.duration(.badgePop, reduceMotion: true), 0, accuracy: 0.0001)
+        XCTAssertEqual(FlowTransitionMotion.duration(.textSwap, reduceMotion: true), 0, accuracy: 0.0001)
+        XCTAssertEqual(FlowTransitionMotion.duration(.sidePanelOpen, reduceMotion: true), 0, accuracy: 0.0001)
+        XCTAssertEqual(FlowTransitionMotion.duration(.numberPop, reduceMotion: true), 0, accuracy: 0.0001)
+    }
+
+    func testHomeFeedModeTabsUseNotificationCapsuleTabSelectionStyling() {
+        XCTAssertNil(FlowCapsuleTabBarStylePreset.NotificationTabs.selectedBackground)
+        XCTAssertNil(FlowCapsuleTabBarStylePreset.NotificationTabs.selectedForeground)
+        XCTAssertNil(FlowCapsuleTabBarStylePreset.NotificationTabs.selectedStroke)
+        XCTAssertNil(FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedBackground)
+        XCTAssertNil(FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedForeground)
+        XCTAssertNil(FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedStroke)
+    }
+
+    func testSettingsNavigationChromeDoesNotSwitchSystemBarVisibilityDuringDetailPush() {
+        XCTAssertEqual(SettingsNavigationChrome.navigationBarVisibility(isShowingDetail: false), .hidden)
+        XCTAssertEqual(SettingsNavigationChrome.navigationBarVisibility(isShowingDetail: true), .hidden)
+    }
+
+    func testSettingsDetailHeaderUsesSheetBackgroundSurface() {
+        XCTAssertEqual(SettingsDetailNavigationLayout.headerBackgroundRole, .form)
+    }
+
+    func testPrimaryColorSelectionUsesBorderOnlyIndicator() {
+        XCTAssertNil(SettingsPrimaryColorSwatchSelectionIndicator.selectedSystemImageName)
+        XCTAssertEqual(SettingsPrimaryColorSwatchSelectionIndicator.selectedBorderWidth, 2.5, accuracy: 0.0001)
     }
 
     func testBreakReminderChoiceLayoutUsesManageAccountsArtworkAndCopy() {
@@ -231,6 +266,46 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
                 hasResolvedRemoteFollowingCount: false
             ),
             "12 following"
+        )
+    }
+
+    func testThreadDetailArticleHeroUsesTransparentNavigationChrome() {
+        XCTAssertEqual(
+            ThreadDetailViewLayout.navigationTitle(hasArticleHero: true),
+            ""
+        )
+        XCTAssertEqual(
+            ThreadDetailViewLayout.navigationBarVisibility(hasArticleHero: true),
+            .hidden
+        )
+    }
+
+    func testThreadDetailNoteKeepsStandardNavigationChrome() {
+        XCTAssertEqual(
+            ThreadDetailViewLayout.navigationTitle(hasArticleHero: false),
+            "Note"
+        )
+        XCTAssertEqual(
+            ThreadDetailViewLayout.navigationBarVisibility(hasArticleHero: false),
+            .visible
+        )
+    }
+
+    func testThreadDetailArticleTopControlsRespectSafeArea() {
+        XCTAssertEqual(
+            ThreadDetailViewLayout.topControlTopPadding(safeAreaInset: 0),
+            4,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            ThreadDetailViewLayout.topControlTopPadding(safeAreaInset: 47),
+            51,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            ThreadDetailViewLayout.topControlTopPadding(safeAreaInset: -8),
+            4,
+            accuracy: 0.0001
         )
     }
 

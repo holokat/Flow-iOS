@@ -8,6 +8,7 @@ struct HashtagFeedView: View {
     @EnvironmentObject private var relaySettings: RelaySettingsStore
     @StateObject private var viewModel: HashtagFeedViewModel
     private let reactionStats = NoteReactionStatsService.shared
+    @StateObject private var engagementViewport = FeedEngagementViewportCoordinator()
     @ObservedObject private var followStore = FollowStore.shared
     @ObservedObject private var muteStore = MuteStore.shared
     @ObservedObject private var hashtagFavoritesStore = HashtagFavoritesStore.shared
@@ -131,7 +132,10 @@ struct HashtagFeedView: View {
                     .listRowSeparator(.visible)
                     .onAppear {
                         if appSettings.reactionsVisibleInFeeds {
-                            reactionStats.prefetch(events: [item.displayEvent], relayURLs: effectiveReadRelayURLs)
+                            engagementViewport.noteVisible(
+                                event: item.displayEvent,
+                                relayURLs: effectiveReadRelayURLs
+                            )
                         }
                         Task {
                             await viewModel.loadMoreIfNeeded(currentItem: item)
@@ -300,6 +304,7 @@ struct RelayFeedView: View {
     @EnvironmentObject private var relaySettings: RelaySettingsStore
     @StateObject private var viewModel: RelayFeedViewModel
     private let reactionStats = NoteReactionStatsService.shared
+    @StateObject private var engagementViewport = FeedEngagementViewportCoordinator()
     @ObservedObject private var followStore = FollowStore.shared
     @ObservedObject private var muteStore = MuteStore.shared
     @ObservedObject private var relayFavoritesStore = RelayFavoritesStore.shared
@@ -421,7 +426,10 @@ struct RelayFeedView: View {
                     .listRowBackground(Color.clear)
                     .onAppear {
                         if appSettings.reactionsVisibleInFeeds {
-                            reactionStats.prefetch(events: [item.displayEvent], relayURLs: effectiveReadRelayURLs)
+                            engagementViewport.noteVisible(
+                                event: item.displayEvent,
+                                relayURLs: effectiveReadRelayURLs
+                            )
                         }
                         Task {
                             await viewModel.loadMoreIfNeeded(currentItem: item)

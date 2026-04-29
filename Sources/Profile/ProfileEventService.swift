@@ -43,6 +43,18 @@ struct ProfileRelayConnectionsSnapshot: Sendable, Equatable {
     var isEmpty: Bool {
         readRelays.isEmpty && writeRelays.isEmpty && inboxRelays.isEmpty
     }
+
+    func authorRelayDirectoryEntry(
+        hintRelayURLs: [URL],
+        refreshedAt: Date = Date()
+    ) -> AuthorRelayDirectoryEntry {
+        AuthorRelayDirectoryEntry(
+            readRelayURLs: readRelays,
+            writeRelayURLs: writeRelays,
+            hintRelayURLs: RelayURLSupport.normalizedRelayURLs(hintRelayURLs),
+            refreshedAt: refreshedAt
+        )
+    }
 }
 
 struct ProfileEventService {
@@ -114,12 +126,12 @@ struct ProfileEventService {
 
         let relayList = await relayListEvent
         let inboxRelayList = await inboxRelayEvent
-        let readWriteRelays = Self.readWriteRelayURLs(from: relayList?.tags ?? [])
+        let readWriteRelays = Self.relayListReadWriteURLs(from: relayList?.tags ?? [])
 
         return ProfileRelayConnectionsSnapshot(
             readRelays: readWriteRelays.read,
             writeRelays: readWriteRelays.write,
-            inboxRelays: Self.inboxRelayURLs(from: inboxRelayList?.tags ?? [])
+            inboxRelays: Self.relayListInboxRelayURLs(from: inboxRelayList?.tags ?? [])
         )
     }
 
@@ -220,7 +232,7 @@ struct ProfileEventService {
         return ordered
     }
 
-    private static func readWriteRelayURLs(from tags: [[String]]) -> (read: [URL], write: [URL]) {
+    static func relayListReadWriteURLs(from tags: [[String]]) -> (read: [URL], write: [URL]) {
         var readRelays: [URL] = []
         var writeRelays: [URL] = []
 
@@ -249,7 +261,11 @@ struct ProfileEventService {
         )
     }
 
-    private static func inboxRelayURLs(from tags: [[String]]) -> [URL] {
+    static func relayListReadRelayURLs(from tags: [[String]]) -> [URL] {
+        relayListReadWriteURLs(from: tags).read
+    }
+
+    static func relayListInboxRelayURLs(from tags: [[String]]) -> [URL] {
         let relays = tags.compactMap { tag -> URL? in
             guard tag.count >= 2 else { return nil }
             let tagName = tag[0].lowercased()

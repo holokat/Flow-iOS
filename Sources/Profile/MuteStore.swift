@@ -115,6 +115,75 @@ struct MuteFilterSnapshot: Sendable, Equatable {
     }
 }
 
+@MainActor
+final class MutedThreadStore: ObservableObject {
+    static let shared = MutedThreadStore()
+
+    @Published private(set) var mutedThreadIDs: Set<String> = []
+    @Published private(set) var revision = 0
+
+    private let defaults: UserDefaults
+    private let storageKeyPrefix = "flow.mutedThreads.v1"
+    private var currentAccountPubkey: String?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func configure(accountPubkey: String?) {
+        let normalizedAccountPubkey = normalizedIdentifier(accountPubkey)
+        guard normalizedAccountPubkey != currentAccountPubkey else { return }
+
+        currentAccountPubkey = normalizedAccountPubkey
+        mutedThreadIDs = loadMutedThreadIDs(accountPubkey: normalizedAccountPubkey)
+        revision &+= 1
+    }
+
+    func mute(_ threadID: String) -> Bool {
+        guard let normalizedThreadID = normalizedIdentifier(threadID) else {
+            return false
+        }
+
+        let inserted = mutedThreadIDs.insert(normalizedThreadID).inserted
+        guard inserted else { return false }
+
+        persistMutedThreadIDs()
+        revision &+= 1
+        return true
+    }
+
+    func isMuted(_ threadID: String?) -> Bool {
+        guard let normalizedThreadID = normalizedIdentifier(threadID) else {
+            return false
+        }
+
+        return mutedThreadIDs.contains(normalizedThreadID)
+    }
+
+    private func loadMutedThreadIDs(accountPubkey: String?) -> Set<String> {
+        let storedIDs = defaults.stringArray(forKey: storageKey(for: accountPubkey)) ?? []
+        return Set(storedIDs.compactMap(normalizedIdentifier))
+    }
+
+    private func persistMutedThreadIDs() {
+        defaults.set(Array(mutedThreadIDs).sorted(), forKey: storageKey(for: currentAccountPubkey))
+    }
+
+    private func storageKey(for accountPubkey: String?) -> String {
+        "\(storageKeyPrefix).\(accountPubkey ?? "anonymous")"
+    }
+
+    private func normalizedIdentifier(_ value: String?) -> String? {
+        guard let value else { return nil }
+
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        return normalized.isEmpty ? nil : normalized
+    }
+}
+
 private enum EncodedSpamContentHeuristic {
     private static let minimumContentLength = 320
     private static let minimumTokenLength = 240

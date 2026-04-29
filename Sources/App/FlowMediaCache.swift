@@ -2,7 +2,6 @@ import AVFoundation
 import CryptoKit
 import Foundation
 import ImageIO
-import Network
 import SwiftUI
 import UIKit
 
@@ -72,44 +71,6 @@ struct FlowMediaFetchedResponse: Sendable {
     let statusCode: Int?
     let contentType: String?
     var exceededByteLimit = false
-}
-
-final class FlowNetworkPathMonitor: ObservableObject, @unchecked Sendable {
-    static let shared = FlowNetworkPathMonitor()
-
-    @Published private(set) var isUsingWiFi = false
-
-    private let monitor: NWPathMonitor
-    private let queue = DispatchQueue(label: "com.21media.haloapp.network-path-monitor")
-    private let lock = NSLock()
-    private var currentIsUsingWiFi = false
-
-    init(monitor: NWPathMonitor = NWPathMonitor()) {
-        self.monitor = monitor
-        monitor.pathUpdateHandler = { [weak self] path in
-            self?.update(path)
-        }
-        monitor.start(queue: queue)
-        update(monitor.currentPath)
-    }
-
-    var isCurrentlyUsingWiFi: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return currentIsUsingWiFi
-    }
-
-    private func update(_ path: NWPath) {
-        let nextIsUsingWiFi = path.status == .satisfied && path.usesInterfaceType(.wifi)
-
-        lock.lock()
-        currentIsUsingWiFi = nextIsUsingWiFi
-        lock.unlock()
-
-        DispatchQueue.main.async { [weak self] in
-            self?.isUsingWiFi = nextIsUsingWiFi
-        }
-    }
 }
 
 enum FlowImageCacheRequestKind: Hashable, Sendable {

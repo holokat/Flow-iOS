@@ -18,14 +18,23 @@ enum AppThemeOption: String, CaseIterable, Codable, Identifiable, Hashable, Send
 
     var id: String { rawValue }
 
-    static let appearanceOptions: [AppThemeOption] = [
-        .light,
-        .dark,
+    static let onboardingOptions: [AppThemeOption] = [
+        .holographicLight,
         .black,
         .system,
         .dracula,
         .gamer,
-        .holographicLight
+        .dark
+    ]
+
+    static let appearanceOptions: [AppThemeOption] = [
+        .holographicLight,
+        .black,
+        .system,
+        .dracula,
+        .gamer,
+        .dark,
+        .light
     ]
 
     var normalizedSelection: AppThemeOption {
@@ -44,23 +53,23 @@ enum AppThemeOption: String, CaseIterable, Codable, Identifiable, Hashable, Send
         case .system:
             return "System"
         case .black:
-            return "Black"
+            return "Dark"
         case .white:
-            return "Light"
+            return "Clean"
         case .sakura:
-            return "Light"
+            return "Clean"
         case .dracula:
             return "Midnight"
         case .gamer:
             return "Neon"
         case .holographicLight:
-            return "Air"
-        case .holographicDark:
-            return "Dark"
-        case .dark:
-            return "Dark"
-        case .light:
             return "Light"
+        case .holographicDark:
+            return "Charcoal"
+        case .dark:
+            return "Charcoal"
+        case .light:
+            return "Clean"
         }
     }
 
@@ -94,9 +103,9 @@ enum AppThemeOption: String, CaseIterable, Codable, Identifiable, Hashable, Send
         case .black:
             return "Pure black appearance"
         case .white:
-            return "Bright appearance"
+            return "Classic bright appearance"
         case .sakura:
-            return "Bright appearance"
+            return "Classic bright appearance"
         case .dracula:
             return "Deep shadows with cool violet surfaces"
         case .gamer:
@@ -104,11 +113,11 @@ enum AppThemeOption: String, CaseIterable, Codable, Identifiable, Hashable, Send
         case .holographicLight:
             return "Bright surfaces with soft sky chrome"
         case .holographicDark:
-            return "Legacy dark appearance"
+            return "Soft graphite contrast"
         case .dark:
-            return "Dark appearance"
+            return "Soft graphite contrast"
         case .light:
-            return "Bright appearance"
+            return "Classic bright appearance"
         }
     }
 
@@ -164,7 +173,7 @@ enum AppThemeOption: String, CaseIterable, Codable, Identifiable, Hashable, Send
         case .holographicLight:
             return AppThemePalette.holographicLight
         case .holographicDark:
-            return AppThemePalette.holographicDark
+            return AppThemePalette.dark
         case .dark:
             return AppThemePalette.dark
         case .light:
@@ -179,6 +188,71 @@ enum AppThemeOption: String, CaseIterable, Codable, Identifiable, Hashable, Send
         case .system, .white, .sakura, .holographicLight, .holographicDark, .light:
             return false
         }
+    }
+}
+
+struct AppPrimaryColorOption: Identifiable, Hashable, Sendable {
+    let hexCode: String
+
+    var id: String { hexCode }
+
+    var color: Color {
+        Self.color(from: hexCode)
+    }
+
+    static let all: [AppPrimaryColorOption] = [
+        AppPrimaryColorOption(hexCode: "FF0000"),
+        AppPrimaryColorOption(hexCode: "0059FF"),
+        AppPrimaryColorOption(hexCode: "FF5900"),
+        AppPrimaryColorOption(hexCode: "91C500"),
+        AppPrimaryColorOption(hexCode: "00D4FF"),
+        AppPrimaryColorOption(hexCode: "D000FF"),
+        AppPrimaryColorOption(hexCode: "9000FF")
+    ]
+
+    static let defaultOption = AppPrimaryColorOption(hexCode: "0059FF")
+
+    static func random() -> AppPrimaryColorOption {
+        all.randomElement() ?? defaultOption
+    }
+
+    static func nearest(to color: Color) -> AppPrimaryColorOption {
+        let source = rgbaComponents(for: color)
+        return all.min { lhs, rhs in
+            distanceSquared(from: source, to: rgbaComponents(for: lhs.color))
+                < distanceSquared(from: source, to: rgbaComponents(for: rhs.color))
+        } ?? defaultOption
+    }
+
+    private static func color(from hexCode: String) -> Color {
+        let value = UInt32(hexCode, radix: 16) ?? 0
+        let red = Double((value >> 16) & 0xFF) / 255.0
+        let green = Double((value >> 8) & 0xFF) / 255.0
+        let blue = Double(value & 0xFF) / 255.0
+        return Color(red: red, green: green, blue: blue)
+    }
+
+    private static func rgbaComponents(for color: Color) -> (Double, Double, Double, Double) {
+        let resolved = UIColor(color).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard resolved.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return (0, 0, 0, 1)
+        }
+        return (Double(red), Double(green), Double(blue), Double(alpha))
+    }
+
+    private static func distanceSquared(
+        from lhs: (Double, Double, Double, Double),
+        to rhs: (Double, Double, Double, Double)
+    ) -> Double {
+        let red = lhs.0 - rhs.0
+        let green = lhs.1 - rhs.1
+        let blue = lhs.2 - rhs.2
+        let alpha = lhs.3 - rhs.3
+        return (red * red) + (green * green) + (blue * blue) + (alpha * alpha)
     }
 }
 
@@ -802,20 +876,188 @@ struct GeneratedButtonGradient: Codable, Hashable, Sendable, Identifiable {
     }
 
     static func random() -> GeneratedButtonGradient {
-        let colorCount = Int.random(in: 2...3)
-        let colors = (0..<colorCount).map { index in
-            randomColor(index: index, count: colorCount)
-        }
+        let palette = GradientPalette.allCases.randomElement() ?? .iridescent
+        let colors = palette.makeColors()
         return GeneratedButtonGradient(colors: colors)
     }
 
-    private static func randomColor(index: Int, count: Int) -> Color {
-        let baseHue = Double.random(in: 0...1)
-        let offset = Double(index) / Double(max(count, 1))
-        let hue = (baseHue + offset).truncatingRemainder(dividingBy: 1)
-        let saturation = Double.random(in: 0.58...0.86)
-        let brightness = Double.random(in: 0.72...0.98)
-        return Color(hue: hue, saturation: saturation, brightness: brightness)
+    static func randomHolographic() -> GeneratedButtonGradient {
+        let recipe = HolographicRecipe.allCases.randomElement() ?? .prism
+        return GeneratedButtonGradient(colors: recipe.makeColors())
+    }
+
+    private enum GradientPalette: CaseIterable {
+        case iridescent
+        case neon
+        case pearl
+        case dusk
+        case tropic
+        case chrome
+        case auric
+
+        func makeColors() -> [Color] {
+            let count = Int.random(in: 2...3)
+            let baseHue = Double.random(in: 0...1)
+
+            return (0..<count).map { index in
+                let offset = hueOffset(for: index, count: count)
+                let hue = (baseHue + offset).truncatingRemainder(dividingBy: 1)
+                return color(hue: hue)
+            }
+        }
+
+        private func hueOffset(for index: Int, count: Int) -> Double {
+            let denominator = Double(max(count, 1))
+            switch self {
+            case .iridescent:
+                return Double(index) * Double.random(in: 0.16...0.26)
+            case .neon:
+                return Double(index) * Double.random(in: 0.18...0.30)
+            case .pearl:
+                return Double(index) / denominator * Double.random(in: 0.10...0.18)
+            case .dusk:
+                return Double(index) / denominator * Double.random(in: 0.08...0.22)
+            case .tropic:
+                return Double(index) / denominator * Double.random(in: 0.20...0.34)
+            case .chrome:
+                return Double(index) / denominator * Double.random(in: 0.12...0.20)
+            case .auric:
+                return Double(index) / denominator * Double.random(in: 0.04...0.15)
+            }
+        }
+
+        private func color(hue: Double) -> Color {
+            switch self {
+            case .iridescent:
+                return Color(
+                    hue: hue,
+                    saturation: Double.random(in: 0.30...0.58),
+                    brightness: Double.random(in: 0.86...1.00)
+                )
+            case .neon:
+                return Color(
+                    hue: hue,
+                    saturation: Double.random(in: 0.74...0.98),
+                    brightness: Double.random(in: 0.82...1.00)
+                )
+            case .pearl:
+                return Color(
+                    hue: hue,
+                    saturation: Double.random(in: 0.14...0.34),
+                    brightness: Double.random(in: 0.92...1.00)
+                )
+            case .dusk:
+                return Color(
+                    hue: hue,
+                    saturation: Double.random(in: 0.42...0.70),
+                    brightness: Double.random(in: 0.56...0.80)
+                )
+            case .tropic:
+                return Color(
+                    hue: hue,
+                    saturation: Double.random(in: 0.56...0.84),
+                    brightness: Double.random(in: 0.76...0.96)
+                )
+            case .chrome:
+                return Color(
+                    hue: hue,
+                    saturation: Double.random(in: 0.22...0.42),
+                    brightness: Double.random(in: 0.74...0.94)
+                )
+            case .auric:
+                return Color(
+                    hue: hue,
+                    saturation: Double.random(in: 0.34...0.62),
+                    brightness: Double.random(in: 0.88...0.99)
+                )
+            }
+        }
+    }
+
+    private enum HolographicRecipe: CaseIterable {
+        case prism
+        case opal
+        case aurora
+        case pearlFoil
+        case candySheen
+        case chromeMist
+        case polarBloom
+        case ultraviolet
+
+        func makeColors() -> [Color] {
+            let baseHue = Double.random(in: 0...1)
+            return colorStops.map { stop in
+                Color(
+                    hue: normalizedHue(baseHue + stop.hueOffset),
+                    saturation: Double.random(in: stop.saturationRange),
+                    brightness: Double.random(in: stop.brightnessRange)
+                )
+            }
+        }
+
+        private var colorStops: [HolographicColorStop] {
+            switch self {
+            case .prism:
+                return [
+                    .init(hueOffset: 0.00, saturationRange: 0.36...0.58, brightnessRange: 0.92...1.00),
+                    .init(hueOffset: 0.17, saturationRange: 0.46...0.72, brightnessRange: 0.86...0.98),
+                    .init(hueOffset: 0.31, saturationRange: 0.34...0.56, brightnessRange: 0.92...1.00)
+                ]
+            case .opal:
+                return [
+                    .init(hueOffset: 0.00, saturationRange: 0.20...0.34, brightnessRange: 0.96...1.00),
+                    .init(hueOffset: 0.11, saturationRange: 0.30...0.44, brightnessRange: 0.90...1.00),
+                    .init(hueOffset: 0.24, saturationRange: 0.24...0.38, brightnessRange: 0.94...1.00)
+                ]
+            case .aurora:
+                return [
+                    .init(hueOffset: 0.00, saturationRange: 0.34...0.56, brightnessRange: 0.90...1.00),
+                    .init(hueOffset: 0.20, saturationRange: 0.44...0.70, brightnessRange: 0.84...0.98),
+                    .init(hueOffset: 0.40, saturationRange: 0.28...0.52, brightnessRange: 0.88...1.00)
+                ]
+            case .pearlFoil:
+                return [
+                    .init(hueOffset: 0.00, saturationRange: 0.16...0.28, brightnessRange: 0.97...1.00),
+                    .init(hueOffset: 0.14, saturationRange: 0.24...0.38, brightnessRange: 0.92...1.00),
+                    .init(hueOffset: 0.28, saturationRange: 0.20...0.34, brightnessRange: 0.95...1.00)
+                ]
+            case .candySheen:
+                return [
+                    .init(hueOffset: 0.00, saturationRange: 0.48...0.72, brightnessRange: 0.90...1.00),
+                    .init(hueOffset: 0.16, saturationRange: 0.40...0.68, brightnessRange: 0.88...0.98),
+                    .init(hueOffset: 0.32, saturationRange: 0.34...0.60, brightnessRange: 0.92...1.00)
+                ]
+            case .chromeMist:
+                return [
+                    .init(hueOffset: 0.00, saturationRange: 0.22...0.36, brightnessRange: 0.92...1.00),
+                    .init(hueOffset: 0.09, saturationRange: 0.18...0.30, brightnessRange: 0.86...0.96),
+                    .init(hueOffset: 0.22, saturationRange: 0.24...0.40, brightnessRange: 0.92...1.00)
+                ]
+            case .polarBloom:
+                return [
+                    .init(hueOffset: 0.00, saturationRange: 0.26...0.44, brightnessRange: 0.94...1.00),
+                    .init(hueOffset: 0.13, saturationRange: 0.30...0.50, brightnessRange: 0.90...1.00),
+                    .init(hueOffset: 0.26, saturationRange: 0.22...0.40, brightnessRange: 0.95...1.00)
+                ]
+            case .ultraviolet:
+                return [
+                    .init(hueOffset: 0.00, saturationRange: 0.38...0.60, brightnessRange: 0.90...1.00),
+                    .init(hueOffset: 0.12, saturationRange: 0.46...0.72, brightnessRange: 0.84...0.96),
+                    .init(hueOffset: 0.25, saturationRange: 0.34...0.56, brightnessRange: 0.92...1.00)
+                ]
+            }
+        }
+
+        private func normalizedHue(_ hue: Double) -> Double {
+            let wrapped = hue.truncatingRemainder(dividingBy: 1)
+            return wrapped >= 0 ? wrapped : wrapped + 1
+        }
+    }
+
+    private struct HolographicColorStop {
+        let hueOffset: Double
+        let saturationRange: ClosedRange<Double>
+        let brightnessRange: ClosedRange<Double>
     }
 }
 
@@ -1008,8 +1250,9 @@ final class AppSettingsStore: ObservableObject {
     static let shared = AppSettingsStore()
     nonisolated static let slowModeRelayURL = URL(string: "wss://relay.damus.io/")!
     nonisolated static let defaultNewsRelayURLs = [URL(string: "wss://news.utxo.one")!]
+    nonisolated static let availablePrimaryColorOptions = AppPrimaryColorOption.all
     nonisolated static var defaultPrimaryColor: Color {
-        Color(red: 0.843, green: 0.663, blue: 0.463)
+        AppPrimaryColorOption.defaultOption.color
     }
     nonisolated static var defaultButtonTextColor: Color {
         Color.white
@@ -1064,6 +1307,11 @@ final class AppSettingsStore: ObservableObject {
             case fullWidthNoteRows
             case textOnlyMode
             case slowConnectionMode
+            case localCorpusCrawlEnabled
+            case localCorpusCrawlWiFiOnly
+            case localCorpusBackgroundRefreshEnabled
+            case localCorpusCrawlHopCount
+            case localCorpusDeepMediaBackfillEnabled
             case notificationsEnabled
             case activityMentionNotificationsEnabled
             case activityReactionNotificationsEnabled
@@ -1080,7 +1328,7 @@ final class AppSettingsStore: ObservableObject {
         }
 
         var primaryColor: StoredColor?
-        var theme: AppThemeOption = .system
+        var theme: AppThemeOption = AppSettingsStore.defaultThemeForCurrentTime()
         var visualAccentMode: AppVisualAccentMode = .minimal
         var expressiveGradientOption: ExpressiveGradientOption = .aurora
         var expressiveLinkColorIndex: Int = 0
@@ -1106,6 +1354,11 @@ final class AppSettingsStore: ObservableObject {
         var fullWidthNoteRows: Bool = false
         var textOnlyMode: Bool = false
         var slowConnectionMode: Bool = false
+        var localCorpusCrawlEnabled: Bool = true
+        var localCorpusCrawlWiFiOnly: Bool = false
+        var localCorpusBackgroundRefreshEnabled: Bool = true
+        var localCorpusCrawlHopCount: Int = 2
+        var localCorpusDeepMediaBackfillEnabled: Bool = true
         var notificationsEnabled: Bool = false
         var activityMentionNotificationsEnabled: Bool = true
         var activityReactionNotificationsEnabled: Bool = true
@@ -1120,14 +1373,26 @@ final class AppSettingsStore: ObservableObject {
         var customFeeds: [CustomFeedDefinition] = []
         var webOfTrustHops: Int = 3
 
-        init() {}
+        init() {
+            let defaultColor = StoredColor(color: AppSettingsStore.defaultPrimaryColor)
+            primaryColor = defaultColor
+            minimalPrimaryColor = defaultColor
+        }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            primaryColor = try container.decodeIfPresent(StoredColor.self, forKey: .primaryColor)
             let decodedTheme = (try? container.decode(AppThemeOption.self, forKey: .theme)) ?? .system
             theme = decodedTheme.normalizedSelection
-            minimalPrimaryColor = try container.decodeIfPresent(StoredColor.self, forKey: .minimalPrimaryColor) ?? primaryColor
+
+            let decodedMinimalPrimaryColor = try container.decodeIfPresent(
+                StoredColor.self,
+                forKey: .minimalPrimaryColor
+            )
+            let decodedLegacyPrimaryColor = try container.decodeIfPresent(
+                StoredColor.self,
+                forKey: .primaryColor
+            )
+            let decodedPrimaryColor = decodedMinimalPrimaryColor ?? decodedLegacyPrimaryColor
             buttonGradientOption = try container.decodeIfPresent(HolographicGradientOption.self, forKey: .buttonGradientOption)
             generatedButtonGradient = try container.decodeIfPresent(GeneratedButtonGradient.self, forKey: .generatedButtonGradient)
             buttonTextColor = try container.decodeIfPresent(StoredColor.self, forKey: .buttonTextColor)
@@ -1156,8 +1421,25 @@ final class AppSettingsStore: ObservableObject {
                 decodedLinkColorIndex,
                 count: expressiveGradientOption.linkColors.count
             )
-            visualAccentMode = try container.decodeIfPresent(AppVisualAccentMode.self, forKey: .visualAccentMode)
-                ?? ((buttonGradientOption != nil || generatedButtonGradient != nil) ? .expressive : .minimal)
+            let decodedVisualAccentMode = try container.decodeIfPresent(AppVisualAccentMode.self, forKey: .visualAccentMode)
+
+            let migratedPrimaryColor = decodedPrimaryColor?.color
+                ?? AppSettingsStore.legacyPrimaryColor(
+                    buttonGradientOption: buttonGradientOption,
+                    generatedButtonGradient: generatedButtonGradient,
+                    expressiveGradientOption: expressiveGradientOption,
+                    expressiveLinkColorIndex: expressiveLinkColorIndex,
+                    visualAccentMode: decodedVisualAccentMode
+                )
+                ?? AppSettingsStore.defaultPrimaryColor
+            let normalizedPrimaryColor = AppSettingsStore.normalizedPrimaryColorOption(for: migratedPrimaryColor).color
+            let storedPrimaryColor = StoredColor(color: normalizedPrimaryColor)
+            primaryColor = storedPrimaryColor
+            minimalPrimaryColor = storedPrimaryColor
+            visualAccentMode = .minimal
+            buttonGradientOption = nil
+            generatedButtonGradient = nil
+            buttonTextColor = nil
             fontOption = (try? container.decode(AppFontOption.self, forKey: .fontOption)) ?? .system
             fontSize = (try? container.decode(AppFontSize.self, forKey: .fontSize)) ?? .medium
             breakReminderInterval = (try? container.decode(BreakReminderInterval.self, forKey: .breakReminderInterval)) ?? .fortyMinutes
@@ -1180,6 +1462,19 @@ final class AppSettingsStore: ObservableObject {
             fullWidthNoteRows = try container.decodeIfPresent(Bool.self, forKey: .fullWidthNoteRows) ?? false
             textOnlyMode = try container.decodeIfPresent(Bool.self, forKey: .textOnlyMode) ?? false
             slowConnectionMode = try container.decodeIfPresent(Bool.self, forKey: .slowConnectionMode) ?? false
+            localCorpusCrawlEnabled = try container.decodeIfPresent(Bool.self, forKey: .localCorpusCrawlEnabled) ?? true
+            localCorpusCrawlWiFiOnly = try container.decodeIfPresent(Bool.self, forKey: .localCorpusCrawlWiFiOnly) ?? false
+            localCorpusBackgroundRefreshEnabled = try container.decodeIfPresent(
+                Bool.self,
+                forKey: .localCorpusBackgroundRefreshEnabled
+            ) ?? true
+            localCorpusCrawlHopCount = AppSettingsStore.clampedLocalCorpusCrawlHopCount(
+                try container.decodeIfPresent(Int.self, forKey: .localCorpusCrawlHopCount) ?? 2
+            )
+            localCorpusDeepMediaBackfillEnabled = try container.decodeIfPresent(
+                Bool.self,
+                forKey: .localCorpusDeepMediaBackfillEnabled
+            ) ?? true
             notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? false
             activityMentionNotificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .activityMentionNotificationsEnabled) ?? true
             activityReactionNotificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .activityReactionNotificationsEnabled) ?? true
@@ -1238,6 +1533,11 @@ final class AppSettingsStore: ObservableObject {
             try container.encode(fullWidthNoteRows, forKey: .fullWidthNoteRows)
             try container.encode(textOnlyMode, forKey: .textOnlyMode)
             try container.encode(slowConnectionMode, forKey: .slowConnectionMode)
+            try container.encode(localCorpusCrawlEnabled, forKey: .localCorpusCrawlEnabled)
+            try container.encode(localCorpusCrawlWiFiOnly, forKey: .localCorpusCrawlWiFiOnly)
+            try container.encode(localCorpusBackgroundRefreshEnabled, forKey: .localCorpusBackgroundRefreshEnabled)
+            try container.encode(localCorpusCrawlHopCount, forKey: .localCorpusCrawlHopCount)
+            try container.encode(localCorpusDeepMediaBackfillEnabled, forKey: .localCorpusDeepMediaBackfillEnabled)
             try container.encode(notificationsEnabled, forKey: .notificationsEnabled)
             try container.encode(activityMentionNotificationsEnabled, forKey: .activityMentionNotificationsEnabled)
             try container.encode(activityReactionNotificationsEnabled, forKey: .activityReactionNotificationsEnabled)
@@ -1281,6 +1581,7 @@ final class AppSettingsStore: ObservableObject {
         } else {
             persistedSettings = PersistedSettings()
         }
+        normalizeLocalCorpusCrawlDefaultsIfNeeded()
         migrateScopedSpamFilterMarkedPubkeysIfNeeded()
     }
 
@@ -1315,20 +1616,16 @@ final class AppSettingsStore: ObservableObject {
             accountStorageID: normalizedAccountStorageID,
             allowLegacyFallback: false
         )
+        normalizeLocalCorpusCrawlDefaultsIfNeeded()
         migrateScopedSpamFilterMarkedPubkeysIfNeeded()
     }
 
     var primaryColor: Color {
         get {
-            switch persistedSettings.visualAccentMode {
-            case .expressive:
-                return linkColor
-            case .minimal:
-                return persistedSettings.minimalPrimaryColor?.color ?? persistedSettings.primaryColor?.color ?? Self.defaultPrimaryColor
-            }
+            persistedSettings.minimalPrimaryColor?.color ?? persistedSettings.primaryColor?.color ?? Self.defaultPrimaryColor
         }
         set {
-            let storedColor = StoredColor(color: newValue)
+            let storedColor = StoredColor(color: Self.normalizedPrimaryColorOption(for: newValue).color)
             persistedSettings.visualAccentMode = .minimal
             persistedSettings.primaryColor = storedColor
             persistedSettings.minimalPrimaryColor = storedColor
@@ -1337,23 +1634,19 @@ final class AppSettingsStore: ObservableObject {
         }
     }
 
+    var primaryColorOption: AppPrimaryColorOption {
+        Self.normalizedPrimaryColorOption(for: primaryColor)
+    }
+
     var linkColor: Color {
-        switch persistedSettings.visualAccentMode {
-        case .expressive:
-            return persistedSettings.expressiveGradientOption.linkColor(at: persistedSettings.expressiveLinkColorIndex)
-        case .minimal:
-            return persistedSettings.minimalPrimaryColor?.color ?? persistedSettings.primaryColor?.color ?? Self.defaultPrimaryColor
-        }
+        primaryColor
     }
 
     var visualAccentMode: AppVisualAccentMode {
-        get { persistedSettings.visualAccentMode }
+        get { .minimal }
         set {
-            persistedSettings.visualAccentMode = newValue
-            if newValue == .minimal {
-                persistedSettings.buttonTextColor = nil
-            }
-            normalizeExpressiveLinkColorIndex()
+            persistedSettings.visualAccentMode = .minimal
+            persistedSettings.buttonTextColor = nil
             persist()
         }
     }
@@ -1361,11 +1654,11 @@ final class AppSettingsStore: ObservableObject {
     var expressiveGradientOption: ExpressiveGradientOption {
         get { persistedSettings.expressiveGradientOption }
         set {
-            persistedSettings.visualAccentMode = .expressive
             persistedSettings.expressiveGradientOption = newValue
-            persistedSettings.buttonGradientOption = newValue.legacyHolographicOption
+            primaryColor = newValue.linkColor(at: persistedSettings.expressiveLinkColorIndex)
+            persistedSettings.buttonGradientOption = nil
             persistedSettings.generatedButtonGradient = nil
-            normalizeExpressiveLinkColorIndex()
+            persistedSettings.buttonTextColor = nil
             persist()
         }
     }
@@ -1382,13 +1675,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     func refreshExpressiveLinkColor() {
-        let colorCount = persistedSettings.expressiveGradientOption.linkColors.count
-        guard colorCount > 1 else { return }
-        persistedSettings.visualAccentMode = .expressive
-        persistedSettings.expressiveLinkColorIndex = ExpressiveGradientOption.normalizedLinkColorIndex(
-            persistedSettings.expressiveLinkColorIndex + 1,
-            count: colorCount
-        )
+        primaryColor = linkColor
         persist()
     }
 
@@ -1400,22 +1687,17 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var buttonGradientOption: HolographicGradientOption? {
-        get {
-            persistedSettings.visualAccentMode == .expressive
-                ? persistedSettings.expressiveGradientOption.legacyHolographicOption
-                : nil
-        }
+        get { nil }
         set {
             if let newValue {
-                persistedSettings.visualAccentMode = .expressive
                 persistedSettings.expressiveGradientOption = ExpressiveGradientOption.mapped(from: newValue)
-                persistedSettings.buttonGradientOption = newValue
-                normalizeExpressiveLinkColorIndex()
+                primaryColor = newValue.defaultLinkColor
             } else {
                 persistedSettings.visualAccentMode = .minimal
                 persistedSettings.buttonGradientOption = nil
             }
             persistedSettings.generatedButtonGradient = nil
+            persistedSettings.buttonTextColor = nil
             persist()
         }
     }
@@ -1423,23 +1705,17 @@ final class AppSettingsStore: ObservableObject {
     var generatedButtonGradient: GeneratedButtonGradient? {
         get { nil }
         set {
-            persistedSettings.generatedButtonGradient = newValue
-            if newValue != nil {
-                persistedSettings.visualAccentMode = .expressive
-                persistedSettings.expressiveGradientOption = .aurora
-                persistedSettings.buttonGradientOption = nil
+            if let newValue {
+                primaryColor = Self.averageColor(from: newValue.gradientColors)
             }
-            normalizeExpressiveLinkColorIndex()
+            persistedSettings.generatedButtonGradient = nil
             persist()
         }
     }
 
     var buttonTextColor: Color {
         get { Self.buttonTextColor(for: persistedSettings) }
-        set {
-            persistedSettings.buttonTextColor = StoredColor(color: newValue)
-            persist()
-        }
+        set {}
     }
 
     func applyGeneratedButtonGradient(_ gradient: GeneratedButtonGradient) {
@@ -1465,7 +1741,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var activeButtonGradientOption: HolographicGradientOption? {
-        buttonGradientOption
+        nil
     }
 
     var activeGeneratedButtonGradient: GeneratedButtonGradient? {
@@ -1473,9 +1749,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var activeHolographicGradientOption: HolographicGradientOption? {
-        activeTheme == .holographicLight && visualAccentMode == .expressive
-            ? expressiveGradientOption.legacyHolographicOption
-            : nil
+        nil
     }
 
     var themeIconAccentColor: Color {
@@ -1483,7 +1757,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var usesPrimaryGradientForProminentButtons: Bool {
-        visualAccentMode == .expressive
+        false
     }
 
     var primaryGradient: LinearGradient {
@@ -1822,6 +2096,46 @@ final class AppSettingsStore: ObservableObject {
         }
     }
 
+    var localCorpusCrawlEnabled: Bool {
+        get { persistedSettings.localCorpusCrawlEnabled }
+        set {
+            persistedSettings.localCorpusCrawlEnabled = newValue
+            persist()
+        }
+    }
+
+    var localCorpusCrawlWiFiOnly: Bool {
+        get { persistedSettings.localCorpusCrawlWiFiOnly }
+        set {
+            persistedSettings.localCorpusCrawlWiFiOnly = newValue
+            persist()
+        }
+    }
+
+    var localCorpusBackgroundRefreshEnabled: Bool {
+        get { persistedSettings.localCorpusBackgroundRefreshEnabled }
+        set {
+            persistedSettings.localCorpusBackgroundRefreshEnabled = newValue
+            persist()
+        }
+    }
+
+    var localCorpusCrawlHopCount: Int {
+        get { persistedSettings.localCorpusCrawlHopCount }
+        set {
+            persistedSettings.localCorpusCrawlHopCount = Self.clampedLocalCorpusCrawlHopCount(newValue)
+            persist()
+        }
+    }
+
+    var localCorpusDeepMediaBackfillEnabled: Bool {
+        get { persistedSettings.localCorpusDeepMediaBackfillEnabled }
+        set {
+            persistedSettings.localCorpusDeepMediaBackfillEnabled = newValue
+            persist()
+        }
+    }
+
     var customFeeds: [CustomFeedDefinition] {
         get { persistedSettings.customFeeds }
         set {
@@ -1921,7 +2235,14 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var themePalette: AppThemePalette {
-        activeTheme.palette
+        let palette = activeTheme.palette
+
+        switch activeTheme.normalizedSelection {
+        case .holographicLight:
+            return palette.applyingLightPrimaryAccent(primaryColor)
+        case .system, .black, .white, .sakura, .dracula, .gamer, .holographicDark, .dark, .light:
+            return palette
+        }
     }
 
     var settingsCardBorder: Color {
@@ -1929,7 +2250,21 @@ final class AppSettingsStore: ObservableObject {
     }
 
     func themeSeparator(defaultOpacity: Double) -> Color {
-        activeTheme == .gamer ? themePalette.separator : themePalette.separator.opacity(defaultOpacity)
+        switch activeTheme.normalizedSelection {
+        case .gamer, .holographicLight, .light:
+            return themePalette.separator
+        case .system:
+            return Color(
+                UIColor { [self] traits in
+                    let resolved = UIColor(self.themePalette.separator).resolvedColor(with: traits)
+                    guard traits.userInterfaceStyle == .dark else { return resolved }
+                    let scaledAlpha = min(max(resolved.cgColor.alpha * defaultOpacity, 0), 1)
+                    return resolved.withAlphaComponent(scaledAlpha)
+                }
+            )
+        default:
+            return themePalette.separator.opacity(defaultOpacity)
+        }
     }
 
     var activeFontOption: AppFontOption {
@@ -2115,6 +2450,20 @@ final class AppSettingsStore: ObservableObject {
         defaults.set(data, forKey: Self.storageKey(for: currentAccountStorageID))
     }
 
+    private func normalizeLocalCorpusCrawlDefaultsIfNeeded() {
+        guard persistedSettings.localCorpusCrawlEnabled,
+              persistedSettings.localCorpusCrawlWiFiOnly,
+              persistedSettings.localCorpusBackgroundRefreshEnabled,
+              persistedSettings.localCorpusCrawlHopCount == 2,
+              !persistedSettings.localCorpusDeepMediaBackfillEnabled else {
+            return
+        }
+
+        persistedSettings.localCorpusCrawlWiFiOnly = false
+        persistedSettings.localCorpusDeepMediaBackfillEnabled = true
+        persist()
+    }
+
     private func persistSharedSpamFilterMarkedPubkeys() {
         defaults.set(sharedSpamFilterMarkedPubkeys, forKey: Self.sharedSpamFilterMarkedPubkeysKey)
     }
@@ -2135,11 +2484,36 @@ final class AppSettingsStore: ObservableObject {
         )
     }
 
-    private static func primaryGradient(for settings: PersistedSettings) -> LinearGradient {
-        if settings.visualAccentMode == .expressive {
-            return settings.expressiveGradientOption.buttonGradient
-        }
+    nonisolated static func defaultThemeForCurrentTime(
+        date: Date = Date(),
+        calendar: Calendar = .current
+    ) -> AppThemeOption {
+        let hour = calendar.component(.hour, from: date)
+        return (6..<18).contains(hour) ? .holographicLight : .black
+    }
 
+    nonisolated static func normalizedPrimaryColorOption(for color: Color) -> AppPrimaryColorOption {
+        AppPrimaryColorOption.nearest(to: color)
+    }
+
+    nonisolated static func legacyPrimaryColor(
+        buttonGradientOption: HolographicGradientOption?,
+        generatedButtonGradient: GeneratedButtonGradient?,
+        expressiveGradientOption: ExpressiveGradientOption,
+        expressiveLinkColorIndex: Int,
+        visualAccentMode: AppVisualAccentMode?
+    ) -> Color? {
+        if let generatedButtonGradient {
+            return averageColor(from: generatedButtonGradient.gradientColors)
+        }
+        if let buttonGradientOption {
+            return buttonGradientOption.defaultLinkColor
+        }
+        guard visualAccentMode == .expressive else { return nil }
+        return expressiveGradientOption.linkColor(at: expressiveLinkColorIndex)
+    }
+
+    private static func primaryGradient(for settings: PersistedSettings) -> LinearGradient {
         let color = settings.minimalPrimaryColor?.color ?? settings.primaryColor?.color ?? defaultPrimaryColor
         return LinearGradient(
             colors: [color, color],
@@ -2149,11 +2523,39 @@ final class AppSettingsStore: ObservableObject {
     }
 
     private static func buttonTextColor(for settings: PersistedSettings) -> Color {
-        if settings.visualAccentMode == .expressive {
-            return settings.expressiveGradientOption.buttonTextColor
-        }
         let color = settings.minimalPrimaryColor?.color ?? settings.primaryColor?.color ?? defaultPrimaryColor
         return contrastingForegroundColor(for: color)
+    }
+
+    nonisolated static func averageColor(from colors: [Color]) -> Color {
+        guard !colors.isEmpty else { return defaultPrimaryColor }
+
+        var totalRed = 0.0
+        var totalGreen = 0.0
+        var totalBlue = 0.0
+        var sampleCount = 0.0
+
+        for color in colors {
+            let uiColor = UIColor(color)
+            var red: CGFloat = 0
+            var green: CGFloat = 0
+            var blue: CGFloat = 0
+            var alpha: CGFloat = 0
+            guard uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+                continue
+            }
+            totalRed += Double(red)
+            totalGreen += Double(green)
+            totalBlue += Double(blue)
+            sampleCount += 1
+        }
+
+        guard sampleCount > 0 else { return defaultPrimaryColor }
+        return Color(
+            red: totalRed / sampleCount,
+            green: totalGreen / sampleCount,
+            blue: totalBlue / sampleCount
+        )
     }
 
     private static func contrastingForegroundColor(for color: Color) -> Color {
@@ -2256,24 +2658,17 @@ final class AppSettingsStore: ObservableObject {
     }
 
     nonisolated private static func normalizedRelayURL(_ relayURL: URL) -> URL? {
-        guard var components = URLComponents(url: relayURL, resolvingAgainstBaseURL: false) else {
-            return nil
-        }
-
-        components.scheme = components.scheme?.lowercased()
-        components.host = components.host?.lowercased()
-        components.query = nil
-        components.fragment = nil
-        if components.path == "/" {
-            components.path = ""
-        }
-
-        return components.url
+        RelayURLSupport.normalizedURL(from: relayURL.absoluteString)
     }
 
     nonisolated private static func normalizedRelayURL(from relayInput: String) -> URL? {
         let trimmedInput = relayInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedInput.isEmpty, let relayURL = URL(string: trimmedInput) else {
+        guard !trimmedInput.isEmpty else {
+            return nil
+        }
+
+        let candidate = trimmedInput.contains("://") ? trimmedInput : "wss://\(trimmedInput)"
+        guard let relayURL = URL(string: candidate) else {
             return nil
         }
         return normalizedRelayURL(relayURL)
@@ -2281,6 +2676,10 @@ final class AppSettingsStore: ObservableObject {
 
     nonisolated static func clampedWebOfTrustHops(_ value: Int) -> Int {
         min(max(value, 1), 5)
+    }
+
+    nonisolated static func clampedLocalCorpusCrawlHopCount(_ value: Int) -> Int {
+        min(max(value, 1), 2)
     }
 
     nonisolated private static func normalizedRelayURLs(_ relayURLs: [URL], fallback: [URL] = []) -> [URL] {

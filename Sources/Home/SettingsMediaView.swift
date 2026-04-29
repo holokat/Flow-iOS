@@ -71,13 +71,15 @@ struct SettingsMediaView: View {
                 }
 
                 NavigationLink {
-                    SettingsMediaDiagnosticsView()
+                    SettingsDetailNavigationHost(title: "Diagnostics") {
+                        SettingsMediaDiagnosticsView()
+                    }
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Diagnostics")
                             .foregroundStyle(.primary)
 
-                        Text("Cache hit rate, source breakdown, and payload totals.")
+                        Text("Media cache and request stats.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -139,175 +141,59 @@ struct SettingsMediaView: View {
 
 private struct SettingsMediaDiagnosticsView: View {
     @State private var diagnostics = FlowMediaCacheDiagnostics()
-    @State private var flowDBDiagnostics = FlowNostrDBDiagnostics()
+    @State private var mediaCacheBytes: Int64 = 0
 
     var body: some View {
         ThemedSettingsForm {
             Section {
-                diagnosticMetricRow(
+                DiagnosticMetricRow(
+                    title: "Stored Media",
+                    value: byteDescription(mediaCacheBytes),
+                    info: "Bytes currently stored on disk by Halo's shared media cache."
+                )
+                DiagnosticMetricRow(
                     title: "Cache Hit Rate",
-                    value: cacheHitRateDescription
-                )
-                diagnosticMetricRow(
-                    title: "Tracked Requests",
-                    value: diagnostics.trackedRequestCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Cache Hits",
-                    value: diagnostics.cacheHitCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Network-backed Misses",
-                    value: diagnostics.cacheMissCount.formatted()
+                    value: cacheHitRateDescription,
+                    info: "Share of tracked media requests served locally instead of the network in this app session."
                 )
             } header: {
-                Text("Overview")
-            } footer: {
-                Text("Counts the current app session for on-demand requests that go through the shared Halo media cache. Background prefetch warmups are excluded.")
+                Text("Cache")
             }
 
             Section {
-                diagnosticMetricRow(
-                    title: "Image Memory Hits",
-                    value: diagnostics.imageMemoryHitCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Data Memory Hits",
-                    value: diagnostics.dataMemoryHitCount.formatted()
-                )
-                diagnosticMetricRow(
+                DiagnosticMetricRow(
                     title: "Disk Hits",
-                    value: diagnostics.diskHitCount.formatted()
+                    value: diagnostics.diskHitCount.formatted(),
+                    info: "Tracked media requests served straight from on-device cache."
                 )
-                diagnosticMetricRow(
-                    title: "URL Cache Hits",
-                    value: diagnostics.urlCacheHitCount.formatted()
-                )
-                diagnosticMetricRow(
+                DiagnosticMetricRow(
                     title: "Network Fetches",
-                    value: diagnostics.networkFetchCount.formatted()
+                    value: diagnostics.networkFetchCount.formatted(),
+                    info: "Tracked media requests that went to the network this session."
                 )
-                diagnosticMetricRow(
+                DiagnosticMetricRow(
                     title: "Network Failures",
-                    value: diagnostics.networkFailureCount.formatted()
+                    value: diagnostics.networkFailureCount.formatted(),
+                    info: "Tracked media requests that failed over the network this session."
                 )
-            } header: {
-                Text("Request Sources")
-            } footer: {
-                Text("This covers the shared Halo media cache path. Some screens still use system image loading, and video playback has its own pipeline.")
-            }
-
-            Section {
-                diagnosticMetricRow(
+                DiagnosticMetricRow(
                     title: "Cached Payload",
-                    value: byteDescription(diagnostics.cacheServedByteCount)
+                    value: byteDescription(diagnostics.cacheServedByteCount),
+                    info: "Bytes served locally from the shared media cache this session."
                 )
-                diagnosticMetricRow(
+                DiagnosticMetricRow(
                     title: "Network Payload",
-                    value: byteDescription(diagnostics.networkServedByteCount)
+                    value: byteDescription(diagnostics.networkServedByteCount),
+                    info: "Bytes downloaded for tracked media requests this session."
                 )
             } header: {
-                Text("Payload")
-            } footer: {
-                Text("Payload totals use the encoded media bytes known to the shared cache.")
-            }
-
-            Section {
-                diagnosticMetricRow(
-                    title: "DB Open",
-                    value: flowDBDiagnostics.isOpen ? "Yes" : "No"
-                )
-                diagnosticMetricRow(
-                    title: "DB Directory",
-                    value: flowDBDiagnostics.databaseDirectoryExists ? "Present" : "Missing"
-                )
-                diagnosticMetricRow(
-                    title: "Open Mapsize",
-                    value: mapSizeDescription(flowDBDiagnostics.openMapsizeBytes)
-                )
-                diagnosticMetricRow(
-                    title: "Last Attempted Mapsize",
-                    value: mapSizeDescription(flowDBDiagnostics.lastAttemptedMapsizeBytes)
-                )
-                diagnosticMetricRow(
-                    title: "Failed Open Attempts",
-                    value: flowDBDiagnostics.failedOpenAttempts.isEmpty
-                        ? "None"
-                        : flowDBDiagnostics.failedOpenAttempts.count.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Ingest Calls",
-                    value: flowDBDiagnostics.ingestCallCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Successful Ingests",
-                    value: flowDBDiagnostics.successfulIngestCallCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Persisted Events",
-                    value: flowDBDiagnostics.persistedEventCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Persisted Profiles",
-                    value: flowDBDiagnostics.persistedProfileCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Session Ingested Events",
-                    value: flowDBDiagnostics.sessionIngestedEventCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Session Ingested Profiles",
-                    value: flowDBDiagnostics.sessionIngestedProfileCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Local Event Lookups",
-                    value: flowDBDiagnostics.eventLookupCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Local Profile Lookups",
-                    value: flowDBDiagnostics.profileLookupCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Local Follow List Reads",
-                    value: flowDBDiagnostics.followListLookupCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Local Timeline Queries",
-                    value: flowDBDiagnostics.queryCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Recent Event Overlay",
-                    value: flowDBDiagnostics.recentOverlayEventCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "Replaceable Overlay",
-                    value: flowDBDiagnostics.recentReplaceableOverlayCount.formatted()
-                )
-                diagnosticMetricRow(
-                    title: "On-Device Size",
-                    value: byteDescription(flowDBDiagnostics.diskUsageBytes)
-                )
-            } header: {
-                Text("Halo DB")
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Persisted values reflect what is already committed into the local nostrdb store. Session ingested values reflect what the current app run has pushed through the ingester, even if writer threads have not finished compacting everything yet.")
-                    Text("Path: \(flowDBDiagnostics.databasePath)")
-                    if !flowDBDiagnostics.failedOpenAttempts.isEmpty {
-                        Text("Failed open attempts: \(failedOpenAttemptsDescription)")
-                    }
-                    if let error = flowDBDiagnostics.lastOpenError, !error.isEmpty {
-                        Text("Last open error: \(error)")
-                    }
-                }
+                Text("Media Requests")
             }
 
             Section {
                 Button("Reset Session Diagnostics", role: .destructive) {
                     resetDiagnostics()
                 }
-            } footer: {
-                Text("Reset before a fresh troubleshooting pass if you want a clean session baseline.")
             }
         }
         .navigationTitle("Diagnostics")
@@ -327,54 +213,45 @@ private struct SettingsMediaDiagnosticsView: View {
         )
     }
 
-    @ViewBuilder
-    private func diagnosticMetricRow(title: String, value: String) -> some View {
-        LabeledContent(title) {
-            Text(value)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.trailing)
-        }
-    }
-
     private func byteDescription(_ byteCount: Int64) -> String {
         guard byteCount > 0 else { return "0 bytes" }
         return ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
     }
 
-    private func mapSizeDescription(_ byteCount: Int64) -> String {
-        guard byteCount > 0 else { return "0 bytes" }
-
-        let gib = Int64(1024 * 1024 * 1024)
-        let mib = Int64(1024 * 1024)
-        if byteCount.isMultiple(of: gib) {
-            return "\(byteCount / gib) GiB"
-        }
-        if byteCount.isMultiple(of: mib) {
-            return "\(byteCount / mib) MiB"
-        }
-        return ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .binary)
-    }
-
-    private var failedOpenAttemptsDescription: String {
-        flowDBDiagnostics.failedOpenAttempts
-            .map { "\(mapSizeDescription($0.mapsizeBytes)): \($0.errorMessage)" }
-            .joined(separator: "; ")
-    }
-
     private func refreshDiagnostics() async {
         let snapshot = await FlowImageCache.shared.diagnosticsSnapshot()
-        let flowDBSnapshot = FlowNostrDB.shared.diagnosticsSnapshot()
+        let totalCacheBytes = await FlowImageCache.shared.totalCacheSizeBytes()
         await MainActor.run {
             diagnostics = snapshot
-            flowDBDiagnostics = flowDBSnapshot
+            mediaCacheBytes = totalCacheBytes
         }
     }
 
     private func resetDiagnostics() {
         Task {
             await FlowImageCache.shared.resetDiagnostics()
-            FlowNostrDB.shared.resetSessionDiagnostics()
             await refreshDiagnostics()
+        }
+    }
+}
+
+private struct DiagnosticMetricRow: View {
+    let title: String
+    let value: String
+    let info: String?
+
+    var body: some View {
+        LabeledContent {
+            Text(value)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+        } label: {
+            HStack(spacing: 6) {
+                Text(title)
+                if let info, !info.isEmpty {
+                    SettingsInfoButton(title: title, message: info)
+                }
+            }
         }
     }
 }

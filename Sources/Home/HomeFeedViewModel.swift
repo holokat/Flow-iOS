@@ -7,11 +7,7 @@ final class HomeFeedViewModel: ObservableObject {
         let relayFetchMode: RelayFetchMode
     }
 
-    private struct TrendingPaginationState {
-        let windowStart: Int
-        let windowEnd: Int
-        let cursor: Int
-    }
+    private struct TrendingPaginationState {}
 
     private struct TrendingPageFetchResult {
         let page: HomeFeedPageResult
@@ -69,35 +65,30 @@ final class HomeFeedViewModel: ObservableObject {
     private let pageSize: Int
     private let service: NostrFeedService
     private let liveSubscriber: NostrLiveFeedSubscriber
-    private let recentFeedStore: RecentFeedStore
     private let filterStore: HomeFeedFilterStore
 
-    private let recentFeedMaxEvents = 120
     private let assetPrefetchItemCount = 24
     private let feedSourceStorage = UserDefaults.standard
     private let feedSourceStoragePrefix = "homeFeedSourcePreference"
     private let mutedConversationStoragePrefix = "homeFeedMutedConversations"
-    private static let fastHomeFetchTimeout: TimeInterval = 3
+    private static let fastHomeFetchTimeout: TimeInterval = 8
     private static let fastHomeRelayFetchMode: RelayFetchMode = .firstNonEmptyRelay
-    private static let followingHomeFetchTimeout: TimeInterval = 3
-    private static let followingPaginationFetchTimeout: TimeInterval = 12
-    private nonisolated static let followingInitialNotesVisibleTarget = 12
-    private nonisolated static let followingInitialRepliesVisibleTarget = 8
+    private static let paginationFetchTimeout: TimeInterval = 8
+    private static let followingHomeFetchTimeout: TimeInterval = 8
+    private static let followingPaginationFetchTimeout: TimeInterval = 8
     private nonisolated static let pollsInitialVisibleTarget = 8
     private static let liveCatchUpFetchTimeout: TimeInterval = 4
     private static let liveCatchUpMinimumInterval: TimeInterval = 15
     private static let liveCatchUpOverlapSeconds = 90
     private static let liveCatchUpLimit = 200
-    private static let trendingWindowDuration: Int = 24 * 60 * 60
-    private nonisolated static let trendingBackfillWindowLimitPerPage = 7
-    private static let trendingRelayURL = URL(string: "wss://trending.relays.land")!
+    private static let trendingRelayURL = NostrFeedService.nostrArchivesTrendingRelayURL
     private static let newsFallbackRelayURL = URL(string: "wss://news.utxo.one")!
     private static let customFeedSupplementalRelayURLs: [URL] = [
         URL(string: "wss://relay.damus.io/"),
         URL(string: "wss://nos.lol/"),
         URL(string: "wss://relay.nostr.band/"),
         URL(string: "wss://nostr.mom/"),
-        URL(string: "wss://search.nos.today/")
+        NostrFeedService.nostrArchivesSearchRelayURL
     ].compactMap { $0 }
 
     private var oldestCreatedAt: Int?
@@ -126,8 +117,6 @@ final class HomeFeedViewModel: ObservableObject {
     private var liveCatchUpToken = 0
     private var lastLiveCatchUpBySignature: [String: Date] = [:]
     private var resetFeedTask: Task<Void, Never>?
-    private var itemHydrationTask: Task<Void, Never>?
-    private var warmStartRefreshTask: Task<Void, Never>?
     private var isPrefetchingMore = false
     private var latestRefreshRequestID = 0
     private var trendingPaginationState: TrendingPaginationState?
@@ -137,7 +126,8 @@ final class HomeFeedViewModel: ObservableObject {
     }
 
     nonisolated static func trendingWindowTraversalLimitForTesting(isInitialPage: Bool) -> Int {
-        trendingWindowTraversalLimit(isInitialPage: isInitialPage)
+        let _ = isInitialPage
+        return 1
     }
 
     nonisolated static func initialVisibleTargetForTesting(
@@ -166,7 +156,6 @@ final class HomeFeedViewModel: ObservableObject {
         pageSize: Int = HomeFeedPaginationDefaults.pageSize,
         service: NostrFeedService = NostrFeedService(),
         liveSubscriber: NostrLiveFeedSubscriber = NostrLiveFeedSubscriber(),
-        recentFeedStore: RecentFeedStore = .shared,
         filterStore: HomeFeedFilterStore = .shared
     ) {
         let defaults = filterStore.loadDefaults()
@@ -180,7 +169,6 @@ final class HomeFeedViewModel: ObservableObject {
         self.pageSize = pageSize
         self.service = service
         self.liveSubscriber = liveSubscriber
-        self.recentFeedStore = recentFeedStore
         self.filterStore = filterStore
         self.showKinds = defaults.showKinds
         self.mediaOnly = defaults.mediaOnly
@@ -190,8 +178,6 @@ final class HomeFeedViewModel: ObservableObject {
         liveUpdatesTask?.cancel()
         liveCatchUpTask?.cancel()
         resetFeedTask?.cancel()
-        itemHydrationTask?.cancel()
-        warmStartRefreshTask?.cancel()
     }
 
     var feedSourceOptions: [HomePrimaryFeedSource] {
@@ -200,7 +186,7 @@ final class HomeFeedViewModel: ObservableObject {
         let interestSources: [HomePrimaryFeedSource] = interestHashtags.isEmpty ? [] : [.interests]
         let customSources = customFeeds.map { HomePrimaryFeedSource.custom($0.id) }
         let pollsSources: [HomePrimaryFeedSource] = pollsFeedVisible ? [.polls] : []
-        return [.network, .following] + pollsSources + [.trending] + interestSources + [.news] + customSources + relaySources + hashtagSources
+        return [.network, .following, .articles] + pollsSources + [.trending] + interestSources + [.news] + customSources + relaySources + hashtagSources
     }
 
     var kindFilterOptions: [FeedKindFilterOption] {
@@ -247,7 +233,10 @@ final class HomeFeedViewModel: ObservableObject {
     }
 
     var followingFeedHasNoFollowings: Bool {
-        (feedSource == .following || feedSource == .polls) && !isLoading && followingPubkeys.isEmpty && errorMessage == nil
+        (feedSource == .following || feedSource == .articles || feedSource == .polls) &&
+            !isLoading &&
+            followingPubkeys.isEmpty &&
+            errorMessage == nil
     }
 
     var interestsFeedHasNoHashtags: Bool {
@@ -263,66 +252,42 @@ final class HomeFeedViewModel: ObservableObject {
         return "No posts match the current filters."
     }
 
-    // Following uses a fast initial pass so the first screen can render quickly,
-    // then falls back to exhaustive pagination for deeper history.
+    // Network-style feeds can use a fast first non-empty relay grace window.
+    // Following now favors completeness on initial load because staged hydration
+    // already keeps row rendering lightweight.
     static func requestStrategy(
         for source: HomePrimaryFeedSource,
         isPagination: Bool
     ) -> FeedRequestStrategy {
         switch source {
-        case .following, .polls:
+        case .following, .articles:
+            return FeedRequestStrategy(
+                fetchTimeout: isPagination ? Self.followingPaginationFetchTimeout : Self.followingHomeFetchTimeout,
+                relayFetchMode: .allRelays
+            )
+        case .polls:
             return FeedRequestStrategy(
                 fetchTimeout: isPagination ? Self.followingPaginationFetchTimeout : Self.followingHomeFetchTimeout,
                 relayFetchMode: isPagination ? .allRelays : .firstNonEmptyRelay
             )
         default:
             return FeedRequestStrategy(
-                fetchTimeout: Self.fastHomeFetchTimeout,
-                relayFetchMode: Self.fastHomeRelayFetchMode
+                fetchTimeout: isPagination ? Self.paginationFetchTimeout : Self.fastHomeFetchTimeout,
+                relayFetchMode: isPagination ? .allRelays : Self.fastHomeRelayFetchMode
             )
         }
     }
 
-    private var recentFeedKey: String {
-        let sourceRelayURLs = relayURLs(for: feedSource)
-        let requestKinds = feedKinds(for: feedSource)
-        let filter = NostrFilter(
-            kinds: requestKinds,
-            limit: pageSize
-        )
-
-        let sourceDescriptor: String
-        switch feedSource {
-        case .network:
-            sourceDescriptor = "network"
-        case .following:
-            sourceDescriptor = "following:\(currentUserPubkey ?? "anonymous")"
-        case .polls:
-            sourceDescriptor = "polls:\(currentUserPubkey ?? "anonymous")"
-        case .trending:
-            sourceDescriptor = "trending"
-        case .interests:
-            sourceDescriptor = "interests"
-        case .news:
-            let newsAuthorsSignature = configuredNewsAuthorPubkeys().joined(separator: ",")
-            let newsHashtagsSignature = configuredNewsHashtags().joined(separator: ",")
-            sourceDescriptor = "news:v2:\(newsAuthorsSignature):\(newsHashtagsSignature)"
-        case .custom(let feedID):
-            if let feed = customFeedDefinition(id: feedID) {
-                sourceDescriptor = "custom:\(feedID):\(feed.cacheSignature)"
-            } else {
-                sourceDescriptor = "custom:\(feedID)"
-            }
-        case .hashtag(let hashtag):
-            sourceDescriptor = "hashtag:\(HomePrimaryFeedSource.normalizeHashtag(hashtag))"
-        case .relay(let relayURL):
-            sourceDescriptor = "relay:\(HomePrimaryFeedSource.normalizeRelayURLString(relayURL))"
+    private nonisolated static func stagedHydrationMode(
+        for source: HomePrimaryFeedSource,
+        requestHydrationMode: FeedItemHydrationMode
+    ) -> FeedItemHydrationMode {
+        switch source {
+        case .following, .articles, .polls, .news:
+            return .cachedProfilesOnly
+        default:
+            return requestHydrationMode
         }
-
-        let relaySignature = sourceRelayURLs
-            .map { $0.absoluteString.lowercased() }
-            .joined(separator: ",")
-        return "recentFeed:\(sourceDescriptor):\(relaySignature):\(generateTimelineKey(relayURL: sourceRelayURLs.first ?? relayURL, filter: filter))"
     }
 
     func updateCurrentUserPubkey(_ pubkey: String?) {
@@ -414,6 +379,15 @@ final class HomeFeedViewModel: ObservableObject {
             return
         }
 
+        let preferredSource = resolvedFeedSource(loadFeedSourcePreference(pubkey: currentUserPubkey))
+        if feedSource != .interests,
+           preferredSource == .interests,
+           !normalized.isEmpty {
+            feedSource = .interests
+            resetFeedStateAndReload()
+            return
+        }
+
         if feedSource == .interests {
             Task {
                 await refresh(silent: true)
@@ -473,19 +447,15 @@ final class HomeFeedViewModel: ObservableObject {
 
     func loadIfNeeded() async {
         if items.isEmpty {
-            let loadedFromCache = await loadRecentFeedSnapshot()
-            if loadedFromCache {
-                scheduleWarmStartRefresh()
-            } else {
-                await refresh()
-            }
+            guard !isLoading, !isSilentRefreshing, !isBootstrappingFeed else { return }
+            await refresh()
         } else {
             startLiveUpdatesIfNeeded()
         }
     }
 
     func prepareForSelectedModeIfNeeded() async {
-        guard feedSource == .following else { return }
+        guard sourceUsesModeAwareBackfill(feedSource) else { return }
         guard !isLoading, !isSilentRefreshing else { return }
         guard !hasReachedEnd else { return }
 
@@ -530,7 +500,11 @@ final class HomeFeedViewModel: ObservableObject {
         setMediaOnly(false)
     }
 
-    func refresh(silent: Bool = false, force: Bool = false) async {
+    func refresh(
+        silent: Bool = false,
+        force: Bool = false,
+        publishFetchedItems: Bool = true
+    ) async {
         if !force && (isLoading || isSilentRefreshing) {
             needsRefreshAfterCurrentRequest = true
             return
@@ -552,12 +526,12 @@ final class HomeFeedViewModel: ObservableObject {
         } else {
             isLoading = true
         }
-        errorMessage = nil
-        hasReachedEnd = false
-        oldestCreatedAt = nil
-        trendingPaginationState = nil
-        itemHydrationTask?.cancel()
-        itemHydrationTask = nil
+        if publishFetchedItems {
+            errorMessage = nil
+            hasReachedEnd = false
+            oldestCreatedAt = nil
+            trendingPaginationState = nil
+        }
 
         defer {
             if latestRefreshRequestID == refreshRequestID {
@@ -585,34 +559,57 @@ final class HomeFeedViewModel: ObservableObject {
             var sourcePageResult: HomeFeedPageResult?
             let requestRelayURLs = relayURLs(for: requestSource)
             let requestKinds = feedKinds(for: requestSource)
-            let requestHydrationMode: FeedItemHydrationMode = .cachedProfilesOnly
+            let requestHydrationMode: FeedItemHydrationMode = .full
+            let fastHydrationMode = Self.stagedHydrationMode(
+                for: requestSource,
+                requestHydrationMode: requestHydrationMode
+            )
             let requestStrategy = Self.requestStrategy(for: requestSource, isPagination: false)
             let requestFetchTimeout = requestStrategy.fetchTimeout
             let requestRelayFetchMode = requestStrategy.relayFetchMode
+            var stagedHydrationEvents: [NostrEvent] = []
 
-            if requestSource != .following {
+            if requestSource != .following && requestSource != .articles {
                 startLiveUpdatesIfNeeded()
             }
 
             switch requestSource {
             case .network, .relay:
                 followingPubkeys = []
-                fetched = try await service.fetchFeed(
+                let networkPage = try await fetchModeAwarePrimaryFeedPage(
+                    source: requestSource,
                     relayURLs: requestRelayURLs,
                     kinds: requestKinds,
                     limit: pageSize,
                     until: nil,
+                    mode: mode,
+                    minimumVisibleCount: Self.initialVisibleTarget(
+                        for: requestSource,
+                        mode: mode,
+                        limit: pageSize
+                    ),
                     hydrationMode: requestHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
                     moderationSnapshot: muteFilterSnapshot
                 )
+                fetched = networkPage.items
+                sourcePageResult = networkPage
 
             case .interests:
                 followingPubkeys = []
-                let interestPage = try await fetchInterestsFeedPage(
+                let interestPage = try await fetchModeAwarePrimaryFeedPage(
+                    source: requestSource,
+                    relayURLs: requestRelayURLs,
+                    kinds: requestKinds,
                     limit: pageSize,
                     until: nil,
+                    mode: mode,
+                    minimumVisibleCount: Self.initialVisibleTarget(
+                        for: requestSource,
+                        mode: mode,
+                        limit: pageSize
+                    ),
                     hydrationMode: requestHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
@@ -640,13 +637,16 @@ final class HomeFeedViewModel: ObservableObject {
                 let newsPage = try await fetchNewsFeedPage(
                     limit: pageSize,
                     until: nil,
-                    hydrationMode: requestHydrationMode,
+                    hydrationMode: fastHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
                     moderationSnapshot: muteFilterSnapshot
                 )
                 fetched = newsPage.items
                 sourcePageResult = newsPage
+                if requestHydrationMode != fastHydrationMode {
+                    stagedHydrationEvents = newsPage.items.map(\.event)
+                }
 
             case .custom(let feedID):
                 followingPubkeys = []
@@ -670,17 +670,25 @@ final class HomeFeedViewModel: ObservableObject {
 
             case .hashtag(let hashtag):
                 followingPubkeys = []
-                fetched = try await service.fetchHashtagFeed(
+                let hashtagPage = try await fetchModeAwarePrimaryFeedPage(
+                    source: .hashtag(hashtag),
                     relayURLs: requestRelayURLs,
-                    hashtag: hashtag,
                     kinds: requestKinds,
                     limit: pageSize,
                     until: nil,
+                    mode: mode,
+                    minimumVisibleCount: Self.initialVisibleTarget(
+                        for: requestSource,
+                        mode: mode,
+                        limit: pageSize
+                    ),
                     hydrationMode: requestHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
                     moderationSnapshot: muteFilterSnapshot
                 )
+                fetched = hashtagPage.items
+                sourcePageResult = hashtagPage
 
             case .following:
                 guard let requestUserPubkey else {
@@ -713,21 +721,8 @@ final class HomeFeedViewModel: ObservableObject {
                     oldestCreatedAt = nil
                     hasReachedEnd = true
                     startLiveUpdatesIfNeeded(forceRestart: true)
-                    await persistRecentFeedSnapshot(from: [])
                     return
                 }
-
-                await primeFollowingItemsFromLocalCacheIfNeeded(
-                    startedWithEmptyItems: startedWithEmptyItems,
-                    authors: followingFeedAuthors,
-                    kinds: requestKinds,
-                    mode: mode,
-                    source: requestSource,
-                    followingPubkeys: followings,
-                    userPubkey: requestUserPubkey,
-                    refreshRequestID: refreshRequestID,
-                    hydrationMode: requestHydrationMode
-                )
 
                 startLiveUpdatesIfNeeded(forceRestart: true)
 
@@ -743,12 +738,74 @@ final class HomeFeedViewModel: ObservableObject {
                         mode: mode,
                         limit: pageSize
                     ),
-                    hydrationMode: requestHydrationMode,
+                    hydrationMode: fastHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
                     moderationSnapshot: muteFilterSnapshot
                 )
                 fetched = followingPage.items
+                sourcePageResult = followingPage
+                if requestHydrationMode != fastHydrationMode {
+                    stagedHydrationEvents = followingPage.items.map(\.event)
+                }
+
+            case .articles:
+                guard let requestUserPubkey else {
+                    throw HomeFeedError.articlesRequiresLogin
+                }
+
+                let followings = try await resolveFollowingPubkeys(
+                    currentUserPubkey: requestUserPubkey,
+                    relayURLs: requestRelayURLs,
+                    relayFetchMode: requestRelayFetchMode
+                )
+
+                if requestSource != feedSource || requestUserPubkey != currentUserPubkey {
+                    guard latestRefreshRequestID == refreshRequestID else { return }
+                    needsRefreshAfterCurrentRequest = true
+                    return
+                }
+
+                followingPubkeys = followings
+                let articleAuthors = Self.followingAuthorPubkeys(
+                    followingPubkeys: followings,
+                    currentUserPubkey: requestUserPubkey
+                )
+
+                if articleAuthors.isEmpty {
+                    guard latestRefreshRequestID == refreshRequestID else { return }
+                    items = []
+                    bufferedNewItems = []
+                    knownEventIDs = []
+                    oldestCreatedAt = nil
+                    hasReachedEnd = true
+                    startLiveUpdatesIfNeeded(forceRestart: true)
+                    return
+                }
+
+                startLiveUpdatesIfNeeded(forceRestart: true)
+
+                let articlesPage = try await fetchFollowingFeedPage(
+                    relayURLs: requestRelayURLs,
+                    authors: articleAuthors,
+                    kinds: requestKinds,
+                    limit: pageSize,
+                    until: nil,
+                    minimumVisibleCount: Self.initialVisibleTarget(
+                        for: requestSource,
+                        mode: nil,
+                        limit: pageSize
+                    ),
+                    hydrationMode: fastHydrationMode,
+                    fetchTimeout: requestFetchTimeout,
+                    relayFetchMode: requestRelayFetchMode,
+                    moderationSnapshot: muteFilterSnapshot
+                )
+                fetched = articlesPage.items
+                sourcePageResult = articlesPage
+                if requestHydrationMode != fastHydrationMode {
+                    stagedHydrationEvents = articlesPage.items.map(\.event)
+                }
 
             case .polls:
                 guard let requestUserPubkey else {
@@ -781,21 +838,8 @@ final class HomeFeedViewModel: ObservableObject {
                     oldestCreatedAt = nil
                     hasReachedEnd = true
                     startLiveUpdatesIfNeeded(forceRestart: true)
-                    await persistRecentFeedSnapshot(from: [])
                     return
                 }
-
-                await primeFollowingItemsFromLocalCacheIfNeeded(
-                    startedWithEmptyItems: startedWithEmptyItems,
-                    authors: pollAuthors,
-                    kinds: FeedKindFilters.pollKinds,
-                    mode: nil,
-                    source: requestSource,
-                    followingPubkeys: followings,
-                    userPubkey: requestUserPubkey,
-                    refreshRequestID: refreshRequestID,
-                    hydrationMode: requestHydrationMode
-                )
 
                 startLiveUpdatesIfNeeded(forceRestart: true)
 
@@ -810,12 +854,16 @@ final class HomeFeedViewModel: ObservableObject {
                         mode: nil,
                         limit: pageSize
                     ),
-                    hydrationMode: requestHydrationMode,
+                    hydrationMode: fastHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
                     moderationSnapshot: muteFilterSnapshot
                 )
                 fetched = pollsPage.items
+                sourcePageResult = pollsPage
+                if requestHydrationMode != fastHydrationMode {
+                    stagedHydrationEvents = pollsPage.items.map(\.event)
+                }
             }
 
             if requestSource != feedSource || requestUserPubkey != currentUserPubkey {
@@ -826,6 +874,7 @@ final class HomeFeedViewModel: ObservableObject {
 
             if requestSource != .news,
                requestSource != .trending,
+               requestSource != .articles,
                requestSource != .polls,
                !FeedKindFilters.isSameSelection(requestKinds, showKinds) {
                 guard latestRefreshRequestID == refreshRequestID else { return }
@@ -835,38 +884,59 @@ final class HomeFeedViewModel: ObservableObject {
 
             guard latestRefreshRequestID == refreshRequestID else { return }
 
-            let mergedItems = pruneItemsForSource(
-                pruneMutedItems(
-                    startedWithEmptyItems
-                        ? mergeItemArrays(primary: bufferedNewItems, secondary: fetched)
-                        : fetched
-                ),
-                feedSource: requestSource,
-                followingPubkeys: requestSource == .following ? self.followingPubkeys : nil
+            applyRefreshResults(
+                fetched: fetched,
+                requestSource: requestSource,
+                sourcePageResult: sourcePageResult,
+                publishFetchedItems: publishFetchedItems,
+                startedWithEmptyItems: startedWithEmptyItems
             )
 
-            items = mergedItems
-            bufferedNewItems = []
-            knownEventIDs = Set(mergedItems.map(\.id))
-            oldestCreatedAt = mergedItems.last?.event.createdAt ?? fetched.last?.event.createdAt
-            if let sourcePageResult {
-                hasReachedEnd = !sourcePageResult.hadMoreAvailable
-            } else {
-                hasReachedEnd = FeedPaginationHeuristic.shouldStopPaging(afterFetchedCount: fetched.count)
+            if requestHydrationMode != fastHydrationMode,
+               !stagedHydrationEvents.isEmpty {
+                let upgradedItems = await service.buildFeedItems(
+                    relayURLs: requestRelayURLs,
+                    events: stagedHydrationEvents,
+                    hydrationMode: requestHydrationMode,
+                    moderationSnapshot: muteFilterSnapshot
+                )
+                guard !Task.isCancelled else { return }
+
+                if requestSource != feedSource || requestUserPubkey != currentUserPubkey {
+                    guard latestRefreshRequestID == refreshRequestID else { return }
+                    needsRefreshAfterCurrentRequest = true
+                    return
+                }
+
+                if requestSource != .news,
+                   requestSource != .trending,
+                   requestSource != .articles,
+                   requestSource != .polls,
+                   !FeedKindFilters.isSameSelection(requestKinds, showKinds) {
+                    guard latestRefreshRequestID == refreshRequestID else { return }
+                    needsRefreshAfterCurrentRequest = true
+                    return
+                }
+
+                guard latestRefreshRequestID == refreshRequestID else { return }
+                applyRefreshResults(
+                    fetched: upgradedItems,
+                    requestSource: requestSource,
+                    sourcePageResult: sourcePageResult,
+                    publishFetchedItems: publishFetchedItems,
+                    startedWithEmptyItems: startedWithEmptyItems
+                )
             }
-            scheduleAssetPrefetch(for: mergedItems)
+
             startLiveUpdatesIfNeeded()
-            await persistRecentFeedSnapshot(from: mergedItems)
-            scheduleItemHydration(
-                for: mergedItems,
-                source: requestSource,
-                userPubkey: requestUserPubkey
-            )
         } catch {
             guard latestRefreshRequestID == refreshRequestID else { return }
+            guard publishFetchedItems else { return }
             switch error {
             case HomeFeedError.followingRequiresLogin:
                 errorMessage = "Sign in to view the Following feed."
+            case HomeFeedError.articlesRequiresLogin:
+                errorMessage = "Sign in to view the Articles feed."
             case HomeFeedError.pollsRequiresLogin:
                 errorMessage = "Sign in to view the Polls feed."
             case HomeFeedError.networkRequiresLogin:
@@ -910,9 +980,12 @@ final class HomeFeedViewModel: ObservableObject {
         guard until > 0 else { return }
 
         let requestSource = feedSource
-        let requestUserPubkey = currentUserPubkey
         let requestRefreshID = latestRefreshRequestID
-        let requestHydrationMode: FeedItemHydrationMode = .cachedProfilesOnly
+        let requestHydrationMode: FeedItemHydrationMode = .full
+        let fastHydrationMode = Self.stagedHydrationMode(
+            for: requestSource,
+            requestHydrationMode: requestHydrationMode
+        )
         let requestStrategy = Self.requestStrategy(for: requestSource, isPagination: true)
         let requestFetchTimeout = requestStrategy.fetchTimeout
         let requestRelayFetchMode = requestStrategy.relayFetchMode
@@ -921,8 +994,6 @@ final class HomeFeedViewModel: ObservableObject {
         if shouldShowLoadingIndicator {
             isLoadingMore = true
         }
-        itemHydrationTask?.cancel()
-        itemHydrationTask = nil
         defer {
             isPrefetchingMore = false
             isLoadingMore = false
@@ -933,24 +1004,43 @@ final class HomeFeedViewModel: ObservableObject {
             var sourcePageResult: HomeFeedPageResult?
             let requestRelayURLs = relayURLs(for: requestSource)
             let requestKinds = feedKinds(for: requestSource)
+            var stagedHydrationEvents: [NostrEvent] = []
 
             switch requestSource {
             case .network, .relay:
-                fetched = try await service.fetchFeed(
+                let networkPage = try await fetchModeAwarePrimaryFeedPage(
+                    source: requestSource,
                     relayURLs: requestRelayURLs,
                     kinds: requestKinds,
                     limit: pageSize,
                     until: until,
+                    mode: mode,
+                    minimumVisibleCount: Self.minimumVisibleItemsForSelectedMode(
+                        source: requestSource,
+                        mode: mode,
+                        pageSize: pageSize
+                    ),
                     hydrationMode: requestHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
                     moderationSnapshot: muteFilterSnapshot
                 )
+                fetched = networkPage.items
+                sourcePageResult = networkPage
 
             case .interests:
-                let interestPage = try await fetchInterestsFeedPage(
+                let interestPage = try await fetchModeAwarePrimaryFeedPage(
+                    source: requestSource,
+                    relayURLs: requestRelayURLs,
+                    kinds: requestKinds,
                     limit: pageSize,
                     until: until,
+                    mode: mode,
+                    minimumVisibleCount: Self.minimumVisibleItemsForSelectedMode(
+                        source: requestSource,
+                        mode: mode,
+                        pageSize: pageSize
+                    ),
                     hydrationMode: requestHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
@@ -1003,17 +1093,25 @@ final class HomeFeedViewModel: ObservableObject {
                 sourcePageResult = customPage
 
             case .hashtag(let hashtag):
-                fetched = try await service.fetchHashtagFeed(
+                let hashtagPage = try await fetchModeAwarePrimaryFeedPage(
+                    source: .hashtag(hashtag),
                     relayURLs: requestRelayURLs,
-                    hashtag: hashtag,
                     kinds: requestKinds,
                     limit: pageSize,
                     until: until,
+                    mode: mode,
+                    minimumVisibleCount: Self.minimumVisibleItemsForSelectedMode(
+                        source: requestSource,
+                        mode: mode,
+                        pageSize: pageSize
+                    ),
                     hydrationMode: requestHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
                     moderationSnapshot: muteFilterSnapshot
                 )
+                fetched = hashtagPage.items
+                sourcePageResult = hashtagPage
 
             case .following:
                 let followingFeedAuthors = Self.followingAuthorPubkeys(
@@ -1032,12 +1130,43 @@ final class HomeFeedViewModel: ObservableObject {
                     limit: pageSize,
                     until: until,
                     mode: mode,
-                    hydrationMode: requestHydrationMode,
+                    hydrationMode: fastHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
                     moderationSnapshot: muteFilterSnapshot
                 )
                 fetched = followingPage.items
+                sourcePageResult = followingPage
+                if requestHydrationMode != fastHydrationMode {
+                    stagedHydrationEvents = followingPage.items.map(\.event)
+                }
+
+            case .articles:
+                let articleAuthors = Self.followingAuthorPubkeys(
+                    followingPubkeys: followingPubkeys,
+                    currentUserPubkey: currentUserPubkey
+                )
+                guard !articleAuthors.isEmpty else {
+                    hasReachedEnd = true
+                    return
+                }
+
+                let articlesPage = try await fetchFollowingFeedPage(
+                    relayURLs: requestRelayURLs,
+                    authors: articleAuthors,
+                    kinds: requestKinds,
+                    limit: pageSize,
+                    until: until,
+                    hydrationMode: fastHydrationMode,
+                    fetchTimeout: requestFetchTimeout,
+                    relayFetchMode: requestRelayFetchMode,
+                    moderationSnapshot: muteFilterSnapshot
+                )
+                fetched = articlesPage.items
+                sourcePageResult = articlesPage
+                if requestHydrationMode != fastHydrationMode {
+                    stagedHydrationEvents = articlesPage.items.map(\.event)
+                }
 
             case .polls:
                 let pollAuthors = Self.followingAuthorPubkeys(
@@ -1055,12 +1184,16 @@ final class HomeFeedViewModel: ObservableObject {
                     kinds: FeedKindFilters.pollKinds,
                     limit: pageSize,
                     until: until,
-                    hydrationMode: requestHydrationMode,
+                    hydrationMode: fastHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
                     moderationSnapshot: muteFilterSnapshot
                 )
                 fetched = pollsPage.items
+                sourcePageResult = pollsPage
+                if requestHydrationMode != fastHydrationMode {
+                    stagedHydrationEvents = pollsPage.items.map(\.event)
+                }
             }
 
             if requestRefreshID != latestRefreshRequestID || requestSource != feedSource {
@@ -1069,6 +1202,7 @@ final class HomeFeedViewModel: ObservableObject {
 
             if requestSource != .news,
                requestSource != .trending,
+               requestSource != .articles,
                requestSource != .polls,
                !FeedKindFilters.isSameSelection(requestKinds, showKinds) {
                 return
@@ -1079,19 +1213,37 @@ final class HomeFeedViewModel: ObservableObject {
                 return
             }
 
-            oldestCreatedAt = fetched.last?.event.createdAt
+            oldestCreatedAt = sourcePageResult?.paginationCursor ?? fetched.last?.event.createdAt
             if let sourcePageResult {
                 hasReachedEnd = !sourcePageResult.hadMoreAvailable
             } else {
                 hasReachedEnd = FeedPaginationHeuristic.shouldStopPaging(afterFetchedCount: fetched.count)
             }
             mergeKeepingNewest(itemsToMerge: fetched)
-            await persistRecentFeedSnapshot(from: items)
-            scheduleItemHydration(
-                for: items,
-                source: requestSource,
-                userPubkey: requestUserPubkey
-            )
+
+            if requestHydrationMode != fastHydrationMode,
+               !stagedHydrationEvents.isEmpty {
+                let upgradedItems = await service.buildFeedItems(
+                    relayURLs: requestRelayURLs,
+                    events: stagedHydrationEvents,
+                    hydrationMode: requestHydrationMode,
+                    moderationSnapshot: muteFilterSnapshot
+                )
+                guard !Task.isCancelled else { return }
+                guard requestRefreshID == latestRefreshRequestID, requestSource == feedSource else {
+                    return
+                }
+
+                if requestSource != .news,
+                   requestSource != .trending,
+                   requestSource != .articles,
+                   requestSource != .polls,
+                   !FeedKindFilters.isSameSelection(requestKinds, showKinds) {
+                    return
+                }
+
+                mergeKeepingNewest(itemsToMerge: upgradedItems)
+            }
         } catch {
             errorMessage = "Couldn't load more posts."
         }
@@ -1121,10 +1273,6 @@ final class HomeFeedViewModel: ObservableObject {
         guard !bufferedNewItems.isEmpty else { return }
         mergeKeepingNewest(itemsToMerge: bufferedNewItems)
         bufferedNewItems.removeAll()
-        Task { [weak self] in
-            guard let self else { return }
-            await self.persistRecentFeedSnapshot(from: self.items)
-        }
     }
 
     private func applyCurrentFilters(showKinds: [Int], mediaOnly: Bool) {
@@ -1151,12 +1299,7 @@ final class HomeFeedViewModel: ObservableObject {
 
             Task { [weak self] in
                 guard let self else { return }
-                let loadedFromCache = await self.loadRecentFeedSnapshot()
-                if loadedFromCache {
-                    self.scheduleWarmStartRefresh(force: false, restartLiveUpdates: true)
-                } else {
-                    await self.refresh()
-                }
+                await self.refresh()
             }
         }
     }
@@ -1177,8 +1320,6 @@ final class HomeFeedViewModel: ObservableObject {
         liveCatchUpTask?.cancel()
         liveCatchUpTask = nil
         lastLiveCatchUpBySignature.removeAll()
-        itemHydrationTask?.cancel()
-        itemHydrationTask = nil
         liveSubscriptionKinds = []
         liveSubscriptionSource = nil
         liveSubscriptionConfigurationSignature = nil
@@ -1186,28 +1327,7 @@ final class HomeFeedViewModel: ObservableObject {
         resetFeedTask?.cancel()
         resetFeedTask = Task { [weak self] in
             guard let self else { return }
-            let loadedFromCache = await self.loadRecentFeedSnapshot()
-            guard !Task.isCancelled else { return }
-            if loadedFromCache {
-                self.isBootstrappingFeed = false
-                self.scheduleWarmStartRefresh(force: true, restartLiveUpdates: true)
-            } else {
-                await self.refresh(force: true)
-            }
-        }
-    }
-
-    private func scheduleWarmStartRefresh(
-        force: Bool = false,
-        restartLiveUpdates: Bool = false
-    ) {
-        warmStartRefreshTask?.cancel()
-        warmStartRefreshTask = Task(priority: .utility) { [weak self] in
-            guard let self else { return }
-            if restartLiveUpdates {
-                self.startLiveUpdatesIfNeeded(forceRestart: true)
-            }
-            await self.refresh(silent: true, force: force)
+            await self.refresh(force: true)
         }
     }
 
@@ -1373,6 +1493,82 @@ final class HomeFeedViewModel: ObservableObject {
         knownEventIDs.formUnion(bufferedNewItems.map(\.id))
     }
 
+    private func applyRefreshResults(
+        fetched: [FeedItem],
+        requestSource: HomePrimaryFeedSource,
+        sourcePageResult: HomeFeedPageResult?,
+        publishFetchedItems: Bool,
+        startedWithEmptyItems: Bool
+    ) {
+        let refreshItems = startedWithEmptyItems
+            ? mergeItemArrays(primary: fetched, secondary: bufferedNewItems)
+            : fetched
+        let shouldKeepVisibleRows = !publishFetchedItems
+        let visibleSourceItems = shouldKeepVisibleRows ? items : []
+        let mergedItems = pruneItemsForSource(
+            pruneMutedItems(
+                mergeItemArrays(
+                    primary: shouldKeepVisibleRows ? refreshItems : visibleSourceItems,
+                    secondary: shouldKeepVisibleRows ? visibleSourceItems : refreshItems
+                )
+            ),
+            feedSource: requestSource,
+            followingPubkeys: sourceUsesFollowingAuthors(requestSource) ? followingPubkeys : nil
+        )
+
+        let existingBufferedItems = bufferedNewItems
+        bufferedNewItems = []
+        let nextOldestCreatedAt = sourcePageResult?.paginationCursor ??
+            mergedItems.last?.event.createdAt ??
+            fetched.last?.event.createdAt
+        let nextHasReachedEnd: Bool
+        if let sourcePageResult {
+            nextHasReachedEnd = !sourcePageResult.hadMoreAvailable
+        } else {
+            nextHasReachedEnd = FeedPaginationHeuristic.shouldStopPaging(afterFetchedCount: fetched.count)
+        }
+
+        if publishFetchedItems {
+            items = mergedItems
+            knownEventIDs = Set(mergedItems.map(\.id))
+            oldestCreatedAt = nextOldestCreatedAt
+            hasReachedEnd = nextHasReachedEnd
+            scheduleAssetPrefetch(for: mergedItems)
+        } else {
+            let existingVisibleItems = items
+            let existingVisibleIDs = Set(existingVisibleItems.map(\.id))
+            let refreshedVisibleItems = pruneItemsForSource(
+                pruneMutedItems(
+                    mergeItemArrays(
+                        primary: mergedItems.filter { existingVisibleIDs.contains($0.id) },
+                        secondary: existingVisibleItems
+                    )
+                ),
+                feedSource: requestSource,
+                followingPubkeys: sourceUsesFollowingAuthors(requestSource) ? followingPubkeys : nil
+            )
+            let didUpdateVisibleItems = refreshedVisibleItems != existingVisibleItems
+            if didUpdateVisibleItems {
+                items = refreshedVisibleItems
+            }
+
+            let visibleItemIDs = Set(refreshedVisibleItems.map(\.id))
+            let unpublishedItems = mergedItems.filter { !visibleItemIDs.contains($0.id) }
+            bufferedNewItems = mergeItemArrays(
+                primary: unpublishedItems,
+                secondary: existingBufferedItems
+            ).filter { !visibleItemIDs.contains($0.id) }
+            knownEventIDs = visibleItemIDs
+            knownEventIDs.formUnion(bufferedNewItems.map(\.id))
+            oldestCreatedAt = nextOldestCreatedAt
+            hasReachedEnd = nextHasReachedEnd
+            let prefetchedVisibleItems = didUpdateVisibleItems
+                ? refreshedVisibleItems.filter { existingVisibleIDs.contains($0.id) }
+                : []
+            scheduleAssetPrefetch(for: prefetchedVisibleItems + unpublishedItems)
+        }
+    }
+
     private func liveSubscriptionTargets(
         for source: HomePrimaryFeedSource,
         kinds: [Int]
@@ -1418,8 +1614,9 @@ final class HomeFeedViewModel: ObservableObject {
 
             let authors = Array(configuredNewsAuthorPubkeys().prefix(400))
             if !authors.isEmpty {
+                let newsAuthorRelayTargets = Self.normalizedRelayURLs(newsRelayTargets + readRelayURLs)
                 targets.append(contentsOf: subscriptionTargets(
-                    relayURLs: newsRelayTargets,
+                    relayURLs: newsAuthorRelayTargets,
                     filter: NostrFilter(authors: authors, kinds: [1], limit: 100),
                     scopeSignature: "news-authors:\(authors.joined(separator: ","))"
                 ))
@@ -1485,6 +1682,22 @@ final class HomeFeedViewModel: ObservableObject {
                 relayURLs: relayURLs(for: .following),
                 filter: NostrFilter(authors: liveAuthors, kinds: kinds, limit: 100),
                 scopeSignature: "following:\(liveAuthors.joined(separator: ","))"
+            )
+
+        case .articles:
+            let liveAuthors = Array(
+                Self.followingAuthorPubkeys(
+                    followingPubkeys: followingPubkeys,
+                    currentUserPubkey: currentUserPubkey
+                )
+                .prefix(400)
+            )
+            .sorted()
+            guard !liveAuthors.isEmpty else { return [] }
+            return subscriptionTargets(
+                relayURLs: relayURLs(for: .articles),
+                filter: NostrFilter(authors: liveAuthors, kinds: [FeedKindFilters.longFormArticle], limit: 100),
+                scopeSignature: "articles:\(liveAuthors.joined(separator: ","))"
             )
 
         case .polls:
@@ -1591,7 +1804,15 @@ final class HomeFeedViewModel: ObservableObject {
     }
 
     private func filterVisibleItems(_ source: [FeedItem], ignoreMediaOnly: Bool = false) -> [FeedItem] {
-        let allowedKinds = Set(feedSource == .polls ? FeedKindFilters.pollKinds : showKinds)
+        let allowedKinds: Set<Int>
+        switch feedSource {
+        case .polls:
+            allowedKinds = Set(FeedKindFilters.pollKinds)
+        case .articles:
+            allowedKinds = [FeedKindFilters.longFormArticle]
+        default:
+            allowedKinds = Set(showKinds)
+        }
         let hideNSFW = AppSettingsStore.shared.hideNSFWContent
 
         return source.filter { item in
@@ -1619,11 +1840,15 @@ final class HomeFeedViewModel: ObservableObject {
                 return false
             }
 
-            if feedSource != .polls && !mode.includes(item) {
+            if feedSource != .polls && feedSource != .articles && !mode.includes(item) {
                 return false
             }
 
-            if feedSource != .polls && !ignoreMediaOnly && mediaOnly && !item.displayEvent.hasMedia {
+            if feedSource != .polls &&
+                feedSource != .articles &&
+                !ignoreMediaOnly &&
+                mediaOnly &&
+                !item.displayEvent.hasMedia {
                 return false
             }
 
@@ -1651,7 +1876,7 @@ final class HomeFeedViewModel: ObservableObject {
     ) -> [FeedItem] {
         let resolvedSource = feedSource ?? self.feedSource
         switch resolvedSource {
-        case .following, .polls:
+        case .following, .polls, .articles:
             let allowedAuthors = allowedFollowingAuthors(followingPubkeys: followingPubkeys)
             guard !allowedAuthors.isEmpty else { return [] }
             return source.filter { item in
@@ -1659,6 +1884,9 @@ final class HomeFeedViewModel: ObservableObject {
                 guard isAllowedAuthor else { return false }
                 if resolvedSource == .polls {
                     return item.displayEvent.pollMetadata != nil
+                }
+                if resolvedSource == .articles {
+                    return Self.isVisibleArticle(item)
                 }
                 return true
             }
@@ -1673,6 +1901,11 @@ final class HomeFeedViewModel: ObservableObject {
             let allowedAuthors = allowedFollowingAuthors()
             guard !allowedAuthors.isEmpty else { return false }
             return allowedAuthors.contains(self.normalizePubkey(item.displayAuthorPubkey))
+        case .articles:
+            let allowedAuthors = allowedFollowingAuthors()
+            guard !allowedAuthors.isEmpty else { return false }
+            guard allowedAuthors.contains(self.normalizePubkey(item.displayAuthorPubkey)) else { return false }
+            return Self.isVisibleArticle(item)
         case .polls:
             let allowedAuthors = allowedFollowingAuthors()
             guard !allowedAuthors.isEmpty else { return false }
@@ -1688,8 +1921,22 @@ final class HomeFeedViewModel: ObservableObject {
         return AppSettingsStore.shared.shouldHideSpamMarkedPubkey(item.displayAuthorPubkey)
     }
 
+    private func sourceUsesFollowingAuthors(_ source: HomePrimaryFeedSource) -> Bool {
+        switch source {
+        case .following, .articles, .polls:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isVisibleArticle(_ item: FeedItem) -> Bool {
+        item.event.kind == FeedKindFilters.longFormArticle &&
+            !item.event.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func allowedFollowingAuthors(followingPubkeys: [String]? = nil) -> Set<String> {
-        let followings = followingPubkeys ?? (self.followingPubkeys.isEmpty ? localFollowings() : self.followingPubkeys)
+        let followings = followingPubkeys ?? self.followingPubkeys
         return Set(
             Self.followingAuthorPubkeys(
                 followingPubkeys: followings,
@@ -1725,36 +1972,6 @@ final class HomeFeedViewModel: ObservableObject {
     private func clearVisibleItemsCache() {
         visibleItemsCacheKey = nil
         visibleItemsCache = []
-    }
-
-    private func loadRecentFeedSnapshot() async -> Bool {
-        guard let cachedEvents = await recentFeedStore.getRecentFeed(key: recentFeedKey),
-              !cachedEvents.isEmpty else {
-            return false
-        }
-
-        let hydrated = await service.buildFeedItems(
-            relayURLs: hydrationRelayURLs(for: feedSource),
-            events: cachedEvents.sorted(by: { $0.createdAt > $1.createdAt }),
-            hydrationMode: .cachedProfilesOnly,
-            moderationSnapshot: muteFilterSnapshot
-        )
-        let prunedHydrated = pruneItemsForSource(pruneMutedItems(hydrated))
-        guard !prunedHydrated.isEmpty else { return false }
-
-        items = prunedHydrated
-        bufferedNewItems = []
-        knownEventIDs = Set(prunedHydrated.map(\.id))
-        oldestCreatedAt = prunedHydrated.last?.event.createdAt
-        hasReachedEnd = false
-        trendingPaginationState = nil
-        scheduleAssetPrefetch(for: prunedHydrated)
-        return true
-    }
-
-    private func persistRecentFeedSnapshot(from source: [FeedItem]) async {
-        let snapshot = Array(source.prefix(recentFeedMaxEvents)).map(\.event)
-        await recentFeedStore.putRecentFeed(key: recentFeedKey, events: snapshot)
     }
 
     private func loadFeedSourcePreference(pubkey: String?) -> HomePrimaryFeedSource {
@@ -1816,65 +2033,20 @@ final class HomeFeedViewModel: ObservableObject {
             followings = cachedSnapshot.followedPubkeys
         }
 
-        if followings.isEmpty {
-            followings = try await service.fetchFollowings(
+        do {
+            return try await service.fetchFollowings(
                 relayURLs: relayURLs,
                 pubkey: currentUserPubkey,
-                relayFetchMode: relayFetchMode
+                relayFetchMode: relayFetchMode,
+                relayOnly: true,
+                fallbackToCachedSnapshot: false
             )
+        } catch {
+            if !followings.isEmpty {
+                return followings
+            }
+            throw error
         }
-
-        return followings
-    }
-
-    private func primeFollowingItemsFromLocalCacheIfNeeded(
-        startedWithEmptyItems: Bool,
-        authors: [String],
-        kinds: [Int],
-        mode: HomeFeedMode?,
-        source: HomePrimaryFeedSource,
-        followingPubkeys: [String],
-        userPubkey: String?,
-        refreshRequestID: Int,
-        hydrationMode: FeedItemHydrationMode
-    ) async {
-        guard startedWithEmptyItems else { return }
-        guard items.isEmpty else { return }
-        guard latestRefreshRequestID == refreshRequestID else { return }
-
-        let localPage = try? await fetchFollowingFeedPage(
-            relayURLs: [],
-            authors: authors,
-            kinds: kinds,
-            limit: pageSize,
-            until: nil,
-            mode: mode,
-            minimumVisibleCount: Self.initialVisibleTarget(
-                for: source,
-                mode: mode,
-                limit: pageSize
-            ),
-            hydrationMode: hydrationMode,
-            fetchTimeout: 0,
-            relayFetchMode: .allRelays,
-            moderationSnapshot: muteFilterSnapshot
-        )
-
-        guard latestRefreshRequestID == refreshRequestID else { return }
-        guard source == feedSource, userPubkey == currentUserPubkey else { return }
-        guard let localItems = localPage?.items, !localItems.isEmpty else { return }
-
-        let mergedItems = pruneItemsForSource(
-            pruneMutedItems(localItems),
-            feedSource: source,
-            followingPubkeys: source == .following ? followingPubkeys : nil
-        )
-
-        guard !mergedItems.isEmpty else { return }
-
-        items = mergedItems
-        knownEventIDs = Set(mergedItems.map(\.id))
-        oldestCreatedAt = mergedItems.last?.event.createdAt ?? localItems.last?.event.createdAt
     }
 
     private func normalizePubkey(_ value: String?) -> String {
@@ -1997,6 +2169,8 @@ final class HomeFeedViewModel: ObservableObject {
         switch source {
         case .interests:
             return FeedKindFilters.normalizedKinds(showKinds)
+        case .articles:
+            return [FeedKindFilters.longFormArticle]
         case .polls:
             return FeedKindFilters.pollKinds
         case .trending:
@@ -2041,35 +2215,6 @@ final class HomeFeedViewModel: ObservableObject {
         Self.normalizedFavoriteHashtags(interestHashtags)
     }
 
-    private static func initialTrendingPaginationState(referenceTime: Int) -> TrendingPaginationState {
-        let safeReferenceTime = max(referenceTime, 1)
-        let windowEnd = safeReferenceTime
-        let windowStart = max(windowEnd - Self.trendingWindowDuration, 0)
-        return TrendingPaginationState(
-            windowStart: windowStart,
-            windowEnd: windowEnd,
-            cursor: windowEnd
-        )
-    }
-
-    private static func previousTrendingPaginationState(
-        before state: TrendingPaginationState
-    ) -> TrendingPaginationState? {
-        guard state.windowStart > 0 else { return nil }
-
-        let nextWindowEnd = max(state.windowStart - 1, 0)
-        let nextWindowStart = max(nextWindowEnd - Self.trendingWindowDuration, 0)
-        return TrendingPaginationState(
-            windowStart: nextWindowStart,
-            windowEnd: nextWindowEnd,
-            cursor: nextWindowEnd
-        )
-    }
-
-    private nonisolated static func trendingWindowTraversalLimit(isInitialPage: Bool) -> Int {
-        isInitialPage ? trendingBackfillWindowLimitPerPage : 1
-    }
-
     private func fetchTrendingFeedPage(
         limit: Int,
         paginationState: TrendingPaginationState?,
@@ -2085,70 +2230,27 @@ final class HomeFeedViewModel: ObservableObject {
             )
         }
 
-        let initialState = paginationState
-            ?? Self.initialTrendingPaginationState(
-                referenceTime: Int(Date().timeIntervalSince1970)
+        guard paginationState == nil else {
+            return TrendingPageFetchResult(
+                page: HomeFeedPageResult(items: [], hadMoreAvailable: false),
+                nextState: nil
             )
-        var state: TrendingPaginationState? = initialState
-        var collected: [FeedItem] = []
-        var traversedWindows = 0
-        let windowTraversalLimit = Self.trendingWindowTraversalLimit(
-            isInitialPage: paginationState == nil
-        )
-
-        while let currentState = state, collected.count < limit {
-            let remaining = max(limit - collected.count, 1)
-            let fetched = try await service.fetchTrendingNotes(
-                limit: remaining,
-                since: currentState.windowStart,
-                until: currentState.cursor,
-                hydrationMode: hydrationMode,
-                fetchTimeout: fetchTimeout,
-                relayFetchMode: relayFetchMode,
-                moderationSnapshot: moderationSnapshot
-            )
-
-            collected = mergeItemArrays(primary: collected, secondary: fetched)
-
-            if fetched.count >= remaining,
-               let oldestFetchedCreatedAt = fetched.last?.event.createdAt {
-                let nextCursor = max(oldestFetchedCreatedAt - 1, 0)
-                if nextCursor >= currentState.windowStart, nextCursor < currentState.cursor {
-                    state = TrendingPaginationState(
-                        windowStart: currentState.windowStart,
-                        windowEnd: currentState.windowEnd,
-                        cursor: nextCursor
-                    )
-                    continue
-                }
-            }
-
-            guard let previousWindow = Self.previousTrendingPaginationState(before: currentState) else {
-                state = nil
-                break
-            }
-
-            traversedWindows += 1
-            state = previousWindow
-
-            if traversedWindows >= windowTraversalLimit {
-                return TrendingPageFetchResult(
-                    page: HomeFeedPageResult(
-                        items: Array(collected.prefix(limit)),
-                        hadMoreAvailable: state != nil
-                    ),
-                    nextState: state
-                )
-            }
         }
 
-        let pageItems = Array(collected.prefix(limit))
+        let pageItems = try await service.fetchTrendingNotes(
+            limit: limit,
+            hydrationRelayURLs: hydrationRelayURLs(for: .trending),
+            hydrationMode: hydrationMode,
+            fetchTimeout: fetchTimeout,
+            relayFetchMode: relayFetchMode,
+            moderationSnapshot: moderationSnapshot
+        )
         return TrendingPageFetchResult(
             page: HomeFeedPageResult(
                 items: pageItems,
-                hadMoreAvailable: state != nil
+                hadMoreAvailable: false
             ),
-            nextState: state
+            nextState: nil
         )
     }
 
@@ -2169,11 +2271,13 @@ final class HomeFeedViewModel: ObservableObject {
             return HomeFeedPageResult(items: [], hadMoreAvailable: false)
         }
 
-        let maxBackfillRounds = minimumVisibleCount == nil ? 6 : 2
         let targetVisibleCount = max(1, min(limit, minimumVisibleCount ?? limit))
+        let maxBackfillRounds = minimumVisibleCount == nil
+            ? 6
+            : (targetVisibleCount >= limit ? 4 : 2)
         let probeLimit: Int
         if minimumVisibleCount != nil {
-            probeLimit = min(max(targetVisibleCount * 4, 60), 120)
+            probeLimit = min(max(targetVisibleCount * 4, 80), 160)
         } else {
             probeLimit = min(max(limit * 4, 120), 240)
         }
@@ -2182,6 +2286,7 @@ final class HomeFeedViewModel: ObservableObject {
         var exhausted = false
         var lastBatchCount = 0
         var roundsCompleted = 0
+        var nextPageCursor: Int?
 
         while roundsCompleted < maxBackfillRounds {
             let qualifiedCount = mode.map { Self.visibleItemCount(collected, mode: $0) } ?? collected.count
@@ -2189,37 +2294,44 @@ final class HomeFeedViewModel: ObservableObject {
                 break
             }
 
-            let fetched = try await service.fetchFollowingFeed(
+            let fetchedEvents = try await service.fetchFollowingEvents(
                 relayURLs: relayURLs,
                 authors: authors,
                 kinds: kinds,
                 limit: probeLimit,
                 until: cursor,
-                hydrationMode: hydrationMode,
                 fetchTimeout: fetchTimeout,
                 relayFetchMode: relayFetchMode,
+                relayOnly: true,
                 moderationSnapshot: moderationSnapshot
             )
-            lastBatchCount = fetched.count
+            lastBatchCount = fetchedEvents.count
 
-            guard !fetched.isEmpty else {
+            guard !fetchedEvents.isEmpty else {
                 exhausted = true
                 break
             }
 
+            let fetched = await service.buildFeedItems(
+                relayURLs: relayURLs,
+                events: fetchedEvents,
+                hydrationMode: hydrationMode,
+                moderationSnapshot: moderationSnapshot
+            )
             collected = mergeItemArrays(primary: collected, secondary: fetched)
 
             let updatedQualifiedCount = mode.map { Self.visibleItemCount(collected, mode: $0) } ?? collected.count
-            if updatedQualifiedCount >= targetVisibleCount || fetched.count >= probeLimit {
+            if updatedQualifiedCount >= targetVisibleCount {
                 break
             }
 
-            guard let oldestFetchedCreatedAt = fetched.last?.event.createdAt else {
+            guard let paginationCursor = feedPaginationCursor(from: fetchedEvents) else {
                 exhausted = true
                 break
             }
+            nextPageCursor = paginationCursor
 
-            let nextCursor = max(oldestFetchedCreatedAt - 1, 0)
+            let nextCursor = max(paginationCursor - 1, 0)
             guard nextCursor > 0, nextCursor != cursor else {
                 exhausted = true
                 break
@@ -2241,6 +2353,128 @@ final class HomeFeedViewModel: ObservableObject {
 
         return HomeFeedPageResult(
             items: pageItems,
+            hadMoreAvailable: hadMoreAvailable,
+            paginationCursor: nextPageCursor ?? pageItems.last?.event.createdAt
+        )
+    }
+
+    private func fetchModeAwarePrimaryFeedPage(
+        source: HomePrimaryFeedSource,
+        relayURLs: [URL],
+        kinds: [Int],
+        limit: Int,
+        until: Int?,
+        mode: HomeFeedMode,
+        minimumVisibleCount: Int,
+        hydrationMode: FeedItemHydrationMode = .full,
+        fetchTimeout: TimeInterval = 12,
+        relayFetchMode: RelayFetchMode = .allRelays,
+        moderationSnapshot: MuteFilterSnapshot? = nil
+    ) async throws -> HomeFeedPageResult {
+        guard limit > 0 else {
+            return HomeFeedPageResult(items: [], hadMoreAvailable: false)
+        }
+
+        let maxBackfillRounds = minimumVisibleCount >= limit ? 4 : 2
+        let targetVisibleCount = max(1, min(limit, minimumVisibleCount))
+        let probeLimit = min(max(targetVisibleCount * 4, 60), 240)
+        var collected: [FeedItem] = []
+        var cursor = until
+        var exhausted = false
+        var lastBatchCount = 0
+        var roundsCompleted = 0
+
+        while roundsCompleted < maxBackfillRounds {
+            if Self.visibleItemCount(collected, mode: mode) >= targetVisibleCount {
+                break
+            }
+
+            let fetched: [FeedItem]
+            switch source {
+            case .network, .relay:
+                fetched = try await service.fetchFeed(
+                    relayURLs: relayURLs,
+                    kinds: kinds,
+                    limit: probeLimit,
+                    until: cursor,
+                    hydrationMode: hydrationMode,
+                    fetchTimeout: fetchTimeout,
+                    relayFetchMode: relayFetchMode,
+                    moderationSnapshot: moderationSnapshot
+                )
+            case .hashtag(let hashtag):
+                fetched = try await service.fetchHashtagFeed(
+                    relayURLs: relayURLs,
+                    hashtag: hashtag,
+                    kinds: kinds,
+                    limit: probeLimit,
+                    until: cursor,
+                    hydrationMode: hydrationMode,
+                    fetchTimeout: fetchTimeout,
+                    relayFetchMode: relayFetchMode,
+                    moderationSnapshot: moderationSnapshot
+                )
+            case .interests:
+                let hashtags = configuredInterestHashtags()
+                guard !hashtags.isEmpty else {
+                    return HomeFeedPageResult(items: [], hadMoreAvailable: false)
+                }
+                fetched = try await service.fetchHashtagFeed(
+                    relayURLs: relayURLs,
+                    hashtags: hashtags,
+                    kinds: kinds,
+                    limit: probeLimit,
+                    until: cursor,
+                    hydrationMode: hydrationMode,
+                    fetchTimeout: fetchTimeout,
+                    relayFetchMode: relayFetchMode,
+                    moderationSnapshot: moderationSnapshot
+                )
+            default:
+                return HomeFeedPageResult(items: [], hadMoreAvailable: false)
+            }
+
+            lastBatchCount = fetched.count
+            guard !fetched.isEmpty else {
+                exhausted = true
+                break
+            }
+
+            collected = mergeItemArrays(primary: collected, secondary: fetched)
+
+            if Self.visibleItemCount(collected, mode: mode) >= targetVisibleCount || fetched.count >= probeLimit {
+                break
+            }
+
+            guard let oldestFetchedCreatedAt = fetched.last?.event.createdAt else {
+                exhausted = true
+                break
+            }
+
+            let nextCursor = max(oldestFetchedCreatedAt - 1, 0)
+            guard nextCursor > 0, nextCursor != cursor else {
+                exhausted = true
+                break
+            }
+
+            cursor = nextCursor
+            roundsCompleted += 1
+        }
+
+        let qualifiedCount = Self.visibleItemCount(collected, mode: mode)
+        let pageVisibleLimit = min(limit, max(qualifiedCount, 1))
+        let pageItems = Self.prefixForVisibleModeLimit(
+            collected,
+            mode: mode,
+            visibleLimit: pageVisibleLimit
+        )
+        let hadMoreAvailable =
+            qualifiedCount > limit ||
+            lastBatchCount >= probeLimit ||
+            (!exhausted && !pageItems.isEmpty)
+
+        return HomeFeedPageResult(
+            items: pageItems,
             hadMoreAvailable: hadMoreAvailable
         )
     }
@@ -2255,9 +2489,8 @@ final class HomeFeedViewModel: ObservableObject {
         case .polls:
             baseline = pollsInitialVisibleTarget
         case .following:
-            baseline = mode == .postsAndReplies
-                ? followingInitialRepliesVisibleTarget
-                : followingInitialNotesVisibleTarget
+            let _ = mode
+            baseline = limit
         default:
             baseline = limit
         }
@@ -2279,6 +2512,15 @@ final class HomeFeedViewModel: ObservableObject {
             )
         default:
             return min(max(pageSize / 3, 8), pageSize)
+        }
+    }
+
+    private func sourceUsesModeAwareBackfill(_ source: HomePrimaryFeedSource) -> Bool {
+        switch source {
+        case .network, .relay, .following, .hashtag, .interests:
+            return true
+        default:
+            return false
         }
     }
 
@@ -2340,8 +2582,8 @@ final class HomeFeedViewModel: ObservableObject {
         )
         async let authorItemsTask = authors.isEmpty
             ? [FeedItem]()
-            : service.fetchFollowingFeed(
-                relayURLs: newsRelayURLs,
+            : service.fetchFollowingFeedRecoveringWithOutbox(
+                baseReadRelayURLs: hydrationRelayURLs,
                 authors: authors,
                 kinds: [1],
                 limit: limit,
@@ -2351,38 +2593,20 @@ final class HomeFeedViewModel: ObservableObject {
                 relayFetchMode: relayFetchMode,
                 moderationSnapshot: moderationSnapshot
             )
+        async let hashtagItemsTask = fetchNewsHashtagItems(
+            relayURLs: newsRelayURLs,
+            hashtags: hashtags,
+            perHashtagLimit: perHashtagLimit,
+            until: until,
+            hydrationMode: hydrationMode,
+            fetchTimeout: fetchTimeout,
+            relayFetchMode: relayFetchMode,
+            moderationSnapshot: moderationSnapshot
+        )
 
         let relayItems = try await relayItemsTask
         let authorItems = try await authorItemsTask
-
-        let hashtagItems: [[FeedItem]]
-        if hashtags.isEmpty {
-            hashtagItems = []
-        } else {
-            hashtagItems = try await withThrowingTaskGroup(of: [FeedItem].self) { group in
-                for hashtag in hashtags {
-                    group.addTask { [self] in
-                        try await self.service.fetchHashtagFeed(
-                            relayURLs: newsRelayURLs,
-                            hashtag: hashtag,
-                            kinds: [1],
-                            limit: perHashtagLimit,
-                            until: until,
-                            hydrationMode: hydrationMode,
-                            fetchTimeout: fetchTimeout,
-                            relayFetchMode: relayFetchMode,
-                            moderationSnapshot: moderationSnapshot
-                        )
-                    }
-                }
-
-                var merged: [[FeedItem]] = []
-                for try await items in group {
-                    merged.append(items)
-                }
-                return merged
-            }
-        }
+        let hashtagItems = try await hashtagItemsTask
 
         var seenEventIDs = Set<String>()
         let mergedEvents = Array(
@@ -2417,6 +2641,43 @@ final class HomeFeedViewModel: ObservableObject {
             items: hydrated,
             hadMoreAvailable: hadMoreAvailable
         )
+    }
+
+    private func fetchNewsHashtagItems(
+        relayURLs: [URL],
+        hashtags: [String],
+        perHashtagLimit: Int,
+        until: Int?,
+        hydrationMode: FeedItemHydrationMode,
+        fetchTimeout: TimeInterval,
+        relayFetchMode: RelayFetchMode,
+        moderationSnapshot: MuteFilterSnapshot?
+    ) async throws -> [[FeedItem]] {
+        guard !hashtags.isEmpty, perHashtagLimit > 0 else { return [] }
+
+        return try await withThrowingTaskGroup(of: [FeedItem].self) { group in
+            for hashtag in hashtags {
+                group.addTask { [self] in
+                    try await self.service.fetchHashtagFeed(
+                        relayURLs: relayURLs,
+                        hashtag: hashtag,
+                        kinds: [1],
+                        limit: perHashtagLimit,
+                        until: until,
+                        hydrationMode: hydrationMode,
+                        fetchTimeout: fetchTimeout,
+                        relayFetchMode: relayFetchMode,
+                        moderationSnapshot: moderationSnapshot
+                    )
+                }
+            }
+
+            var merged: [[FeedItem]] = []
+            for try await items in group {
+                merged.append(items)
+            }
+            return merged
+        }
     }
 
     private func fetchCustomFeedPage(
@@ -2456,6 +2717,7 @@ final class HomeFeedViewModel: ObservableObject {
                 hydrationMode: hydrationMode,
                 fetchTimeout: fetchTimeout,
                 relayFetchMode: relayFetchMode,
+                relayOnly: true,
                 moderationSnapshot: moderationSnapshot
             )
         async let hashtagItemsTask = fetchCustomFeedHashtagItems(
@@ -2609,78 +2871,6 @@ final class HomeFeedViewModel: ObservableObject {
                 merged.append(items)
             }
             return merged
-        }
-    }
-
-    private func scheduleItemHydration(
-        for sourceItems: [FeedItem],
-        source: HomePrimaryFeedSource,
-        userPubkey: String?
-    ) {
-        itemHydrationTask?.cancel()
-
-        let events = sourceItems.map(\.event)
-        guard !events.isEmpty else { return }
-        let relayTargets = hydrationRelayURLs(for: source)
-
-        itemHydrationTask = Task { [weak self] in
-            guard let self else { return }
-
-            let authorHydrated = await self.service.buildAuthorHydratedFeedItems(
-                relayURLs: relayTargets,
-                events: events,
-                fetchTimeout: Self.fastHomeFetchTimeout,
-                relayFetchMode: Self.fastHomeRelayFetchMode,
-                moderationSnapshot: self.muteFilterSnapshot
-            )
-            guard !Task.isCancelled else { return }
-            if !authorHydrated.isEmpty {
-                await MainActor.run {
-                    guard self.feedSource == source, self.currentUserPubkey == userPubkey else {
-                        return
-                    }
-
-                    self.items = self.pruneItemsForSource(
-                        self.pruneMutedItems(
-                            self.mergeItemArrays(primary: authorHydrated, secondary: self.items)
-                        ),
-                        feedSource: source
-                    )
-                    self.scheduleAssetPrefetch(for: self.items)
-                    self.knownEventIDs = Set(self.items.map(\.id))
-                    self.knownEventIDs.formUnion(self.bufferedNewItems.map(\.id))
-                }
-            }
-
-            let fullyHydrated = await self.service.buildFeedItems(
-                relayURLs: relayTargets,
-                events: events,
-                hydrationMode: .full,
-                moderationSnapshot: self.muteFilterSnapshot
-            )
-            guard !Task.isCancelled else { return }
-            guard !fullyHydrated.isEmpty else { return }
-
-            await MainActor.run {
-                guard self.feedSource == source, self.currentUserPubkey == userPubkey else {
-                    return
-                }
-
-                self.items = self.pruneItemsForSource(
-                    self.pruneMutedItems(
-                        self.mergeItemArrays(primary: fullyHydrated, secondary: self.items)
-                    ),
-                    feedSource: source
-                )
-                self.scheduleAssetPrefetch(for: self.items)
-                self.knownEventIDs = Set(self.items.map(\.id))
-                self.knownEventIDs.formUnion(self.bufferedNewItems.map(\.id))
-
-                Task { [weak self] in
-                    guard let self else { return }
-                    await self.persistRecentFeedSnapshot(from: self.items)
-                }
-            }
         }
     }
 

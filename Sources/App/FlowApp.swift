@@ -17,6 +17,9 @@ struct FlowApp: App {
     @StateObject private var composeSheetCoordinator = AppComposeSheetCoordinator()
     @StateObject private var composeDraftStore = AppComposeDraftStore()
     @StateObject private var breakReminderCoordinator = BreakReminderCoordinator()
+    @State private var launchSplashSelection = WelcomeArtworkSelection.random()
+    @State private var isLaunchSplashVisible = false
+    @State private var hasPresentedLaunchSplash = false
 
     init() {
         FlowMediaCache.configureSharedURLCache()
@@ -40,6 +43,11 @@ struct FlowApp: App {
             .overlay(alignment: .top) {
                 AppToastOverlay()
             }
+            .overlay {
+                if isLaunchSplashVisible, authManager.isLoggedIn {
+                    AppLaunchSplashOverlay(selection: launchSplashSelection)
+                }
+            }
             .environmentObject(authManager)
             .environmentObject(appSettings)
             .environmentObject(relaySettings)
@@ -54,6 +62,11 @@ struct FlowApp: App {
             .environment(\.dynamicTypeSize, appSettings.dynamicTypeSize)
             .task {
                 appSettings.configure(accountPubkey: authManager.currentAccount?.pubkey)
+                relaySettings.configure(
+                    accountPubkey: authManager.currentAccount?.pubkey,
+                    nsec: authManager.currentNsec
+                )
+                await presentLaunchSplashIfNeeded()
                 updateGlobalTypographyAppearance()
                 updateBreakReminderMonitoring()
                 await MainActor.run {
@@ -67,6 +80,10 @@ struct FlowApp: App {
             }
             .onChange(of: authManager.currentAccount?.pubkey) { _, newValue in
                 appSettings.configure(accountPubkey: newValue)
+                relaySettings.configure(
+                    accountPubkey: newValue,
+                    nsec: authManager.currentNsec
+                )
                 updateBreakReminderMonitoring()
                 Task {
                     await presentPendingSharedComposeDraftIfPossible()
@@ -82,6 +99,9 @@ struct FlowApp: App {
                 updateGlobalTypographyAppearance()
             }
             .onChange(of: appSettings.activeTheme.rawValue) { _, _ in
+                updateGlobalTypographyAppearance()
+            }
+            .onChange(of: appSettings.previewTheme?.rawValue) { _, _ in
                 updateGlobalTypographyAppearance()
             }
             .onChange(of: composeSheetCoordinator.draft?.id) { _, newValue in
@@ -153,6 +173,24 @@ struct FlowApp: App {
             interval: appSettings.breakReminderInterval,
             scenePhase: scenePhase
         )
+    }
+
+    @MainActor
+    private func presentLaunchSplashIfNeeded() async {
+        guard authManager.isLoggedIn else { return }
+        guard !hasPresentedLaunchSplash else { return }
+
+        hasPresentedLaunchSplash = true
+        launchSplashSelection = WelcomeArtworkSelection.random()
+        withAnimation(.easeInOut(duration: 0.20)) {
+            isLaunchSplashVisible = true
+        }
+
+        try? await Task.sleep(nanoseconds: 4_000_000_000)
+
+        withAnimation(.spring(response: 0.68, dampingFraction: 0.90)) {
+            isLaunchSplashVisible = false
+        }
     }
 
     @MainActor

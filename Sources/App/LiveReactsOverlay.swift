@@ -75,7 +75,7 @@ final class LiveReactsSubscriptionController: ObservableObject {
 
     init(
         liveSubscriber: NostrLiveFeedSubscriber = NostrLiveFeedSubscriber(),
-        relayClient: any NostrRelayEventFetching = NostrRelayClient(fetchEndpointBackoff: .sharedReaction)
+        relayClient: any NostrRelayEventFetching = NostrRelayClient()
     ) {
         self.liveSubscriber = liveSubscriber
         self.relayClient = relayClient

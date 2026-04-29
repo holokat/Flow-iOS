@@ -59,7 +59,9 @@ struct SettingsNewsFeedView: View {
 
             Section {
                 NavigationLink {
-                    SettingsNewsPersonPickerView()
+                    SettingsDetailNavigationHost(title: "Add Person") {
+                        SettingsNewsPersonPickerView()
+                    }
                 } label: {
                     Label("Add Person", systemImage: "person.crop.circle.badge.plus")
                 }

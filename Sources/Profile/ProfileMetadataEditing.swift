@@ -62,6 +62,8 @@ enum ProfileMetadataEditing {
         let normalizedHandle = normalizeHandle(fields.handle)
         let normalizedLightning = normalizeLightningAddress(fields.lightningAddress)
         let normalizedNip05 = fields.nip05.trimmed
+        let normalizedAvatarURL = fields.avatarURLString.trimmed
+        let normalizedBannerURL = fields.bannerURLString.trimmed
 
         if !normalizedNip05.isEmpty, !isEmail(normalizedNip05) {
             throw EditableProfileFieldsError.invalidNostrAddress
@@ -82,8 +84,16 @@ enum ProfileMetadataEditing {
         updated["about"] = fields.about.trimmed
         updated["website"] = fields.website.trimmed
         updated["nip05"] = normalizedNip05
-        updated["picture"] = fields.avatarURLString.trimmed
-        updated["banner"] = fields.bannerURLString.trimmed
+        if normalizedAvatarURL.isEmpty {
+            updated.removeValue(forKey: "picture")
+        } else {
+            updated["picture"] = normalizedAvatarURL
+        }
+        if normalizedBannerURL.isEmpty {
+            updated.removeValue(forKey: "banner")
+        } else {
+            updated["banner"] = normalizedBannerURL
+        }
 
         updated.removeValue(forKey: "gallery")
         updated.removeValue(forKey: "lud16")

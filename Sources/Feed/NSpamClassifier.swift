@@ -815,23 +815,7 @@ actor NSpamAuthorScorer {
     private nonisolated func cachedNoteInputs(for pubkey: String) -> [NSpamNoteInput] {
         let normalized = normalizedPubkey(pubkey)
         guard !normalized.isEmpty else { return [] }
-        let filter = NostrFilter(authors: [normalized], kinds: [1], limit: 10)
-        let events = FlowNostrDB.shared.queryEvents(filter: filter) ?? []
-        return events
-            .sorted { lhs, rhs in
-                if lhs.createdAt == rhs.createdAt {
-                    return lhs.id > rhs.id
-                }
-                return lhs.createdAt > rhs.createdAt
-            }
-            .prefix(10)
-            .map { event in
-                NSpamNoteInput(
-                    content: event.content,
-                    tags: event.tags,
-                    createdAt: event.createdAt
-                )
-            }
+        return []
     }
 
     private nonisolated func normalizedPubkey(_ value: String) -> String {

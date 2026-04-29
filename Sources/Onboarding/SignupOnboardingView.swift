@@ -7,6 +7,8 @@ import UIKit
 @MainActor
 struct SignupOnboardingView: View {
     private static let onboardingProfilePublishTimeout: TimeInterval = 3.5
+    private static let onboardingFeedPreparationMinimumDuration: TimeInterval = 1.15
+    private static let onboardingThemeOptions = AppThemeOption.onboardingOptions
 
     private enum Step: Int, CaseIterable {
         case name
@@ -16,134 +18,27 @@ struct SignupOnboardingView: View {
         case notifications
     }
 
-    private enum PrimaryColorOption: String, CaseIterable, Identifiable {
-        case coral
-        case azure
-        case emerald
-        case violet
-        case fuchsia
-        case teal
+    private struct OnboardingButtonStyleOption: Hashable, Identifiable {
+        let colorOption: AppPrimaryColorOption
 
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .coral:
-                return "Coral"
-            case .azure:
-                return "Azure"
-            case .emerald:
-                return "Emerald"
-            case .violet:
-                return "Violet"
-            case .fuchsia:
-                return "Fuchsia"
-            case .teal:
-                return "Teal"
-            }
-        }
-
-        var color: Color {
-            switch self {
-            case .coral:
-                return Color(red: 1.00, green: 0.32, blue: 0.42)
-            case .azure:
-                return Color(red: 0.16, green: 0.52, blue: 0.95)
-            case .emerald:
-                return Color(red: 0.12, green: 0.67, blue: 0.44)
-            case .violet:
-                return Color(red: 0.58, green: 0.36, blue: 0.96)
-            case .fuchsia:
-                return Color(red: 0.92, green: 0.25, blue: 0.58)
-            case .teal:
-                return Color(red: 0.12, green: 0.66, blue: 0.67)
-            }
-        }
-    }
-
-    private enum OnboardingButtonStyleOption: Hashable, Identifiable {
-        case solid(PrimaryColorOption)
-        case expressive(ExpressiveGradientOption)
-
-        static let defaultOption: Self = .expressive(.aurora)
-
-        static var allOptions: [Self] {
-            PrimaryColorOption.allCases.map(Self.solid) +
-                ExpressiveGradientOption.allCases.map(Self.expressive)
-        }
-
-        var id: String {
-            switch self {
-            case .solid(let option):
-                return "solid-\(option.rawValue)"
-            case .expressive(let option):
-                return "expressive-\(option.rawValue)"
-            }
-        }
-
-        var title: String {
-            switch self {
-            case .solid(let option):
-                return option.title
-            case .expressive(let option):
-                return option.title
-            }
-        }
+        var id: String { colorOption.id }
 
         var primaryColor: Color {
-            switch self {
-            case .solid(let option):
-                return option.color
-            case .expressive(let option):
-                return option.linkColor(at: 0)
-            }
+            colorOption.color
         }
 
         var buttonTextColor: Color {
-            switch self {
-            case .solid:
-                return .white
-            case .expressive(let option):
-                return option.buttonTextColor
-            }
+            SignupOnboardingView.contrastingForegroundColor(for: colorOption.color)
         }
 
         var buttonGradient: LinearGradient {
-            switch self {
-            case .solid(let option):
-                return LinearGradient(
-                    colors: [option.color, option.color],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .expressive(let option):
-                return option.buttonGradient
-            }
+            LinearGradient(
+                colors: [colorOption.color, colorOption.color],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         }
 
-        var bannerGradient: LinearGradient {
-            switch self {
-            case .solid(let option):
-                return LinearGradient(
-                    colors: [
-                        option.color.opacity(0.92),
-                        option.color.opacity(0.54),
-                        Color(.systemBackground)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            case .expressive(let option):
-                return option.uiGradient
-            }
-        }
-
-        var isHolographic: Bool {
-            if case .expressive = self {
-                return true
-            }
-            return false
-        }
     }
 
     @EnvironmentObject private var auth: AuthManager
@@ -155,12 +50,32 @@ struct SignupOnboardingView: View {
     let onSwitchToSignIn: () -> Void
     let onComplete: () -> Void
 
+    init(
+        canSwitchToSignIn: Bool,
+        onSwitchToSignIn: @escaping () -> Void,
+        onComplete: @escaping () -> Void,
+        initialPrimaryColorOption: AppPrimaryColorOption = .defaultOption,
+        initialThemeOption: AppThemeOption = AppSettingsStore.defaultThemeForCurrentTime()
+    ) {
+        self.canSwitchToSignIn = canSwitchToSignIn
+        self.onSwitchToSignIn = onSwitchToSignIn
+        self.onComplete = onComplete
+
+        let resolvedTheme = initialThemeOption.normalizedSelection
+        let safeTheme = Self.onboardingThemeOptions.contains(resolvedTheme)
+            ? resolvedTheme
+            : (Self.onboardingThemeOptions.first ?? .holographicLight)
+        _selectedButtonStyleOption = State(initialValue: OnboardingButtonStyleOption(colorOption: initialPrimaryColorOption))
+        _selectedThemeOption = State(initialValue: safeTheme)
+    }
+
     @State private var step: Step = .name
     @State private var pendingAccount: GeneratedNostrAccount?
     @State private var displayName = ""
     @State private var handle = ""
     @State private var about = ""
-    @State private var selectedButtonStyleOption: OnboardingButtonStyleOption = .defaultOption
+    @State private var selectedButtonStyleOption: OnboardingButtonStyleOption
+    @State private var selectedThemeOption: AppThemeOption
     @State private var hasEditedHandle = false
     @State private var selectedTopics = Set<InterestTopic>()
     @State private var signupPrivateKeyBackupEnabled = true
@@ -186,6 +101,9 @@ struct SignupOnboardingView: View {
 
     var body: some View {
         ZStack {
+            previewThemePalette.background
+                .ignoresSafeArea()
+
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 22) {
                     content
@@ -197,16 +115,21 @@ struct SignupOnboardingView: View {
                             .padding(.horizontal, 20)
                     }
 
-                    footerActions
+                    if !isFinishing {
+                        footerActions
+                    }
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 20)
             }
         }
-        .background(Color(.systemBackground))
+        .toolbarBackground(previewThemePalette.navigationBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .preferredColorScheme(previewColorSchemeOverride)
         .tint(onboardingInputTint)
         .task {
             await preparePendingAccountIfNeeded()
+            applyThemePreview()
         }
         .onChange(of: selectedAvatarItem) { _, newValue in
             guard let newValue else { return }
@@ -224,6 +147,9 @@ struct SignupOnboardingView: View {
             guard !hasEditedHandle else { return }
             handle = suggestedHandle(from: newValue)
         }
+        .onChange(of: selectedThemeOption) { _, _ in
+            applyThemePreview()
+        }
         .onChange(of: isFinishing) { _, isActive in
             guard isActive else {
                 animateFinishingButton = false
@@ -234,6 +160,9 @@ struct SignupOnboardingView: View {
                 animateFinishingButton = true
             }
         }
+        .onDisappear {
+            appSettings.endThemePreview()
+        }
     }
 
     @ViewBuilder
@@ -243,10 +172,12 @@ struct SignupOnboardingView: View {
                 ProgressView()
                 Text("Creating your account…")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(previewThemePalette.secondaryForeground)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 60)
+        } else if isFinishing {
+            finishingStep
         } else {
             switch step {
             case .name:
@@ -286,7 +217,7 @@ struct SignupOnboardingView: View {
                     HStack(spacing: 8) {
                         Text("@")
                             .font(.body.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(previewThemePalette.secondaryForeground)
                         TextField("yourhandle", text: handleBinding)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -302,11 +233,12 @@ struct SignupOnboardingView: View {
         let bannerIsLoading = isLoadingBanner
         let uploadButtonTextColor = selectedButtonStyleOption.buttonTextColor
         let uploadButtonGradient = selectedButtonStyleOption.buttonGradient
+        let uploadsDisabled = isFinishing || isLoadingAvatar || isLoadingBanner
 
         return VStack(alignment: .leading, spacing: 18) {
             stepIntro(
-                title: "Make it feel like you.",
-                subtitle: "Pick a banner style or upload your own image. You can change all of this later."
+                title: "Customize Profile",
+                subtitle: "Pick a primary color and palette, then upload photos if you want. You can change all of this later."
             )
 
             OnboardingProfilePreviewCard(
@@ -315,53 +247,40 @@ struct SignupOnboardingView: View {
                 about: about,
                 avatarPreviewImage: selectedAvatarPreviewImage,
                 bannerPreviewImage: selectedBannerPreviewImage,
-                styleOption: selectedButtonStyleOption
+                styleOption: selectedButtonStyleOption,
+                themePalette: previewThemePalette,
+                selectedAvatarItem: $selectedAvatarItem,
+                selectedBannerItem: $selectedBannerItem,
+                isLoadingAvatar: avatarIsLoading,
+                isLoadingBanner: bannerIsLoading,
+                uploadsDisabled: uploadsDisabled,
+                uploadButtonTextColor: uploadButtonTextColor,
+                uploadButtonGradient: uploadButtonGradient
             )
 
             onboardingFieldCard {
-                VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        fieldLabel("Banner & Buttons")
-                        Text(selectedButtonStyleOption.title)
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(OnboardingButtonStyleOption.allOptions) { option in
-                                buttonStyleChip(for: option)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                    .scrollClipDisabled()
+                VStack(alignment: .leading, spacing: 16) {
+                    fieldLabel("Primary Color")
 
                     HStack(spacing: 10) {
-                        PhotosPicker(selection: $selectedAvatarItem, matching: .images) {
-                            OnboardingImageUploadButton(
-                                title: "Profile photo",
-                                systemImage: "person.crop.circle",
-                                isLoading: avatarIsLoading,
-                                foregroundColor: uploadButtonTextColor,
-                                backgroundGradient: uploadButtonGradient
-                            )
+                        ForEach(AppSettingsStore.availablePrimaryColorOptions) { option in
+                            primaryColorChip(for: option)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(isFinishing || isLoadingAvatar || isLoadingBanner)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                        PhotosPicker(selection: $selectedBannerItem, matching: .images) {
-                            OnboardingImageUploadButton(
-                                title: "Banner image",
-                                systemImage: "photo.on.rectangle.angled",
-                                isLoading: bannerIsLoading,
-                                foregroundColor: uploadButtonTextColor,
-                                backgroundGradient: uploadButtonGradient
-                            )
+                    fieldLabel("Color Palette")
+
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(minimum: 140), spacing: 10),
+                            GridItem(.flexible(minimum: 140), spacing: 10)
+                        ],
+                        spacing: 10
+                    ) {
+                        ForEach(Self.onboardingThemeOptions) { option in
+                            paletteChip(for: option)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(isFinishing || isLoadingAvatar || isLoadingBanner)
                     }
                 }
             }
@@ -383,7 +302,7 @@ struct SignupOnboardingView: View {
                         if about.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             Text("Tell people a little about yourself…")
                                 .font(.body)
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(previewThemePalette.tertiaryForeground)
                                 .padding(.top, 8)
                                 .padding(.leading, 5)
                                 .allowsHitTesting(false)
@@ -443,7 +362,7 @@ struct SignupOnboardingView: View {
 
                             Text("Keep a private backup so you can restore this account on another device.")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(previewThemePalette.secondaryForeground)
                         }
                     }
 
@@ -452,7 +371,7 @@ struct SignupOnboardingView: View {
 
                     Text(signupPrivateKeyBackupStatusDescription)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(previewThemePalette.secondaryForeground)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -471,7 +390,7 @@ struct SignupOnboardingView: View {
 
                             Text("Enable notifications here and iOS will ask for permission right away.")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(previewThemePalette.secondaryForeground)
                         }
                     }
 
@@ -480,11 +399,41 @@ struct SignupOnboardingView: View {
 
                     Text(signupNotificationsStatusDescription)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(previewThemePalette.secondaryForeground)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
+    }
+
+    private var finishingStep: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            stepIntro(
+                title: "Getting your space ready",
+                subtitle: "We’re putting together an Interests feed shaped around the topics you picked."
+            )
+
+            onboardingFieldCard {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                            .controlSize(.regular)
+                            .tint(selectedButtonStyleOption.primaryColor)
+
+                        Text("This should only take a moment.")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(previewThemePalette.foreground)
+                    }
+
+                    Text("When this finishes, we’ll open your Interests feed instead of dropping you into the broader network.")
+                        .font(.footnote)
+                        .foregroundStyle(previewThemePalette.secondaryForeground)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 24)
     }
 
     private var footerActions: some View {
@@ -539,7 +488,7 @@ struct SignupOnboardingView: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(previewThemePalette.secondaryForeground)
                 }
 
                 Spacer()
@@ -549,7 +498,7 @@ struct SignupOnboardingView: View {
                         advanceFromOptionalStep()
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(previewThemePalette.secondaryForeground)
                 }
             }
             .font(.footnote.weight(.medium))
@@ -561,24 +510,31 @@ struct SignupOnboardingView: View {
     private func onboardingFieldCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .padding(18)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(previewThemePalette.sheetCardBackground)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(previewThemePalette.sheetCardBorder, lineWidth: 1)
+            }
     }
 
     private func fieldLabel(_ title: String) -> some View {
         Text(title)
             .font(.footnote.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(previewThemePalette.mutedForeground)
     }
 
     private func stepIntro(title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.custom("SF Pro Display", size: 31).weight(.bold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(previewThemePalette.foreground)
 
             Text(subtitle)
                 .font(.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(previewThemePalette.secondaryForeground)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -600,7 +556,7 @@ struct SignupOnboardingView: View {
 
                 Text(topic.title)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(isSelected ? onboardingChipSelectedForeground : .primary)
+                    .foregroundStyle(isSelected ? onboardingChipSelectedForeground : previewThemePalette.foreground)
                     .lineLimit(1)
                     .minimumScaleFactor(0.9)
 
@@ -622,7 +578,7 @@ struct SignupOnboardingView: View {
             .overlay(
                 Capsule(style: .continuous)
                     .stroke(
-                        isSelected ? onboardingChipSelectedStroke : Color(.separator).opacity(0.28),
+                        isSelected ? onboardingChipSelectedStroke : previewThemePalette.separator.opacity(0.72),
                         lineWidth: 1
                     )
             )
@@ -630,44 +586,69 @@ struct SignupOnboardingView: View {
         .buttonStyle(.plain)
     }
 
-    private func buttonStyleChip(for option: OnboardingButtonStyleOption) -> some View {
-        let isSelected = selectedButtonStyleOption == option
+    private func primaryColorChip(for option: AppPrimaryColorOption) -> some View {
+        let isSelected = selectedButtonStyleOption.colorOption == option
 
         return Button {
-            selectedButtonStyleOption = option
+            selectedButtonStyleOption = OnboardingButtonStyleOption(colorOption: option)
         } label: {
             Circle()
-                .fill(option.buttonGradient)
-                .frame(width: 42, height: 42)
+                .fill(option.color)
+                .frame(width: 34, height: 34)
                 .overlay {
-                    Circle()
-                        .stroke(
-                            isSelected ? Color.white.opacity(0.95) : Color.white.opacity(0.24),
-                            lineWidth: isSelected ? 2.5 : 1
-                        )
-                }
-                .overlay {
-                    Circle()
-                        .stroke(Color.black.opacity(isSelected ? 0.18 : 0.08), lineWidth: 0.8)
-                }
-                .overlay(alignment: .bottomTrailing) {
                     if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.footnote.weight(.bold))
-                            .foregroundStyle(option.buttonTextColor, option.primaryColor.opacity(0.95))
-                            .background(Circle().fill(Color.white))
-                            .offset(x: 2, y: 2)
+                        Image(systemName: "checkmark")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(selectedButtonStyleOption.buttonTextColor)
                     }
                 }
-                .shadow(
-                    color: option.primaryColor.opacity(isSelected ? 0.24 : 0.12),
-                    radius: isSelected ? 10 : 6,
-                    y: 4
-                )
+                .scaleEffect(isSelected ? 1.04 : 1)
+                .frame(width: 38, height: 38)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(option.title)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityLabel("Primary color #\(option.hexCode)")
+    }
+
+    private func paletteChip(for option: AppThemeOption) -> some View {
+        let isSelected = selectedThemeOption == option
+
+        return Button {
+            selectedThemeOption = option
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: option.iconName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(isSelected ? onboardingChipSelectedForeground : onboardingSecondaryAccent)
+
+                Text(option.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(isSelected ? onboardingChipSelectedForeground : previewThemePalette.foreground)
+
+                Spacer(minLength: 0)
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(onboardingChipSelectedForeground.opacity(0.92))
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(isSelected ? onboardingChipSelectedFill : AnyShapeStyle(onboardingChipFill))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(
+                        isSelected ? onboardingChipSelectedStroke : previewThemePalette.separator.opacity(0.72),
+                        lineWidth: 1
+                    )
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private var handleBinding: Binding<String> {
@@ -716,22 +697,22 @@ struct SignupOnboardingView: View {
 
     private var primaryButtonBackground: AnyShapeStyle {
         primaryActionDisabled
-            ? AnyShapeStyle(Color(.tertiarySystemFill))
+            ? AnyShapeStyle(previewThemePalette.tertiaryFill)
             : AnyShapeStyle(onboardingPrimaryButtonFill)
     }
 
     private var primaryButtonForeground: Color {
-        primaryActionDisabled ? Color(.secondaryLabel) : onboardingPrimaryButtonForeground
+        primaryActionDisabled ? previewThemePalette.mutedForeground : onboardingPrimaryButtonForeground
     }
 
     private var primaryButtonBorder: Color {
         if primaryActionDisabled {
-            return Color(.separator).opacity(0.16)
+            return previewThemePalette.separator.opacity(0.56)
         }
 
-        return colorScheme == .dark
-            ? Color.white.opacity(0.08)
-            : onboardingInk.opacity(0.16)
+        return effectivePreviewColorScheme == .dark
+            ? previewThemePalette.separator.opacity(0.88)
+            : previewThemePalette.separator.opacity(0.72)
     }
 
     private var primaryButtonShadowColor: Color {
@@ -739,25 +720,21 @@ struct SignupOnboardingView: View {
         if isFinishing {
             return Color.black.opacity(animateFinishingButton ? 0.18 : 0.10)
         }
-        return colorScheme == .light ? Color.black.opacity(0.08) : .clear
+        return effectivePreviewColorScheme == .light ? Color.black.opacity(0.08) : .clear
     }
 
     private var primaryButtonShadowRadius: CGFloat {
         if isFinishing {
             return 18
         }
-        return colorScheme == .light && !primaryActionDisabled ? 10 : 0
+        return effectivePreviewColorScheme == .light && !primaryActionDisabled ? 10 : 0
     }
 
     private var primaryButtonShadowYOffset: CGFloat {
         if isFinishing {
             return 8
         }
-        return colorScheme == .light && !primaryActionDisabled ? 5 : 0
-    }
-
-    private var onboardingInk: Color {
-        Color(red: 0.06, green: 0.10, blue: 0.18)
+        return effectivePreviewColorScheme == .light && !primaryActionDisabled ? 5 : 0
     }
 
     private var onboardingPrimaryButtonFill: LinearGradient {
@@ -769,19 +746,19 @@ struct SignupOnboardingView: View {
     }
 
     private var onboardingSecondaryAccent: Color {
-        Color(.secondaryLabel)
+        previewThemePalette.iconMutedForeground
     }
 
     private var onboardingToggleTint: Color {
-        Color(.systemGreen)
+        selectedButtonStyleOption.primaryColor
     }
 
     private var onboardingInputTint: Color {
-        colorScheme == .dark ? .white : onboardingInk
+        selectedButtonStyleOption.primaryColor
     }
 
     private var onboardingChipFill: Color {
-        colorScheme == .dark ? Color(.secondarySystemBackground) : Color(.systemGray6)
+        previewThemePalette.secondaryBackground
     }
 
     private var onboardingChipSelectedFill: AnyShapeStyle {
@@ -793,7 +770,27 @@ struct SignupOnboardingView: View {
     }
 
     private var onboardingChipSelectedStroke: Color {
-        selectedButtonStyleOption.primaryColor.opacity(colorScheme == .dark ? 0.54 : 0.38)
+        selectedButtonStyleOption.primaryColor.opacity(effectivePreviewColorScheme == .dark ? 0.54 : 0.38)
+    }
+
+    private var previewThemeOption: AppThemeOption {
+        selectedThemeOption.normalizedSelection
+    }
+
+    private var previewThemePalette: AppThemePalette {
+        let palette = previewThemeOption.palette
+        if previewThemeOption == .holographicLight {
+            return palette.applyingLightPrimaryAccent(selectedButtonStyleOption.primaryColor)
+        }
+        return palette
+    }
+
+    private var previewColorSchemeOverride: ColorScheme? {
+        previewThemeOption.preferredColorScheme
+    }
+
+    private var effectivePreviewColorScheme: ColorScheme {
+        previewColorSchemeOverride ?? colorScheme
     }
 
     private var normalizedDisplayName: String {
@@ -965,20 +962,17 @@ struct SignupOnboardingView: View {
         guard !isFinishing, let pendingAccount else { return }
         isFinishing = true
         errorMessage = nil
+        let finishStartedAt = Date()
 
         do {
             let account = try auth.loginWithNsecOrHex(
                 pendingAccount.nsec,
                 backupPrivateKeyToICloud: signupPrivateKeyBackupEnabled
             )
-            onComplete()
 
             appSettings.configure(accountPubkey: account.pubkey)
-            appSettings.theme = .system
+            appSettings.theme = selectedThemeOption
             applySelectedButtonStyle()
-            if signupNotificationsEnabled {
-                appSettings.notificationsEnabled = true
-            }
 
             relaySettings.configure(accountPubkey: account.pubkey, nsec: auth.currentNsec ?? pendingAccount.nsec)
             relaySettings.seedDefaultRelaysForCurrentAccount(publishToBootstrapRelays: true)
@@ -1009,7 +1003,7 @@ struct SignupOnboardingView: View {
                 bannerURLString: bannerURL
             )
 
-            InterestFeedStore.shared.configure(accountPubkey: pendingAccount.pubkey)
+            InterestFeedStore.shared.configure(accountPubkey: account.pubkey)
             InterestFeedStore.shared.seedFromOnboarding(interestTopics)
             if interestHashtags.isEmpty {
                 InterestFeedStore.shared.setHashtags([])
@@ -1017,16 +1011,65 @@ struct SignupOnboardingView: View {
 
             UserDefaults.standard.set(
                 HomePrimaryFeedSource.interests.storageValue,
-                forKey: HomeFeedViewModel.persistedFeedSourceKey(pubkey: pendingAccount.pubkey.lowercased())
+                forKey: HomeFeedViewModel.persistedFeedSourceKey(pubkey: account.pubkey.lowercased())
             )
 
-            isFinishing = false
+            await warmInterestsFeed(for: account.pubkey, interestHashtags: interestHashtags)
+            await ensureMinimumFeedPreparationDuration(since: finishStartedAt)
+
+            if signupNotificationsEnabled {
+                appSettings.notificationsEnabled = true
+            }
+
+            appSettings.endThemePreview()
+            onComplete()
             return
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
 
         isFinishing = false
+    }
+
+    private func applyThemePreview() {
+        _ = appSettings.beginThemePreview(previewThemeOption)
+    }
+
+    @MainActor
+    private func warmInterestsFeed(for accountPubkey: String, interestHashtags: [String]) async {
+        guard !interestHashtags.isEmpty else { return }
+
+        let readRelayURLs = appSettings.effectiveReadRelayURLs(from: relaySettings.readRelayURLs)
+        guard let primaryRelayURL = readRelayURLs.first else { return }
+
+        let warmupModel = HomeFeedViewModel(
+            relayURL: primaryRelayURL,
+            readRelayURLs: readRelayURLs
+        )
+        warmupModel.updateReadRelayURLs(readRelayURLs)
+        warmupModel.updateInterestHashtags(interestHashtags)
+        warmupModel.updatePollsFeedVisibility(appSettings.pollsFeedVisible)
+        warmupModel.updateCustomFeeds(appSettings.customFeeds)
+        warmupModel.updateCurrentUserPubkey(accountPubkey)
+
+        await Task.yield()
+
+        let deadline = Date().addingTimeInterval(1.4)
+        while Date() < deadline {
+            if !warmupModel.isLoading,
+               (!warmupModel.items.isEmpty || warmupModel.errorMessage != nil) {
+                break
+            }
+
+            try? await Task.sleep(nanoseconds: 80_000_000)
+        }
+    }
+
+    @MainActor
+    private func ensureMinimumFeedPreparationDuration(since startDate: Date) async {
+        let remaining = Self.onboardingFeedPreparationMinimumDuration - Date().timeIntervalSince(startDate)
+        guard remaining > 0 else { return }
+        try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
     }
 
     private func uploadAvatarIfNeeded(using account: GeneratedNostrAccount) async throws -> String? {
@@ -1056,14 +1099,8 @@ struct SignupOnboardingView: View {
     }
 
     private func applySelectedButtonStyle() {
-        switch selectedButtonStyleOption {
-        case .solid(let option):
-            appSettings.primaryColor = option.color
-            appSettings.clearButtonGradient()
-        case .expressive(let option):
-            appSettings.expressiveGradientOption = option
-            appSettings.expressiveLinkColorIndex = 0
-        }
+        appSettings.primaryColor = selectedButtonStyleOption.primaryColor
+        appSettings.clearButtonGradient()
     }
 
     private func publishProfileMetadata(
@@ -1146,39 +1183,6 @@ struct SignupOnboardingView: View {
         )
     }
 
-    private struct OnboardingImageUploadButton: View {
-        let title: String
-        let systemImage: String
-        let isLoading: Bool
-        let foregroundColor: Color
-        let backgroundGradient: LinearGradient
-
-        var body: some View {
-            HStack(spacing: 8) {
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(foregroundColor)
-                } else {
-                    Image(systemName: systemImage)
-                        .font(.subheadline.weight(.semibold))
-                }
-
-                Text(title)
-                    .font(.footnote.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-            }
-            .frame(maxWidth: .infinity, minHeight: 42)
-            .foregroundStyle(foregroundColor)
-            .background(backgroundGradient, in: Capsule(style: .continuous))
-            .overlay {
-                Capsule(style: .continuous)
-                    .stroke(Color.black.opacity(0.10), lineWidth: 0.8)
-            }
-        }
-    }
-
     private struct OnboardingProfilePreviewCard: View {
         let displayName: String
         let handle: String
@@ -1186,6 +1190,14 @@ struct SignupOnboardingView: View {
         let avatarPreviewImage: UIImage?
         let bannerPreviewImage: UIImage?
         let styleOption: OnboardingButtonStyleOption
+        let themePalette: AppThemePalette
+        @Binding var selectedAvatarItem: PhotosPickerItem?
+        @Binding var selectedBannerItem: PhotosPickerItem?
+        let isLoadingAvatar: Bool
+        let isLoadingBanner: Bool
+        let uploadsDisabled: Bool
+        let uploadButtonTextColor: Color
+        let uploadButtonGradient: LinearGradient
 
         private static let bannerHeight: CGFloat = 132
         private static let avatarSize: CGFloat = 82
@@ -1196,7 +1208,11 @@ struct SignupOnboardingView: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .bottom, spacing: 12) {
-                        previewAvatar
+                        HStack(alignment: .bottom, spacing: 10) {
+                            previewAvatar
+                            avatarUploadButton
+                                .padding(.bottom, 6)
+                        }
 
                         Spacer(minLength: 0)
 
@@ -1211,17 +1227,21 @@ struct SignupOnboardingView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(resolvedDisplayName)
                             .font(.system(size: 24, weight: .heavy, design: .default))
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(themePalette.foreground)
                             .lineLimit(2)
 
                         Text(resolvedHandle)
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(themePalette.secondaryForeground)
                     }
 
                     Text(resolvedAbout)
                         .font(.body)
-                        .foregroundStyle(about.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .primary)
+                        .foregroundStyle(
+                            about.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                ? themePalette.secondaryForeground
+                                : themePalette.foreground
+                        )
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1230,10 +1250,10 @@ struct SignupOnboardingView: View {
                 .padding(.bottom, 16)
             }
             .frame(maxWidth: .infinity)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .background(themePalette.sheetCardBackground, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(Color(.separator).opacity(0.18), lineWidth: 0.8)
+                    .stroke(themePalette.sheetCardBorder, lineWidth: 0.8)
             }
             .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
             .shadow(color: Color.black.opacity(0.08), radius: 18, y: 8)
@@ -1265,12 +1285,27 @@ struct SignupOnboardingView: View {
                 LinearGradient(
                     colors: [
                         Color.black.opacity(0.08),
-                        .clear,
-                        Color(.secondarySystemBackground).opacity(0.34)
+                        .clear
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
+
+                LinearGradient(
+                    stops: [
+                        .init(color: Color.clear, location: 0),
+                        .init(color: themePalette.sheetCardBackground.opacity(0.30), location: 0.34),
+                        .init(color: themePalette.sheetCardBackground.opacity(0.78), location: 0.72),
+                        .init(color: themePalette.sheetCardBackground, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .overlay(alignment: .topTrailing) {
+                bannerUploadButton
+                    .padding(.top, 28)
+                    .padding(.trailing, 14)
             }
             .frame(maxWidth: .infinity)
             .frame(height: Self.bannerHeight)
@@ -1283,22 +1318,35 @@ struct SignupOnboardingView: View {
                 Image(uiImage: bannerPreviewImage)
                     .resizable()
                     .scaledToFill()
+                    .saturation(0.92)
+                    .opacity(0.70)
             } else {
                 ZStack {
                     Rectangle()
-                        .fill(styleOption.bannerGradient)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    styleOption.primaryColor.opacity(0.92),
+                                    styleOption.primaryColor.opacity(0.54),
+                                    themePalette.secondaryBackground
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .background(themePalette.secondaryBackground)
 
                     Circle()
-                        .fill(Color.white.opacity(styleOption.isHolographic ? 0.36 : 0.22))
-                        .frame(width: 126, height: 126)
-                        .blur(radius: 20)
-                        .offset(x: 116, y: -38)
+                        .fill(Color.white.opacity(0.36))
+                        .frame(width: 152, height: 152)
+                        .blur(radius: 18)
+                        .offset(x: 120, y: -40)
 
                     Circle()
-                        .fill(styleOption.primaryColor.opacity(0.24))
-                        .frame(width: 154, height: 154)
-                        .blur(radius: 24)
-                        .offset(x: -118, y: 48)
+                        .fill(styleOption.primaryColor.opacity(0.16))
+                        .frame(width: 188, height: 188)
+                        .blur(radius: 28)
+                        .offset(x: -132, y: 54)
                 }
             }
         }
@@ -1321,13 +1369,13 @@ struct SignupOnboardingView: View {
                 }
             }
             .frame(width: Self.avatarSize, height: Self.avatarSize)
-            .background(Circle().fill(Color(.systemBackground)))
+            .background(Circle().fill(themePalette.background))
             .clipShape(Circle())
             .overlay {
-                Circle().stroke(Color(.secondarySystemBackground), lineWidth: 4)
+                Circle().stroke(themePalette.sheetCardBackground, lineWidth: 4)
             }
             .overlay {
-                Circle().stroke(Color(.separator).opacity(0.22), lineWidth: 0.8)
+                Circle().stroke(themePalette.separator.opacity(0.6), lineWidth: 0.8)
             }
             .shadow(color: Color.black.opacity(0.12), radius: 12, y: 7)
         }
@@ -1335,9 +1383,9 @@ struct SignupOnboardingView: View {
         private func previewIconCapsule(systemImage: String) -> some View {
             Image(systemName: systemImage)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(themePalette.foreground)
                 .frame(width: 38, height: 36)
-                .background(Color(.tertiarySystemFill), in: Capsule(style: .continuous))
+                .background(themePalette.tertiaryFill, in: Capsule(style: .continuous))
         }
 
         private var previewFollowCapsule: some View {
@@ -1348,6 +1396,78 @@ struct SignupOnboardingView: View {
                 .frame(height: 36)
                 .background(styleOption.buttonGradient, in: Capsule(style: .continuous))
         }
+
+        private var avatarUploadButton: some View {
+            PhotosPicker(selection: $selectedAvatarItem, matching: .images) {
+                ZStack {
+                    Circle()
+                        .fill(uploadButtonGradient)
+
+                    if isLoadingAvatar {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(uploadButtonTextColor)
+                    } else {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(uploadButtonTextColor)
+                    }
+                }
+                .frame(width: 40, height: 40)
+                .overlay {
+                    Circle()
+                        .stroke(Color.black.opacity(0.10), lineWidth: 0.8)
+                }
+                .shadow(color: styleOption.primaryColor.opacity(0.22), radius: 10, y: 5)
+            }
+            .buttonStyle(.plain)
+            .disabled(uploadsDisabled)
+            .accessibilityLabel("Upload profile photo")
+        }
+
+        private var bannerUploadButton: some View {
+            PhotosPicker(selection: $selectedBannerItem, matching: .images) {
+                ZStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.footnote.weight(.bold))
+
+                        Text("Upload")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .opacity(isLoadingBanner ? 0 : 1)
+
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(uploadButtonTextColor)
+                        .opacity(isLoadingBanner ? 1 : 0)
+                }
+                .frame(width: 112, height: 38)
+                .foregroundStyle(uploadButtonTextColor)
+                .background(uploadButtonGradient, in: Capsule(style: .continuous))
+                .overlay {
+                    Capsule(style: .continuous)
+                        .stroke(Color.black.opacity(0.10), lineWidth: 0.8)
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(uploadsDisabled)
+            .accessibilityLabel("Upload banner image")
+        }
+    }
+
+    nonisolated private static func contrastingForegroundColor(for color: Color) -> Color {
+        let uiColor = UIColor(color)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return .white
+        }
+
+        let luminance = (0.299 * Double(red)) + (0.587 * Double(green)) + (0.114 * Double(blue))
+        return luminance > 0.68 ? .black : .white
     }
 
     private func suggestedHandle(from value: String) -> String {

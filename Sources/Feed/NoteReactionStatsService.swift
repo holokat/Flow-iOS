@@ -86,7 +86,7 @@ final class NoteReactionStatsService: ObservableObject {
     private var persistTask: Task<Void, Never>?
 
     init(
-        relayClient: any NostrRelayEventFetching = NostrRelayClient(fetchEndpointBackoff: .sharedReaction),
+        relayClient: any NostrRelayEventFetching = NostrRelayClient(),
         store: NoteReactionStatsStore = .shared
     ) {
         self.relayClient = relayClient
@@ -236,18 +236,21 @@ final class NoteReactionStatsService: ObservableObject {
         guard !normalizedTargetEventID.isEmpty else { return }
 
         suppressedReactionIDs.remove(normalizedEventID(event.id))
+        var pendingStatsUpdates: [String: NoteReactionStats] = [:]
         let touchedIDs = mergeReactionEvents(
             [event],
-            trackedEventIDs: Set([normalizedTargetEventID])
+            trackedEventIDs: Set([normalizedTargetEventID]),
+            pendingStatsUpdates: &pendingStatsUpdates
         )
         guard !touchedIDs.isEmpty else { return }
 
         let now = Int(Date().timeIntervalSince1970)
         for eventID in touchedIDs {
-            var stats = statsByEventID[eventID] ?? NoteReactionStats()
+            var stats = pendingStats(for: eventID, pendingStatsUpdates: pendingStatsUpdates)
             stats.updatedAt = now
-            setStats(stats, for: eventID)
+            pendingStatsUpdates[eventID] = stats
         }
+        commitPendingStats(pendingStatsUpdates)
         schedulePersist(eventIDs: Array(touchedIDs))
     }
 
@@ -398,11 +401,16 @@ final class NoteReactionStatsService: ObservableObject {
         var successfulFetchCountByEventID: [String: Int] = [:]
         var touchedEventIDs = Set<String>()
         var persistedEventIDs = Set<String>()
+        var pendingStatsUpdates: [String: NoteReactionStats] = [:]
 
         for result in fetchResults {
             guard let engagementEvents = result.events else { continue }
 
-            let touchedIDs = mergeEngagementEvents(engagementEvents, trackedEventIDs: Set(result.eventIDs))
+            let touchedIDs = mergeEngagementEvents(
+                engagementEvents,
+                trackedEventIDs: Set(result.eventIDs),
+                pendingStatsUpdates: &pendingStatsUpdates
+            )
             for eventID in result.eventIDs {
                 successfulFetchCountByEventID[eventID, default: 0] += 1
             }
@@ -418,11 +426,13 @@ final class NoteReactionStatsService: ObservableObject {
             let hasCorroboratedEmptyResult = successfulFetchCount >= min(plannedFetchCount, 2)
             guard hasFreshEngagementEvent || hasCorroboratedEmptyResult else { continue }
 
-            var stats = statsByEventID[eventID] ?? NoteReactionStats()
+            var stats = pendingStats(for: eventID, pendingStatsUpdates: pendingStatsUpdates)
             stats.updatedAt = now
-            setStats(stats, for: eventID)
+            pendingStatsUpdates[eventID] = stats
             persistedEventIDs.insert(eventID)
         }
+
+        commitPendingStats(pendingStatsUpdates)
 
         if !persistedEventIDs.isEmpty {
             schedulePersist(eventIDs: Array(persistedEventIDs))
@@ -435,17 +445,35 @@ final class NoteReactionStatsService: ObservableObject {
 
     private func mergeEngagementEvents(
         _ events: [NostrEvent],
-        trackedEventIDs: Set<String>
+        trackedEventIDs: Set<String>,
+        pendingStatsUpdates: inout [String: NoteReactionStats]
     ) -> Set<String> {
-        var touched = mergeReactionEvents(events, trackedEventIDs: trackedEventIDs)
-        touched.formUnion(mergeReplyEvents(events, trackedEventIDs: trackedEventIDs))
-        touched.formUnion(mergeRepostEvents(events, trackedEventIDs: trackedEventIDs))
+        var touched = mergeReactionEvents(
+            events,
+            trackedEventIDs: trackedEventIDs,
+            pendingStatsUpdates: &pendingStatsUpdates
+        )
+        touched.formUnion(
+            mergeReplyEvents(
+                events,
+                trackedEventIDs: trackedEventIDs,
+                pendingStatsUpdates: &pendingStatsUpdates
+            )
+        )
+        touched.formUnion(
+            mergeRepostEvents(
+                events,
+                trackedEventIDs: trackedEventIDs,
+                pendingStatsUpdates: &pendingStatsUpdates
+            )
+        )
         return touched
     }
 
     private func mergeReactionEvents(
         _ events: [NostrEvent],
-        trackedEventIDs: Set<String>
+        trackedEventIDs: Set<String>,
+        pendingStatsUpdates: inout [String: NoteReactionStats]
     ) -> Set<String> {
         var touched = Set<String>()
 
@@ -459,7 +487,7 @@ final class NoteReactionStatsService: ObservableObject {
             guard !suppressedReactionIDs.contains(normalizedReactionID) else { continue }
             let normalizedPubkey = normalizePubkey(event.pubkey) ?? event.pubkey.lowercased()
 
-            var stats = statsByEventID[targetEventID] ?? NoteReactionStats()
+            var stats = pendingStats(for: targetEventID, pendingStatsUpdates: pendingStatsUpdates)
             removeOptimisticReactions(for: normalizedPubkey, from: &stats)
             guard !stats.reactionIDs.contains(normalizedReactionID) else { continue }
 
@@ -474,7 +502,7 @@ final class NoteReactionStatsService: ObservableObject {
                 in: &stats
             )
 
-            setStats(stats, for: targetEventID)
+            pendingStatsUpdates[targetEventID] = stats
             touched.insert(targetEventID)
         }
 
@@ -483,7 +511,8 @@ final class NoteReactionStatsService: ObservableObject {
 
     private func mergeReplyEvents(
         _ events: [NostrEvent],
-        trackedEventIDs: Set<String>
+        trackedEventIDs: Set<String>,
+        pendingStatsUpdates: inout [String: NoteReactionStats]
     ) -> Set<String> {
         var touched = Set<String>()
 
@@ -495,9 +524,9 @@ final class NoteReactionStatsService: ObservableObject {
             let replyID = normalizedEventID(event.id)
             guard !replyID.isEmpty else { continue }
 
-            var stats = statsByEventID[targetEventID] ?? NoteReactionStats()
+            var stats = pendingStats(for: targetEventID, pendingStatsUpdates: pendingStatsUpdates)
             guard stats.replyIDs.insert(replyID).inserted else { continue }
-            setStats(stats, for: targetEventID)
+            pendingStatsUpdates[targetEventID] = stats
             touched.insert(targetEventID)
         }
 
@@ -506,7 +535,8 @@ final class NoteReactionStatsService: ObservableObject {
 
     private func mergeRepostEvents(
         _ events: [NostrEvent],
-        trackedEventIDs: Set<String>
+        trackedEventIDs: Set<String>,
+        pendingStatsUpdates: inout [String: NoteReactionStats]
     ) -> Set<String> {
         var touched = Set<String>()
 
@@ -518,9 +548,9 @@ final class NoteReactionStatsService: ObservableObject {
             let repostID = normalizedEventID(event.id)
             guard !repostID.isEmpty else { continue }
 
-            var stats = statsByEventID[targetEventID] ?? NoteReactionStats()
+            var stats = pendingStats(for: targetEventID, pendingStatsUpdates: pendingStatsUpdates)
             guard stats.repostIDs.insert(repostID).inserted else { continue }
-            setStats(stats, for: targetEventID)
+            pendingStatsUpdates[targetEventID] = stats
             touched.insert(targetEventID)
         }
 
@@ -580,6 +610,21 @@ final class NoteReactionStatsService: ObservableObject {
         let normalizedTargetEventID = normalizedEventID(eventID)
         guard !normalizedTargetEventID.isEmpty else { return .empty }
         return buildSnapshot(for: normalizedTargetEventID)
+    }
+
+    private func pendingStats(
+        for eventID: String,
+        pendingStatsUpdates: [String: NoteReactionStats]
+    ) -> NoteReactionStats {
+        pendingStatsUpdates[eventID] ?? statsByEventID[eventID] ?? NoteReactionStats()
+    }
+
+    private func commitPendingStats(_ pendingStatsUpdates: [String: NoteReactionStats]) {
+        guard !pendingStatsUpdates.isEmpty else { return }
+
+        for (eventID, stats) in pendingStatsUpdates {
+            setStats(stats, for: eventID)
+        }
     }
 
     private func buildSnapshot(for eventID: String) -> NoteReactionEventSnapshot {

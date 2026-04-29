@@ -31,6 +31,7 @@ struct ProfileView: View {
     @StateObject private var viewModel: ProfileViewModel
 
     private let reactionStats = NoteReactionStatsService.shared
+    @StateObject private var engagementViewport = FeedEngagementViewportCoordinator()
     @ObservedObject private var followStore = FollowStore.shared
     @ObservedObject private var muteStore = MuteStore.shared
 
@@ -356,7 +357,10 @@ struct ProfileView: View {
                             .listRowBackground(Color.clear)
                             .onAppear {
                                 if appSettings.reactionsVisibleInFeeds {
-                                    reactionStats.prefetch(events: [item.displayEvent], relayURLs: effectiveReadRelayURLs)
+                                    engagementViewport.noteVisible(
+                                        event: item.displayEvent,
+                                        relayURLs: effectiveReadRelayURLs
+                                    )
                                 }
                                 Task {
                                     await viewModel.loadMoreIfNeeded(currentItem: item)

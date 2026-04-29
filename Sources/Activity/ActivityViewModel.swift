@@ -12,6 +12,7 @@ final class ActivityViewModel: ObservableObject {
     private let service: NostrFeedService
     private let liveSubscriber: NostrLiveFeedSubscriber
     private let defaults: UserDefaults
+    private let mutedThreadStore: MutedThreadStore
 
     private var hasLoadedInitialState = false
     private var currentUserPubkey: String?
@@ -38,11 +39,13 @@ final class ActivityViewModel: ObservableObject {
     init(
         service: NostrFeedService = NostrFeedService(),
         liveSubscriber: NostrLiveFeedSubscriber = NostrLiveFeedSubscriber(),
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        mutedThreadStore: MutedThreadStore? = nil
     ) {
         self.service = service
         self.liveSubscriber = liveSubscriber
         self.defaults = defaults
+        self.mutedThreadStore = mutedThreadStore ?? MutedThreadStore.shared
         self.readRelayURLs = RelaySettingsStore.defaultReadRelayURLs.compactMap(URL.init(string:))
     }
 
@@ -56,6 +59,7 @@ final class ActivityViewModel: ObservableObject {
             AppSettingsStore.shared.isActivityNotificationEnabled(for: item.action.notificationPreference)
                 && !isHiddenByManualSpam(item)
                 && !isHiddenSpamReply(item)
+                && !mutedThreadStore.isMuted(item.threadMuteIdentifier)
         }
     }
 
@@ -363,6 +367,9 @@ final class ActivityViewModel: ObservableObject {
             return false
         }
         guard !isHiddenSpamReply(item) else {
+            return false
+        }
+        guard !mutedThreadStore.isMuted(item.threadMuteIdentifier) else {
             return false
         }
         return !MuteStore.shared.isMuted(item.actorPubkey)

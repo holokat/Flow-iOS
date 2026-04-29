@@ -202,6 +202,7 @@ struct SearchBottomSpacerRow: View {
 }
 
 struct SearchBarSection: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     @Binding var searchText: String
@@ -249,16 +250,8 @@ struct SearchBarSection: View {
 
     @ViewBuilder
     private var searchBarBackground: some View {
-        if appSettings.activeTheme == .sakura {
-            ZStack {
-                appSettings.themePalette.chromeBackground.opacity(0.78)
-                appSettings.primaryGradient.opacity(0.14)
-            }
-        } else if appSettings.activeHolographicGradientOption != nil {
-            ZStack {
-                appSettings.themePalette.chromeBackground
-                appSettings.primaryGradient.opacity(appSettings.activeTheme.usesDarkGradientTreatment ? 0.10 : 0.08)
-            }
+        if effectiveSearchColorScheme == .light {
+            Color.white
         } else if appSettings.activeTheme == .gamer {
             appSettings.themePalette.background
         } else if appSettings.activeTheme == .dracula {
@@ -269,12 +262,16 @@ struct SearchBarSection: View {
     }
 
     private var searchFieldFill: Color {
-        if appSettings.activeTheme == .sakura {
-            return Color.white.opacity(0.72)
+        if effectiveSearchColorScheme == .light {
+            return .white
         } else if appSettings.activeTheme == .gamer {
             return appSettings.themePalette.chromeBackground.opacity(0.84)
         }
         return appSettings.themePalette.secondaryBackground
+    }
+
+    private var effectiveSearchColorScheme: ColorScheme {
+        appSettings.preferredColorScheme ?? colorScheme
     }
 }
 

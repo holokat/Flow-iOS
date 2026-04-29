@@ -1,6 +1,23 @@
 import SwiftUI
 import UIKit
 
+enum ThreadDetailViewLayout {
+    static func navigationTitle(hasArticleHero: Bool) -> String {
+        hasArticleHero ? "" : "Note"
+    }
+
+    static func navigationBarVisibility(hasArticleHero: Bool) -> Visibility {
+        hasArticleHero ? .hidden : .visible
+    }
+
+    static func topControlTopPadding(
+        safeAreaInset: CGFloat,
+        minimumPadding: CGFloat = 4
+    ) -> CGFloat {
+        minimumPadding + max(0, safeAreaInset)
+    }
+}
+
 struct ThreadDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var auth: AuthManager
@@ -11,6 +28,7 @@ struct ThreadDetailView: View {
     @ObservedObject private var reactionStats = NoteReactionStatsService.shared
     @ObservedObject private var followStore = FollowStore.shared
     @ObservedObject private var muteStore = MuteStore.shared
+    @ObservedObject private var mutedThreadStore = MutedThreadStore.shared
 
     @State private var selectedThreadItem: FeedItem?
     @State private var activeReplyTarget: FeedItem?
@@ -73,8 +91,16 @@ struct ThreadDetailView: View {
             }
         }
         .background(appSettings.themePalette.background)
-        .navigationTitle(articleMetadata == nil ? "Note" : "Article")
+        .navigationTitle(
+            ThreadDetailViewLayout.navigationTitle(hasArticleHero: articleMetadata != nil)
+        )
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(
+            ThreadDetailViewLayout.navigationBarVisibility(
+                hasArticleHero: articleMetadata != nil
+            ),
+            for: .navigationBar
+        )
         .onChange(of: auth.currentAccount?.pubkey) { _, _ in
             configureStores()
         }
@@ -203,6 +229,9 @@ struct ThreadDetailView: View {
                 onMute: {
                     handleRootMuteAuthor()
                 },
+                onMuteThread: {
+                    handleRootMuteThread()
+                },
                 spamMarkTitle: rootSpamMarkActionTitle,
                 spamMarkIcon: rootSpamMarkActionIcon,
                 canToggleSpamMark: !isRootOwnedByCurrentAccount,
@@ -213,7 +242,7 @@ struct ThreadDetailView: View {
                     presentRootReportFlow()
                 }
             )
-            .presentationDetents([.height(rootCanTranslateNote ? 600 : 545), .medium])
+            .presentationDetents([.height(rootCanTranslateNote ? 655 : 600), .medium])
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $isShowingRootReportSheet) {
@@ -490,6 +519,17 @@ struct ThreadDetailView: View {
         } else if let errorMessage = muteStore.lastPublishError,
                   !errorMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             toastCenter.show(errorMessage, style: .error, duration: 2.8)
+        }
+    }
+
+    private func handleRootMuteThread() {
+        let threadID = viewModel.rootItem.displayEvent.conversationID
+        mutedThreadStore.configure(accountPubkey: auth.currentAccount?.pubkey)
+
+        if mutedThreadStore.mute(threadID) {
+            toastCenter.show("Muted thread")
+        } else {
+            toastCenter.show("Thread already muted", style: .info)
         }
     }
 

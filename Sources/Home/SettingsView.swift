@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var breakReminderCoordinator: BreakReminderCoordinator
@@ -10,7 +11,7 @@ struct SettingsView: View {
 
     var body: some View {
         ZStack {
-            appSettings.themePalette.sheetBackground
+            settingsSurfaceStyle.formBackground
                 .ignoresSafeArea()
 
             NavigationStack(path: navigationPathBinding) {
@@ -77,9 +78,16 @@ struct SettingsView: View {
                 }
                 .navigationTitle("Settings")
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar(sheetState.navigationPath.isEmpty ? .hidden : .visible, for: .navigationBar)
+                .toolbar(
+                    SettingsNavigationChrome.navigationBarVisibility(
+                        isShowingDetail: !sheetState.navigationPath.isEmpty
+                    ),
+                    for: .navigationBar
+                )
                 .navigationDestination(for: SettingsDestination.self) { destination in
-                    settingsDestinationView(for: destination)
+                    SettingsDetailNavigationHost(title: destination.title, onBack: popSettingsDestination) {
+                        settingsDestinationView(for: destination)
+                    }
                 }
                 .overlay {
                     BreakReminderOverlayHost(coordinator: breakReminderCoordinator)
@@ -87,23 +95,15 @@ struct SettingsView: View {
                 .task {
                     await appSettings.refreshNotificationAuthorizationStatus()
                 }
-                .sheet(isPresented: isShowingPrimaryColorPickerBinding) {
-                    SettingsNativeColorPicker(
-                        title: "Primary Color",
-                        color: Binding(
-                            get: { appSettings.primaryColor },
-                            set: { appSettings.primaryColor = $0 }
-                        ),
-                        onDismiss: {
-                            sheetState.isShowingPrimaryColorPicker = false
-                        }
-                    )
-                    .preferredColorScheme(appSettings.preferredColorScheme)
-                }
             }
         }
-        .presentationBackground(appSettings.themePalette.sheetBackground)
+        .presentationBackground(settingsSurfaceStyle.formBackground)
         .preferredColorScheme(appSettings.preferredColorScheme)
+    }
+
+    private var settingsSurfaceStyle: SettingsFormSurfaceStyle {
+        let effectiveColorScheme = appSettings.preferredColorScheme ?? colorScheme
+        return appSettings.settingsFormSurfaceStyle(for: effectiveColorScheme)
     }
 
     private var connectionSummaryText: String {
@@ -118,11 +118,9 @@ struct SettingsView: View {
         )
     }
 
-    private var isShowingPrimaryColorPickerBinding: Binding<Bool> {
-        Binding(
-            get: { sheetState.isShowingPrimaryColorPicker },
-            set: { sheetState.isShowingPrimaryColorPicker = $0 }
-        )
+    private func popSettingsDestination() {
+        guard !sheetState.navigationPath.isEmpty else { return }
+        sheetState.navigationPath.removeLast()
     }
 
     @ViewBuilder
@@ -131,11 +129,7 @@ struct SettingsView: View {
         case .general:
             SettingsGeneralView()
         case .appearance:
-            SettingsAppearanceView(
-                onOpenPrimaryColorPicker: {
-                    sheetState.isShowingPrimaryColorPicker = true
-                }
-            )
+            SettingsAppearanceView()
         case .feeds:
             SettingsFeedsView()
         case .notifications:
@@ -155,11 +149,9 @@ struct SettingsView: View {
 @MainActor
 final class SettingsSheetState: ObservableObject {
     @Published var navigationPath: [SettingsDestination] = []
-    @Published var isShowingPrimaryColorPicker = false
 
     func reset() {
         navigationPath.removeAll()
-        isShowingPrimaryColorPicker = false
     }
 }
 
@@ -172,4 +164,25 @@ enum SettingsDestination: Hashable {
     case mutedContent
     case keys
     case connection
+
+    var title: String {
+        switch self {
+        case .general:
+            "General"
+        case .appearance:
+            "Appearance"
+        case .feeds:
+            "Feeds"
+        case .notifications:
+            "Notifications"
+        case .media:
+            "Media"
+        case .mutedContent:
+            "Muted Content"
+        case .keys:
+            "Keys"
+        case .connection:
+            "Connection"
+        }
+    }
 }

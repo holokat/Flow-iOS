@@ -177,6 +177,105 @@ final class AuthManagerTests: XCTestCase {
     }
 }
 
+@MainActor
+final class MutedThreadStorePersistenceTests: XCTestCase {
+    func testMutedThreadsPersistPerAccount() {
+        let suiteName = #function
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = MutedThreadStore(defaults: defaults)
+
+        store.configure(accountPubkey: "AccountA")
+        XCTAssertTrue(store.mute("ThreadOne"))
+        XCTAssertTrue(store.isMuted("threadone"))
+
+        store.configure(accountPubkey: "AccountB")
+        XCTAssertFalse(store.isMuted("threadone"))
+        XCTAssertTrue(store.mute("ThreadTwo"))
+        XCTAssertTrue(store.isMuted("threadtwo"))
+
+        store.configure(accountPubkey: "AccountA")
+        XCTAssertTrue(store.isMuted("threadone"))
+        XCTAssertFalse(store.isMuted("threadtwo"))
+
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+}
+
+final class ActivityRowThreadMutePreviewTests: XCTestCase {
+    func testReactionToImageOnlyNoteUsesImagePreview() {
+        let imageURL = URL(string: "https://cdn.example.com/photo.jpg")!
+        let targetEvent = makeActivityEventForTests(
+            id: activityHex("1"),
+            pubkey: activityHex("a"),
+            kind: 1,
+            tags: [],
+            content: imageURL.absoluteString
+        )
+        let row = ActivityRow(
+            event: makeReactionEventForTests(targetEventID: targetEvent.id),
+            actor: ActivityActor(pubkey: activityHex("b"), profile: nil),
+            action: .reaction(ActivityReaction(content: "+", shortcode: nil, customEmojiImageURL: nil)),
+            target: ActivityTargetNote(
+                reference: .eventID(targetEvent.id),
+                event: targetEvent,
+                profile: nil,
+                snippet: targetEvent.activitySnippet()
+            )
+        )
+
+        XCTAssertEqual(row.previewDisplay, ActivityRowPreviewDisplay.image(imageURL))
+    }
+
+    func testReactionToVideoOnlyNoteKeepsMediaFallback() {
+        let targetEvent = makeActivityEventForTests(
+            id: activityHex("2"),
+            pubkey: activityHex("c"),
+            kind: 1,
+            tags: [],
+            content: "https://cdn.example.com/clip.mp4"
+        )
+        let row = ActivityRow(
+            event: makeReactionEventForTests(targetEventID: targetEvent.id),
+            actor: ActivityActor(pubkey: activityHex("d"), profile: nil),
+            action: .reaction(ActivityReaction(content: "+", shortcode: nil, customEmojiImageURL: nil)),
+            target: ActivityTargetNote(
+                reference: .eventID(targetEvent.id),
+                event: targetEvent,
+                profile: nil,
+                snippet: targetEvent.activitySnippet()
+            )
+        )
+
+        XCTAssertEqual(row.previewDisplay, ActivityRowPreviewDisplay.mediaPlaceholder)
+    }
+
+    func testReplyPreviewUsesConversationIDForThreadMuting() {
+        let rootEventID = activityHex("4")
+        let replyEvent = makeActivityEventForTests(
+            id: activityHex("5"),
+            pubkey: activityHex("6"),
+            kind: 1,
+            tags: [["e", rootEventID, "", "root"]],
+            content: "reply body"
+        )
+        let row = ActivityRow(
+            event: replyEvent,
+            actor: ActivityActor(pubkey: activityHex("7"), profile: nil),
+            action: .reply(kind: 1),
+            target: ActivityTargetNote(
+                reference: .eventID(rootEventID),
+                event: nil,
+                profile: nil,
+                snippet: "thread root"
+            )
+        )
+
+        XCTAssertEqual(row.threadMuteIdentifier, rootEventID)
+    }
+}
+
 private struct FailingPrivateKeyStore: AuthPrivateKeyStoring {
     func privateKey(for accountID: String) -> String? { nil }
     func privateKeyMetadata(for accountID: String) -> AuthPrivateKeyMetadata? { nil }
@@ -215,4 +314,40 @@ private final class RecordingPrivateKeyStore: AuthPrivateKeyStoring, @unchecked 
         privateKeysByAccountID.removeValue(forKey: accountID)
         backupFlagsByAccountID.removeValue(forKey: accountID)
     }
+}
+
+private func makeReactionEventForTests(targetEventID: String) -> Flow.NostrEvent {
+    makeActivityEventForTests(
+        id: activityHex("9"),
+        pubkey: activityHex("e"),
+        kind: 7,
+        tags: [
+            ["e", targetEventID],
+            ["p", activityHex("f")]
+        ],
+        content: "+"
+    )
+}
+
+private func makeActivityEventForTests(
+    id: String,
+    pubkey: String,
+    kind: Int,
+    tags: [[String]],
+    content: String,
+    createdAt: Int = 1_700_000_000
+) -> Flow.NostrEvent {
+    Flow.NostrEvent(
+        id: id,
+        pubkey: pubkey,
+        createdAt: createdAt,
+        kind: kind,
+        tags: tags,
+        content: content,
+        sig: String(repeating: "f", count: 128)
+    )
+}
+
+private func activityHex(_ character: Character) -> String {
+    String(repeating: String(character), count: 64)
 }

@@ -4,6 +4,13 @@ import NostrSDK
 struct FollowListSnapshot: Codable, Sendable {
     let content: String
     let tags: [[String]]
+    let createdAt: Int?
+
+    init(content: String, tags: [[String]], createdAt: Int? = nil) {
+        self.content = content
+        self.tags = tags
+        self.createdAt = createdAt
+    }
 
     var followedPubkeys: [String] {
         var seen = Set<String>()
@@ -58,20 +65,35 @@ struct FollowListSnapshot: Codable, Sendable {
     }
 }
 
+func feedPaginationCursor(from events: [NostrEvent]) -> Int? {
+    guard !events.isEmpty else { return nil }
+
+    let now = Int(Date().timeIntervalSince1970)
+    let validEvents = events.filter { $0.createdAt <= now }
+    let timestamps = (validEvents.isEmpty ? events : validEvents)
+        .map(\.createdAt)
+        .sorted(by: >)
+
+    guard let newestTimestamp = timestamps.first else { return nil }
+    guard timestamps.count > 1 else { return newestTimestamp }
+
+    let minimumGapSeconds = 6 * 60 * 60
+    for index in 0..<(timestamps.count - 1) {
+        let gap = timestamps[index] - timestamps[index + 1]
+        if gap >= minimumGapSeconds {
+            return timestamps[index]
+        }
+    }
+
+    return timestamps.last
+}
+
 struct ProfileSearchResult: Identifiable, Hashable, Sendable {
     let pubkey: String
     let profile: NostrProfile?
     let createdAt: Int
 
     var id: String { pubkey }
-}
-
-private struct LocalProfileSearchDocument: Sendable {
-    let pubkey: String
-    let profile: NostrProfile
-    let createdAt: Int
-    let searchableFields: [String]
-    let searchTokens: Set<String>
 }
 
 private enum ProfileSearchSupport {
@@ -203,232 +225,6 @@ private enum ProfileSearchSupport {
         })
         .map(String.init)
         .filter { !$0.isEmpty }
-    }
-}
-
-private actor LocalProfileSearchIndex {
-    static let shared = LocalProfileSearchIndex()
-
-    private struct Signature: Equatable {
-        let databasePath: String
-        let persistedProfileCount: Int
-        let sessionIngestedProfileCount: Int
-    }
-
-    private struct Entry {
-        let documents: [LocalProfileSearchDocument]
-        let storedAt: Date
-        let signature: Signature
-    }
-
-    private struct RankedMatch {
-        let result: ProfileSearchResult
-        let score: Int
-    }
-
-    private let ttl: TimeInterval = 30
-    private var entries: [ObjectIdentifier: Entry] = [:]
-    private var inFlightLoads: [ObjectIdentifier: Task<[LocalProfileSearchDocument], Never>] = [:]
-
-    func search(
-        query: String,
-        limit: Int,
-        nostrDatabase: FlowNostrDB,
-        preferredPubkeys: Set<String> = []
-    ) async -> [ProfileSearchResult] {
-        guard limit > 0 else { return [] }
-        let normalizedPreferredPubkeys = Set(
-            preferredPubkeys
-                .map(ProfileSearchSupport.normalizedPubkey)
-                .filter { !$0.isEmpty }
-        )
-
-        var topMatches: [RankedMatch] = []
-        topMatches.reserveCapacity(limit)
-        var seenPubkeys = Set<String>()
-
-        func insertResult(
-            pubkey rawPubkey: String,
-            profile: NostrProfile,
-            createdAt: Int,
-            baseScore: Int
-        ) {
-            let pubkey = ProfileSearchSupport.normalizedPubkey(rawPubkey)
-            guard !pubkey.isEmpty else { return }
-            guard seenPubkeys.insert(pubkey).inserted else { return }
-
-            var score = baseScore
-            if normalizedPreferredPubkeys.contains(pubkey) {
-                score += 35
-            }
-
-            let candidate = RankedMatch(
-                result: ProfileSearchResult(
-                    pubkey: pubkey,
-                    profile: profile,
-                    createdAt: createdAt
-                ),
-                score: score
-            )
-            Self.insert(candidate, into: &topMatches, limit: limit)
-        }
-
-        let indexedSearchLimit = min(max(limit * 8, 80), 500)
-        let indexedResults = nostrDatabase.searchProfiles(
-            query: query,
-            limit: indexedSearchLimit
-        )
-
-        for result in indexedResults {
-            guard let score = ProfileSearchSupport.score(
-                profile: result.profile,
-                pubkey: result.pubkey,
-                query: query
-            ) else {
-                continue
-            }
-
-            insertResult(
-                pubkey: result.pubkey,
-                profile: result.profile,
-                createdAt: result.createdAt,
-                baseScore: score + 120
-            )
-        }
-
-        if topMatches.count >= limit {
-            return topMatches.map(\.result)
-        }
-
-        let documents = await documents(for: nostrDatabase)
-        guard !documents.isEmpty else { return topMatches.map(\.result) }
-
-        for document in documents {
-            guard var score = ProfileSearchSupport.score(
-                searchableFields: document.searchableFields,
-                searchTokens: document.searchTokens,
-                pubkey: document.pubkey,
-                query: query
-            ) else {
-                continue
-            }
-            if normalizedPreferredPubkeys.contains(document.pubkey) {
-                score += 35
-            }
-
-            insertResult(
-                pubkey: document.pubkey,
-                profile: document.profile,
-                createdAt: document.createdAt,
-                baseScore: score
-            )
-        }
-
-        return topMatches.map(\.result)
-    }
-
-    private static func insert(
-        _ candidate: RankedMatch,
-        into topMatches: inout [RankedMatch],
-        limit: Int
-    ) {
-        guard limit > 0 else { return }
-
-        if let insertionIndex = topMatches.firstIndex(where: { prefers(candidate, over: $0) }) {
-            topMatches.insert(candidate, at: insertionIndex)
-        } else if topMatches.count < limit {
-            topMatches.append(candidate)
-        } else {
-            return
-        }
-
-        if topMatches.count > limit {
-            topMatches.removeLast()
-        }
-    }
-
-    private static func prefers(_ lhs: RankedMatch, over rhs: RankedMatch) -> Bool {
-        if lhs.score == rhs.score {
-            if lhs.result.createdAt == rhs.result.createdAt {
-                return lhs.result.pubkey < rhs.result.pubkey
-            }
-            return lhs.result.createdAt > rhs.result.createdAt
-        }
-        return lhs.score > rhs.score
-    }
-
-    private func documents(for nostrDatabase: FlowNostrDB) async -> [LocalProfileSearchDocument] {
-        let key = ObjectIdentifier(nostrDatabase)
-        let signature = Self.signature(for: nostrDatabase)
-
-        if let cached = entries[key],
-           !cached.documents.isEmpty,
-           cached.signature == signature,
-           Date().timeIntervalSince(cached.storedAt) < ttl {
-            return cached.documents
-        }
-
-        if let task = inFlightLoads[key] {
-            return await task.value
-        }
-
-        let task = Task {
-            Self.loadDocuments(from: nostrDatabase)
-        }
-        inFlightLoads[key] = task
-
-        let documents = await task.value
-        entries[key] = Entry(documents: documents, storedAt: Date(), signature: signature)
-        inFlightLoads[key] = nil
-        return documents
-    }
-
-    private static func signature(for nostrDatabase: FlowNostrDB) -> Signature {
-        let diagnostics = nostrDatabase.diagnosticsSnapshot()
-        return Signature(
-            databasePath: diagnostics.databasePath,
-            persistedProfileCount: diagnostics.persistedProfileCount,
-            sessionIngestedProfileCount: diagnostics.sessionIngestedProfileCount
-        )
-    }
-
-    private static func loadDocuments(from nostrDatabase: FlowNostrDB) -> [LocalProfileSearchDocument] {
-        let localEvents = nostrDatabase.queryEvents(
-            filter: NostrFilter(kinds: [0])
-        ) ?? []
-
-        let sortedEvents = localEvents.sorted { lhs, rhs in
-            if lhs.createdAt == rhs.createdAt {
-                return lhs.id > rhs.id
-            }
-            return lhs.createdAt > rhs.createdAt
-        }
-
-        var seenPubkeys = Set<String>()
-        var documents: [LocalProfileSearchDocument] = []
-        documents.reserveCapacity(sortedEvents.count)
-
-        for event in sortedEvents {
-            let pubkey = ProfileSearchSupport.normalizedPubkey(event.pubkey)
-            guard !pubkey.isEmpty else { continue }
-            guard seenPubkeys.insert(pubkey).inserted else { continue }
-            guard let profile = NostrProfile.decode(from: event.content) else { continue }
-
-            let searchableFields = ProfileSearchSupport.fields(for: profile)
-            guard !searchableFields.isEmpty else { continue }
-
-            documents.append(
-                LocalProfileSearchDocument(
-                    pubkey: pubkey,
-                    profile: profile,
-                    createdAt: event.createdAt,
-                    searchableFields: searchableFields,
-                    searchTokens: Set(searchableFields.flatMap(ProfileSearchSupport.tokens(from:)))
-                )
-            )
-        }
-
-        return documents
     }
 }
 
@@ -695,14 +491,88 @@ enum FeedItemHydrationMode: Sendable {
 enum RelayFetchMode: Sendable, Equatable {
     case allRelays
 
-    // Kept for existing call sites that request the fast path. The fetcher now
-    // keeps listening to all relays within the caller's timeout instead of
-    // trusting the first relay that happens to return a non-empty response.
+    // Fast path for UI surfaces that prefer the first relay with matching data
+    // over waiting on the full relay set.
     case firstNonEmptyRelay
 
     // Stricter latency path for screens where one slow empty relay should not
     // hold up visible content once another relay has matching events.
     case firstRelayWithEvents
+}
+
+actor FeedPresentationCache {
+    static let shared = FeedPresentationCache()
+
+    private let capacity: Int
+    private var itemsByEventID: [String: FeedItem] = [:]
+    private var accessOrder: [String] = []
+
+    init(capacity: Int = 512) {
+        self.capacity = max(capacity, 1)
+    }
+
+    func cachedItems(for eventIDs: [String]) -> [String: FeedItem] {
+        var cached: [String: FeedItem] = [:]
+
+        for rawID in eventIDs {
+            let eventID = rawID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !eventID.isEmpty, let item = itemsByEventID[eventID] else { continue }
+            cached[eventID] = item
+            touch(eventID)
+        }
+
+        return cached
+    }
+
+    func store(_ items: [FeedItem]) {
+        guard !items.isEmpty else { return }
+
+        for item in items {
+            let eventID = item.id
+            itemsByEventID[eventID] = item
+            touch(eventID)
+        }
+
+        evictIfNeeded()
+    }
+
+    private func touch(_ eventID: String) {
+        accessOrder.removeAll(where: { $0 == eventID })
+        accessOrder.append(eventID)
+    }
+
+    private func evictIfNeeded() {
+        while itemsByEventID.count > capacity, let evictedID = accessOrder.first {
+            accessOrder.removeFirst()
+            itemsByEventID.removeValue(forKey: evictedID)
+        }
+    }
+}
+
+struct OutboxRecoveryDiagnostics: Equatable, Sendable {
+    var directoryHitCount: Int = 0
+    var writeRelayFallbackCount: Int = 0
+    var genericReadRelayFallbackCount: Int = 0
+}
+
+actor OutboxRecoveryDiagnosticsStore {
+    static let shared = OutboxRecoveryDiagnosticsStore()
+
+    private var diagnostics = OutboxRecoveryDiagnostics()
+
+    func snapshot() -> OutboxRecoveryDiagnostics {
+        diagnostics
+    }
+
+    func record(
+        directoryHits: Int,
+        writeRelayFallbacks: Int,
+        genericReadRelayFallbacks: Int
+    ) {
+        diagnostics.directoryHitCount += directoryHits
+        diagnostics.writeRelayFallbackCount += writeRelayFallbacks
+        diagnostics.genericReadRelayFallbackCount += genericReadRelayFallbacks
+    }
 }
 
 struct NostrFeedService: Sendable {
@@ -712,10 +582,14 @@ struct NostrFeedService: Sendable {
     private let relayHintCache: any ProfileRelayHintCaching
     private let followListCache: any FollowListSnapshotStoring
     private let seenEventStore: any SeenEventStoring
-    private let nostrDatabase: FlowNostrDB
-    private static let trendingRelayURL = URL(string: "wss://trending.relays.land")!
+    private let presentationCache: FeedPresentationCache
+    private let outboxDiagnosticsStore: OutboxRecoveryDiagnosticsStore
+    nonisolated static let nostrArchivesSearchRelayURL = URL(string: "wss://search.nostrarchives.com")!
+    nonisolated static let nostrArchivesTrendingRelayURL = URL(string: "wss://feeds.nostrarchives.com/notes/trending/reactions/today")!
+    private static let trendingRelayURL = nostrArchivesTrendingRelayURL
     private static let followListFreshCacheAge: TimeInterval = 60 * 5
     private static let profileBackfillBatchSize = 24
+    private static let dittoEOSEGraceTimeout: TimeInterval = 0.3
     private static let metadataFallbackRelayURLs: [URL] = [
         URL(string: "wss://relay.damus.io/")!,
         URL(string: "wss://relay.primal.net/")!,
@@ -732,7 +606,8 @@ struct NostrFeedService: Sendable {
         relayHintCache: any ProfileRelayHintCaching = ProfileRelayHintCache.shared,
         followListCache: any FollowListSnapshotStoring = FollowListSnapshotCache.shared,
         seenEventStore: any SeenEventStoring = SeenEventStore.shared,
-        nostrDatabase: FlowNostrDB = .shared
+        presentationCache: FeedPresentationCache = .shared,
+        outboxDiagnosticsStore: OutboxRecoveryDiagnosticsStore = .shared
     ) {
         self.relayClient = relayClient
         self.timelineCache = timelineCache
@@ -740,7 +615,12 @@ struct NostrFeedService: Sendable {
         self.relayHintCache = relayHintCache
         self.followListCache = followListCache
         self.seenEventStore = seenEventStore
-        self.nostrDatabase = nostrDatabase
+        self.presentationCache = presentationCache
+        self.outboxDiagnosticsStore = outboxDiagnosticsStore
+    }
+
+    func outboxDiagnostics() async -> OutboxRecoveryDiagnostics {
+        await outboxDiagnosticsStore.snapshot()
     }
 
     func ingestLiveEvents(_ events: [NostrEvent]) async {
@@ -800,7 +680,7 @@ struct NostrFeedService: Sendable {
         )
 
         let kindsSet = Set(kinds)
-        let fetchedEvents = try await fetchTimelineEvents(
+        let fetchedEvents = try await fetchTimelineEventsFromRelaysOnly(
             relayURLs: relayURLs,
             filter: filter,
             timeout: fetchTimeout,
@@ -847,8 +727,39 @@ struct NostrFeedService: Sendable {
         hydrationMode: FeedItemHydrationMode = .full,
         fetchTimeout: TimeInterval = 12,
         relayFetchMode: RelayFetchMode = .allRelays,
+        relayOnly: Bool = false,
         moderationSnapshot: MuteFilterSnapshot? = nil
     ) async throws -> [FeedItem] {
+        let timelineEvents = try await fetchFollowingEvents(
+            relayURLs: relayURLs,
+            authors: authors,
+            kinds: kinds,
+            limit: limit,
+            until: until,
+            fetchTimeout: fetchTimeout,
+            relayFetchMode: relayFetchMode,
+            relayOnly: relayOnly,
+            moderationSnapshot: moderationSnapshot
+        )
+        return await buildFeedItems(
+            relayURLs: relayURLs,
+            events: timelineEvents,
+            hydrationMode: hydrationMode,
+            moderationSnapshot: moderationSnapshot
+        )
+    }
+
+    func fetchFollowingEvents(
+        relayURLs: [URL],
+        authors: [String],
+        kinds: [Int],
+        limit: Int,
+        until: Int?,
+        fetchTimeout: TimeInterval = 12,
+        relayFetchMode: RelayFetchMode = .allRelays,
+        relayOnly: Bool = false,
+        moderationSnapshot: MuteFilterSnapshot? = nil
+    ) async throws -> [NostrEvent] {
         guard limit > 0 else { return [] }
         let normalizedAuthors = normalizedUniquePubkeys(authors)
         guard !normalizedAuthors.isEmpty else { return [] }
@@ -879,7 +790,8 @@ struct NostrFeedService: Sendable {
                             filter: filter,
                             timeout: fetchTimeout,
                             useCache: false,
-                            relayFetchMode: relayFetchMode
+                            relayFetchMode: relayFetchMode,
+                            relayOnly: relayOnly
                         )
                         return (events: events, error: nil)
                     } catch {
@@ -918,17 +830,108 @@ struct NostrFeedService: Sendable {
         let fetchedEvents = fetchedEventsResult.events
             .filter { kindsSet.contains($0.kind) }
         let visibleEvents = filterVisibleEvents(fetchedEvents, moderationSnapshot: moderationSnapshot)
-        let timelineEvents = Array(
+        return Array(
             deduplicateEvents(visibleEvents)
                 .sorted(by: { $0.createdAt > $1.createdAt })
                 .prefix(limit)
         )
-        return await buildFeedItems(
-            relayURLs: relayURLs,
-            events: timelineEvents,
+    }
+
+    func fetchFollowingFeedRecoveringWithOutbox(
+        baseReadRelayURLs: [URL],
+        authors: [String],
+        kinds: [Int],
+        limit: Int,
+        until: Int?,
+        hydrationMode: FeedItemHydrationMode = .full,
+        fetchTimeout: TimeInterval = 12,
+        relayFetchMode: RelayFetchMode = .allRelays,
+        moderationSnapshot: MuteFilterSnapshot? = nil
+    ) async throws -> [FeedItem] {
+        try await fetchOutboxBackedFollowingFeed(
+            baseReadRelayURLs: baseReadRelayURLs,
+            authors: authors,
+            kinds: kinds,
+            limit: limit,
+            until: until,
             hydrationMode: hydrationMode,
+            fetchTimeout: fetchTimeout,
+            relayFetchMode: relayFetchMode,
             moderationSnapshot: moderationSnapshot
         )
+    }
+
+    func fetchOlderAuthorWindows(
+        relayURLs: [URL],
+        authors: [String],
+        kinds: [Int],
+        untilByAuthor: [String: Int?],
+        perAuthorLimit: Int,
+        fetchTimeout: TimeInterval = 12,
+        relayFetchMode: RelayFetchMode = .allRelays
+    ) async -> [String: [NostrEvent]] {
+        let normalizedAuthors = normalizedUniquePubkeys(authors)
+        let kindsSet = Set(kinds)
+        let clampedLimit = max(perAuthorLimit, 1)
+
+        guard !normalizedAuthors.isEmpty, !kindsSet.isEmpty else {
+            return [:]
+        }
+
+        let windowsByAuthor = await withTaskGroup(
+            of: (pubkey: String, events: [NostrEvent]).self,
+            returning: [String: [NostrEvent]].self
+        ) { group in
+            for author in normalizedAuthors {
+                group.addTask {
+                    let filter = NostrFilter(
+                        authors: [author],
+                        kinds: Array(kindsSet),
+                        limit: clampedLimit,
+                        until: untilByAuthor[author] ?? nil
+                    )
+
+                    guard let events = try? await fetchTimelineEventsFromRelaysOnly(
+                        relayURLs: relayURLs,
+                        filter: filter,
+                        timeout: fetchTimeout,
+                        useCache: false,
+                        relayFetchMode: relayFetchMode
+                    ) else {
+                        return (author, [])
+                    }
+
+                    let windowEvents = Array(
+                        deduplicateEvents(events)
+                            .filter { kindsSet.contains($0.kind) }
+                            .sorted(by: { lhs, rhs in
+                                if lhs.createdAt == rhs.createdAt {
+                                    return lhs.id > rhs.id
+                                }
+                                return lhs.createdAt > rhs.createdAt
+                            })
+                            .prefix(clampedLimit)
+                    )
+                    return (author, windowEvents)
+                }
+            }
+
+            var windowsByAuthor: [String: [NostrEvent]] = [:]
+            var collected: [NostrEvent] = []
+
+            for await result in group {
+                windowsByAuthor[result.pubkey] = result.events
+                collected.append(contentsOf: result.events)
+            }
+
+            if !collected.isEmpty {
+                await seenEventStore.store(events: deduplicateEvents(collected))
+            }
+
+            return windowsByAuthor
+        }
+
+        return windowsByAuthor
     }
 
     func fetchFollowings(relayURL: URL, pubkey: String) async throws -> [String] {
@@ -940,10 +943,28 @@ struct NostrFeedService: Sendable {
         pubkey: String,
         relayFetchMode: RelayFetchMode = .allRelays
     ) async throws -> [String] {
+        try await fetchFollowings(
+            relayURLs: relayURLs,
+            pubkey: pubkey,
+            relayFetchMode: relayFetchMode,
+            relayOnly: false,
+            fallbackToCachedSnapshot: true
+        )
+    }
+
+    func fetchFollowings(
+        relayURLs: [URL],
+        pubkey: String,
+        relayFetchMode: RelayFetchMode,
+        relayOnly: Bool,
+        fallbackToCachedSnapshot: Bool
+    ) async throws -> [String] {
         let snapshot = try await fetchFollowListSnapshot(
             relayURLs: relayURLs,
             pubkey: pubkey,
-            relayFetchMode: relayFetchMode
+            relayFetchMode: relayFetchMode,
+            relayOnly: relayOnly,
+            fallbackToCachedSnapshot: fallbackToCachedSnapshot
         )
         return snapshot?.followedPubkeys ?? []
     }
@@ -1104,12 +1125,16 @@ struct NostrFeedService: Sendable {
         relayURLs: [URL],
         pubkey: String,
         fetchTimeout: TimeInterval = 10,
-        relayFetchMode: RelayFetchMode = .allRelays
+        relayFetchMode: RelayFetchMode = .allRelays,
+        relayOnly: Bool = false,
+        fallbackToCachedSnapshot: Bool = true
     ) async throws -> FollowListSnapshot? {
         let normalizedPubkey = normalizePubkey(pubkey)
         guard !normalizedPubkey.isEmpty else { return nil }
 
-        let cachedSnapshot = await followListCache.cachedSnapshot(pubkey: normalizedPubkey)
+        let cachedSnapshot = fallbackToCachedSnapshot
+            ? await followListCache.cachedSnapshot(pubkey: normalizedPubkey)
+            : nil
 
         let contactsFilter = NostrFilter(
             authors: [normalizedPubkey],
@@ -1123,7 +1148,8 @@ struct NostrFeedService: Sendable {
                 filter: contactsFilter,
                 timeout: fetchTimeout,
                 useCache: false,
-                relayFetchMode: relayFetchMode
+                relayFetchMode: relayFetchMode,
+                relayOnly: relayOnly
             )
 
             if let snapshot = extractFollowListSnapshot(from: events) {
@@ -1170,8 +1196,39 @@ struct NostrFeedService: Sendable {
         hydrationMode: FeedItemHydrationMode = .full,
         fetchTimeout: TimeInterval = 12,
         relayFetchMode: RelayFetchMode = .allRelays,
+        relayOnly: Bool = false,
         moderationSnapshot: MuteFilterSnapshot? = nil
     ) async throws -> [FeedItem] {
+        let timelineEvents = try await fetchAuthorEvents(
+            relayURLs: relayURLs,
+            authorPubkey: authorPubkey,
+            kinds: kinds,
+            limit: limit,
+            until: until,
+            fetchTimeout: fetchTimeout,
+            relayFetchMode: relayFetchMode,
+            relayOnly: relayOnly,
+            moderationSnapshot: moderationSnapshot
+        )
+        return await buildFeedItems(
+            relayURLs: relayURLs,
+            events: timelineEvents,
+            hydrationMode: hydrationMode,
+            moderationSnapshot: moderationSnapshot
+        )
+    }
+
+    func fetchAuthorEvents(
+        relayURLs: [URL],
+        authorPubkey: String,
+        kinds: [Int],
+        limit: Int,
+        until: Int?,
+        fetchTimeout: TimeInterval = 12,
+        relayFetchMode: RelayFetchMode = .allRelays,
+        relayOnly: Bool = false,
+        moderationSnapshot: MuteFilterSnapshot? = nil
+    ) async throws -> [NostrEvent] {
         guard limit > 0 else { return [] }
         let fetchLimit = expandedTimelineLimit(for: limit, moderationSnapshot: moderationSnapshot)
         let filter = NostrFilter(
@@ -1187,7 +1244,8 @@ struct NostrFeedService: Sendable {
             filter: filter,
             timeout: fetchTimeout,
             useCache: false,
-            relayFetchMode: relayFetchMode
+            relayFetchMode: relayFetchMode,
+            relayOnly: relayOnly
         )
             .filter { kindsSet.contains($0.kind) }
         let visibleEvents = filterVisibleEvents(fetchedEvents, moderationSnapshot: moderationSnapshot)
@@ -1196,12 +1254,184 @@ struct NostrFeedService: Sendable {
                 .sorted(by: { $0.createdAt > $1.createdAt })
                 .prefix(limit)
         )
-        return await buildFeedItems(
-            relayURLs: relayURLs,
-            events: timelineEvents,
+        return timelineEvents
+    }
+
+    func outboxBackedRelayPlan(
+        authors: [String],
+        baseReadRelayURLs: [URL],
+        seedHintRelayURLsByPubkey: [String: [URL]] = [:]
+    ) async -> AuthorRelayPlan {
+        let normalizedAuthors = normalizedUniquePubkeys(authors)
+        let normalizedSeedHints = normalizedHintRelayMap(seedHintRelayURLsByPubkey)
+        if !normalizedSeedHints.isEmpty {
+            await relayHintCache.storeHints(normalizedSeedHints)
+        }
+
+        var directoryEntries = await cachedAuthorRelayDirectoryEntries(for: normalizedAuthors)
+        let authorsNeedingDirectoryFetch = normalizedAuthors.filter { author in
+            let entry = directoryEntries[author]
+            return (entry?.readRelayURLs.isEmpty ?? true) && (entry?.writeRelayURLs.isEmpty ?? true)
+        }
+
+        if !authorsNeedingDirectoryFetch.isEmpty {
+            let fetchedEntries = await fetchAuthorRelayDirectoryEntries(
+                for: authorsNeedingDirectoryFetch,
+                baseReadRelayURLs: baseReadRelayURLs,
+                existingEntries: directoryEntries
+            )
+            directoryEntries.merge(fetchedEntries, uniquingKeysWith: { _, new in new })
+        }
+
+        await recordOutboxPlanDiagnostics(
+            authors: normalizedAuthors,
+            directoryEntries: directoryEntries
+        )
+
+        return AuthorRelayPlanner().makePlan(
+            authors: normalizedAuthors,
+            baseReadRelayURLs: baseReadRelayURLs,
+            directoryEntriesByPubkey: directoryEntries,
+            fallbackRelayURLs: Self.metadataFallbackRelayURLs
+        )
+    }
+
+    func refreshAuthorRelayDirectory(
+        relayURLs: [URL],
+        pubkey: String
+    ) async {
+        let normalizedPubkey = normalizePubkey(pubkey)
+        guard !normalizedPubkey.isEmpty else { return }
+
+        let existingEntries = await cachedAuthorRelayDirectoryEntries(for: [normalizedPubkey])
+        _ = await fetchAuthorRelayDirectoryEntries(
+            for: [normalizedPubkey],
+            baseReadRelayURLs: relayURLs,
+            existingEntries: existingEntries
+        )
+    }
+
+    func fetchOutboxBackedAuthorFeed(
+        baseReadRelayURLs: [URL],
+        authorPubkey: String,
+        kinds: [Int],
+        limit: Int,
+        until: Int?,
+        hydrationMode: FeedItemHydrationMode = .full,
+        fetchTimeout: TimeInterval = 12,
+        relayFetchMode: RelayFetchMode = .allRelays,
+        moderationSnapshot: MuteFilterSnapshot? = nil
+    ) async throws -> [FeedItem] {
+        let normalizedAuthor = normalizePubkey(authorPubkey)
+        guard !normalizedAuthor.isEmpty else { return [] }
+
+        let relayPlan = await outboxBackedRelayPlan(
+            authors: [normalizedAuthor],
+            baseReadRelayURLs: baseReadRelayURLs
+        )
+        let effectiveRelayFetchMode: RelayFetchMode =
+            relayFetchMode == .firstRelayWithEvents ? .firstNonEmptyRelay : relayFetchMode
+
+        return try await fetchAuthorFeed(
+            relayURLs: relayPlan.relayURLs(for: normalizedAuthor),
+            authorPubkey: normalizedAuthor,
+            kinds: kinds,
+            limit: limit,
+            until: until,
             hydrationMode: hydrationMode,
+            fetchTimeout: fetchTimeout,
+            relayFetchMode: effectiveRelayFetchMode,
             moderationSnapshot: moderationSnapshot
         )
+    }
+
+    func fetchOutboxBackedFollowingFeed(
+        baseReadRelayURLs: [URL],
+        authors: [String],
+        kinds: [Int],
+        limit: Int,
+        until: Int?,
+        hydrationMode: FeedItemHydrationMode = .full,
+        fetchTimeout: TimeInterval = 12,
+        relayFetchMode: RelayFetchMode = .allRelays,
+        moderationSnapshot: MuteFilterSnapshot? = nil
+    ) async throws -> [FeedItem] {
+        guard limit > 0 else { return [] }
+
+        let normalizedAuthors = normalizedUniquePubkeys(authors)
+        guard !normalizedAuthors.isEmpty else { return [] }
+
+        let relayPlan = await outboxBackedRelayPlan(
+            authors: normalizedAuthors,
+            baseReadRelayURLs: baseReadRelayURLs
+        )
+        let effectiveRelayFetchMode: RelayFetchMode =
+            relayFetchMode == .firstRelayWithEvents ? .firstNonEmptyRelay : relayFetchMode
+
+        let groupedAuthors = Dictionary(grouping: normalizedAuthors) { author in
+            relayGroupKey(for: relayPlan.relayURLs(for: author))
+        }
+
+        let groupResults: (results: [(items: [FeedItem], relayURLs: [URL])], firstError: Error?) = await withTaskGroup(
+            of: (items: [FeedItem]?, relayURLs: [URL], error: Error?).self,
+            returning: (results: [(items: [FeedItem], relayURLs: [URL])], firstError: Error?).self
+        ) { group in
+            for (groupKey, groupAuthors) in groupedAuthors {
+                let relayURLs = relayURLs(fromRelayGroupKey: groupKey)
+                guard !relayURLs.isEmpty else { continue }
+
+                group.addTask { [self] in
+                    do {
+                        let items = try await fetchFollowingFeed(
+                            relayURLs: relayURLs,
+                            authors: groupAuthors,
+                            kinds: kinds,
+                            limit: limit,
+                            until: until,
+                            hydrationMode: hydrationMode,
+                            fetchTimeout: fetchTimeout,
+                            relayFetchMode: effectiveRelayFetchMode,
+                            moderationSnapshot: moderationSnapshot
+                        )
+                        return (items, relayURLs, nil)
+                    } catch {
+                        return (nil, relayURLs, error)
+                    }
+                }
+            }
+
+            var results: [(items: [FeedItem], relayURLs: [URL])] = []
+            var firstError: Error?
+            for await result in group {
+                if let items = result.items {
+                    results.append((items, result.relayURLs))
+                } else if firstError == nil, let error = result.error {
+                    firstError = error
+                }
+            }
+            return (results, firstError)
+        }
+
+        var mergedItemsByID: [String: FeedItem] = [:]
+        for result in groupResults.results {
+            for item in result.items {
+                mergedItemsByID[item.id.lowercased()] = item
+            }
+        }
+
+        if mergedItemsByID.isEmpty, let firstError = groupResults.firstError {
+            throw firstError
+        }
+
+        return Array(mergedItemsByID.values)
+            .sorted(by: { lhs, rhs in
+                if lhs.event.createdAt == rhs.event.createdAt {
+                    return lhs.id > rhs.id
+                }
+                return lhs.event.createdAt > rhs.event.createdAt
+            })
+            .prefix(limit)
+            .map { $0 }
     }
 
     func searchNotes(
@@ -1220,6 +1450,23 @@ struct NostrFeedService: Sendable {
         guard !normalizedQuery.isEmpty else { return [] }
         let shouldVerifyResults = shouldLocallyVerifyNIP50Results(for: normalizedQuery)
         let searchTerms = shouldVerifyResults ? normalizedSearchTerms(from: normalizedQuery) : []
+
+        if shouldUseNostrArchivesRESTSearch(relayURLs: relayURLs) {
+            let archivedEvents = (try? await NostrArchivesSearchService.shared.searchNotes(
+                query: normalizedQuery,
+                kinds: kinds,
+                limit: limit
+            )) ?? []
+            if !archivedEvents.isEmpty {
+                return await buildFeedItems(
+                    relayURLs: relayURLs,
+                    events: archivedEvents,
+                    hydrationMode: hydrationMode,
+                    moderationSnapshot: moderationSnapshot
+                )
+            }
+        }
+
         let primarySearchLimit = expandedTimelineLimit(
             for: max(limit * 2, 120),
             moderationSnapshot: moderationSnapshot
@@ -1324,81 +1571,13 @@ struct NostrFeedService: Sendable {
         hydrationMode: FeedItemHydrationMode = .full,
         moderationSnapshot: MuteFilterSnapshot? = nil
     ) async -> [FeedItem] {
-        guard limit > 0 else { return [] }
-        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedQuery.isEmpty else { return [] }
-
-        let shouldVerifyResults = shouldLocallyVerifyNIP50Results(for: normalizedQuery)
-        let searchTerms = shouldVerifyResults ? normalizedSearchTerms(from: normalizedQuery) : []
-        let primarySearchLimit = expandedTimelineLimit(
-            for: max(limit * 2, 120),
-            moderationSnapshot: moderationSnapshot
-        )
-        let fallbackSearchLimit = min(
-            expandedTimelineLimit(
-                for: min(max(limit * 8, 220), 600),
-                moderationSnapshot: moderationSnapshot
-            ),
-            600
-        )
-
-        let kindsSet = Set(kinds)
-        let searchFilter = NostrFilter(
-            kinds: kinds,
-            search: normalizedQuery,
-            limit: primarySearchLimit,
-            until: until
-        )
-
-        var fetchedEvents = (nostrDatabase.queryEvents(filter: searchFilter) ?? []).filter { event in
-            guard kindsSet.contains(event.kind) else { return false }
-            if let until, event.createdAt > until {
-                return false
-            }
-            guard shouldVerifyResults else { return true }
-            return eventMatchesSearchTerms(event, terms: searchTerms)
-        }
-        fetchedEvents = filterVisibleEvents(fetchedEvents, moderationSnapshot: moderationSnapshot)
-
-        if fetchedEvents.count < limit {
-            let fallbackFilter = NostrFilter(
-                kinds: kinds,
-                limit: fallbackSearchLimit,
-                until: until
-            )
-
-            let fallbackEvents = (nostrDatabase.queryEvents(filter: fallbackFilter) ?? []).filter { event in
-                guard kindsSet.contains(event.kind) else { return false }
-                if let until, event.createdAt > until {
-                    return false
-                }
-                guard shouldVerifyResults else { return true }
-                return eventMatchesSearchTerms(event, terms: searchTerms)
-            }
-
-            fetchedEvents = mergedTimelineEvents(
-                filterVisibleEvents(fetchedEvents + fallbackEvents, moderationSnapshot: moderationSnapshot),
-                filter: searchFilter
-            )
-        }
-
-        let timelineEvents = Array(
-            deduplicateEvents(fetchedEvents)
-                .sorted(by: { lhs, rhs in
-                    if lhs.createdAt == rhs.createdAt {
-                        return lhs.id > rhs.id
-                    }
-                    return lhs.createdAt > rhs.createdAt
-                })
-                .prefix(limit)
-        )
-
-        return await buildFeedItems(
-            relayURLs: [],
-            events: timelineEvents,
-            hydrationMode: hydrationMode,
-            moderationSnapshot: moderationSnapshot
-        )
+        let _ = query
+        let _ = kinds
+        let _ = limit
+        let _ = until
+        let _ = hydrationMode
+        let _ = moderationSnapshot
+        return []
     }
 
     func fetchReferencedFeedItem(
@@ -1444,6 +1623,217 @@ struct NostrFeedService: Sendable {
         return items.first
     }
 
+    func fetchReferencedEvents(
+        references: [NostrEventReferencePointer],
+        baseRelayURLs: [URL],
+        fetchTimeout: TimeInterval = 8,
+        relayFetchMode: RelayFetchMode = .allRelays
+    ) async -> [NostrEventReferencePointer: NostrEvent] {
+        let uniqueReferences = Array(Set(references))
+        guard !uniqueReferences.isEmpty else { return [:] }
+
+        var resolved: [NostrEventReferencePointer: NostrEvent] = [:]
+        var unresolvedEventReferences: [NostrEventReferencePointer] = []
+        var unresolvedAddressReferences: [(reference: NostrEventReferencePointer, address: ActivityAddress)] = []
+
+        for reference in uniqueReferences {
+            switch reference.target {
+            case .eventID(let rawEventID):
+                let eventID = rawEventID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard !eventID.isEmpty else { continue }
+                unresolvedEventReferences.append(
+                    NostrEventReferencePointer(
+                        normalizedIdentifier: reference.normalizedIdentifier,
+                        target: .eventID(eventID),
+                        relayHints: reference.relayHints,
+                        authorPubkey: reference.authorPubkey
+                    )
+                )
+
+            case .replaceable(let kind, let pubkey, let identifier):
+                let normalizedPubkey = normalizePubkey(pubkey)
+                let normalizedIdentifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !normalizedPubkey.isEmpty, !normalizedIdentifier.isEmpty else { continue }
+                unresolvedAddressReferences.append(
+                    (
+                        reference,
+                        ActivityAddress(
+                            kind: kind,
+                            pubkey: normalizedPubkey,
+                            identifier: normalizedIdentifier
+                        )
+                    )
+                )
+            }
+        }
+
+        if !unresolvedEventReferences.isEmpty {
+            let cachedByID = await seenEventStore.events(
+                ids: unresolvedEventReferences.compactMap(\.eventID)
+            )
+            if !cachedByID.isEmpty {
+                unresolvedEventReferences.removeAll { reference in
+                    guard let eventID = reference.eventID,
+                          let event = cachedByID[eventID] else {
+                        return false
+                    }
+                    resolved[reference] = event
+                    return true
+                }
+            }
+        }
+
+        var fetchedEvents: [NostrEvent] = []
+
+        if !unresolvedEventReferences.isEmpty {
+            struct EventReferenceGroup {
+                var relayURLs: [URL]
+                var eventIDs: Set<String>
+                var referencesByEventID: [String: [NostrEventReferencePointer]]
+            }
+
+            var groups: [String: EventReferenceGroup] = [:]
+            for reference in unresolvedEventReferences {
+                guard let eventID = reference.eventID else { continue }
+                let relayTargets = await referenceRelayTargets(
+                    for: reference,
+                    baseRelayURLs: baseRelayURLs
+                )
+                let signature = relayTargets.map { $0.absoluteString.lowercased() }.joined(separator: "|")
+                var group = groups[signature] ?? EventReferenceGroup(
+                    relayURLs: relayTargets,
+                    eventIDs: [],
+                    referencesByEventID: [:]
+                )
+                group.eventIDs.insert(eventID)
+                group.referencesByEventID[eventID, default: []].append(reference)
+                groups[signature] = group
+            }
+
+            for group in groups.values {
+                let eventIDs = Array(group.eventIDs)
+                guard !group.relayURLs.isEmpty, !eventIDs.isEmpty else { continue }
+
+                let filter = NostrFilter(
+                    ids: eventIDs,
+                    limit: max(eventIDs.count * 2, eventIDs.count)
+                )
+
+                guard let events = try? await fetchTimelineEventsFromRelaysOnly(
+                    relayURLs: group.relayURLs,
+                    filter: filter,
+                    timeout: fetchTimeout,
+                    useCache: false,
+                    relayFetchMode: relayFetchMode
+                ) else {
+                    continue
+                }
+
+                let newestByID = Dictionary(
+                    uniqueKeysWithValues: deduplicateEvents(events)
+                        .sorted(by: { lhs, rhs in
+                            if lhs.createdAt == rhs.createdAt {
+                                return lhs.id > rhs.id
+                            }
+                            return lhs.createdAt > rhs.createdAt
+                        })
+                        .map { ($0.id.lowercased(), $0) }
+                )
+
+                for (eventID, referencesForEventID) in group.referencesByEventID {
+                    guard let event = newestByID[eventID] else { continue }
+                    fetchedEvents.append(event)
+                    for reference in referencesForEventID {
+                        resolved[reference] = event
+                    }
+                }
+            }
+        }
+
+        if !unresolvedAddressReferences.isEmpty {
+            struct AddressReferenceGroup {
+                var relayURLs: [URL]
+                var addresses: Set<ActivityAddress>
+                var referencesByAddress: [ActivityAddress: [NostrEventReferencePointer]]
+            }
+
+            var groups: [String: AddressReferenceGroup] = [:]
+            for entry in unresolvedAddressReferences {
+                let relayTargets = await referenceRelayTargets(
+                    for: entry.reference,
+                    baseRelayURLs: baseRelayURLs
+                )
+                let signature = relayTargets.map { $0.absoluteString.lowercased() }.joined(separator: "|")
+                let key = "\(signature)|\(entry.address.kind)|\(entry.address.pubkey)"
+                var group = groups[key] ?? AddressReferenceGroup(
+                    relayURLs: relayTargets,
+                    addresses: [],
+                    referencesByAddress: [:]
+                )
+                group.addresses.insert(entry.address)
+                group.referencesByAddress[entry.address, default: []].append(entry.reference)
+                groups[key] = group
+            }
+
+            for group in groups.values {
+                guard let sample = group.addresses.first,
+                      !group.relayURLs.isEmpty else {
+                    continue
+                }
+
+                let identifiers = Array(Set(group.addresses.map(\.identifier)))
+                let filter = NostrFilter(
+                    authors: [sample.pubkey],
+                    kinds: [sample.kind],
+                    limit: max(identifiers.count * 4, 20),
+                    tagFilters: ["d": identifiers]
+                )
+
+                guard let events = try? await fetchTimelineEventsFromRelaysOnly(
+                    relayURLs: group.relayURLs,
+                    filter: filter,
+                    timeout: fetchTimeout,
+                    useCache: false,
+                    relayFetchMode: relayFetchMode
+                ) else {
+                    continue
+                }
+
+                let newestByAddress = newestAddressEvents(
+                    from: events,
+                    addresses: group.addresses
+                )
+                for (address, event) in newestByAddress {
+                    fetchedEvents.append(event)
+                    for reference in group.referencesByAddress[address] ?? [] {
+                        resolved[reference] = event
+                    }
+                }
+            }
+        }
+
+        let deduplicatedFetched = deduplicateEvents(fetchedEvents)
+        if !deduplicatedFetched.isEmpty {
+            await seenEventStore.store(events: deduplicatedFetched)
+        }
+
+        return resolved
+    }
+
+    func fetchOutboxBackedReferencedEvents(
+        references: [NostrEventReferencePointer],
+        baseReadRelayURLs: [URL],
+        fetchTimeout: TimeInterval = 8,
+        relayFetchMode: RelayFetchMode = .allRelays
+    ) async -> [NostrEventReferencePointer: NostrEvent] {
+        await fetchReferencedEvents(
+            references: references,
+            baseRelayURLs: baseReadRelayURLs,
+            fetchTimeout: fetchTimeout,
+            relayFetchMode: relayFetchMode
+        )
+    }
+
     func searchProfiles(
         query: String,
         limit: Int,
@@ -1453,35 +1843,70 @@ struct NostrFeedService: Sendable {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalizedQuery.isEmpty else { return [] }
 
-        return await LocalProfileSearchIndex.shared.search(
+        let normalizedPreferredPubkeys = Set(
+            preferredPubkeys
+                .map(normalizePubkey)
+                .filter { !$0.isEmpty }
+        )
+        let localLimit = min(max(limit * 3, 24), 120)
+        let localResults = await cachedProfileSearchResults(
             query: normalizedQuery,
-            limit: limit,
-            nostrDatabase: nostrDatabase,
-            preferredPubkeys: preferredPubkeys
+            limit: localLimit,
+            preferredPubkeys: normalizedPreferredPubkeys
+        )
+
+        let shouldSearchRemotely = normalizedQuery.count >= 2 && localResults.count < limit
+        let archiveResults: [ProfileSearchResult]
+        let remoteResults: [ProfileSearchResult]
+        if shouldSearchRemotely {
+            archiveResults = await NostrArchivesSearchService.shared.searchProfiles(
+                query: normalizedQuery,
+                limit: min(max(limit * 2, 24), 100)
+            )
+
+            let shouldUseRelayFallback = localResults.count + archiveResults.count < limit
+            let relayTargets = shouldUseRelayFallback ? await mentionSearchRelayTargets() : []
+            if relayTargets.isEmpty {
+                remoteResults = []
+            } else {
+                remoteResults = (try? await searchProfiles(
+                    relayURLs: relayTargets,
+                    query: normalizedQuery,
+                    limit: min(max(limit * 2, 24), 120),
+                    fetchTimeout: 6,
+                    relayFetchMode: .firstNonEmptyRelay
+                )) ?? []
+            }
+        } else {
+            archiveResults = []
+            remoteResults = []
+        }
+
+        return mergedProfileSearchResults(
+            groups: [localResults, archiveResults, remoteResults],
+            query: normalizedQuery,
+            preferredPubkeys: normalizedPreferredPubkeys,
+            limit: limit
         )
     }
 
     func recentLocalProfiles(limit: Int) async -> [ProfileSearchResult] {
         guard limit > 0 else { return [] }
 
-        let localEvents = nostrDatabase.queryEvents(
-            filter: NostrFilter(
-                kinds: [0],
-                limit: min(max(limit * 8, 80), 400)
+        let recentPubkeys = await profileCache.recentProfilePubkeys(limit: min(max(limit * 3, 24), 120))
+        guard !recentPubkeys.isEmpty else { return [] }
+
+        let cachedProfiles = await profileCache.cachedProfiles(pubkeys: recentPubkeys)
+        let referenceTime = Int(Date().timeIntervalSince1970)
+
+        return Array(recentPubkeys.enumerated().compactMap { index, pubkey in
+            guard let profile = cachedProfiles[pubkey] else { return nil }
+            return ProfileSearchResult(
+                pubkey: pubkey,
+                profile: profile,
+                createdAt: referenceTime - index
             )
-        ) ?? []
-
-        let sortedEvents = deduplicateEvents(localEvents).sorted { lhs, rhs in
-            if lhs.createdAt == rhs.createdAt {
-                return lhs.id > rhs.id
-            }
-            return lhs.createdAt > rhs.createdAt
-        }
-
-        return await recentProfileResults(
-            from: sortedEvents,
-            limit: limit
-        )
+        }.prefix(limit))
     }
 
     func searchProfiles(
@@ -1494,14 +1919,6 @@ struct NostrFeedService: Sendable {
         guard limit > 0 else { return [] }
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalizedQuery.isEmpty else { return [] }
-
-        let localMatches = await searchProfiles(
-            query: normalizedQuery,
-            limit: limit
-        )
-        if localMatches.count >= limit {
-            return localMatches
-        }
 
         let metadataFilter = NostrFilter(
             kinds: [0],
@@ -1557,14 +1974,9 @@ struct NostrFeedService: Sendable {
             return lhs.createdAt > rhs.createdAt
         }
 
-        let relayMatches = await matchedProfileResults(
+        return await matchedProfileResults(
             from: sortedEvents,
             query: normalizedQuery,
-            limit: limit
-        )
-
-        return mergeProfileSearchResults(
-            groups: [localMatches, relayMatches],
             limit: limit
         )
     }
@@ -1573,6 +1985,7 @@ struct NostrFeedService: Sendable {
         limit: Int = 100,
         since: Int? = nil,
         until: Int? = nil,
+        hydrationRelayURLs: [URL]? = nil,
         hydrationMode: FeedItemHydrationMode = .full,
         fetchTimeout: TimeInterval = 12,
         relayFetchMode: RelayFetchMode = .allRelays,
@@ -1580,15 +1993,15 @@ struct NostrFeedService: Sendable {
     ) async throws -> [FeedItem] {
         guard limit > 0 else { return [] }
         let cappedLimit = min(limit, 100)
+        let _ = since
+        let _ = until
         let fetchLimit = min(
             expandedTimelineLimit(for: cappedLimit, moderationSnapshot: moderationSnapshot),
             240
         )
         let filter = NostrFilter(
             kinds: [1],
-            limit: fetchLimit,
-            since: since,
-            until: until
+            limit: fetchLimit
         )
 
         let fetchedEvents = try await fetchTimelineEvents(
@@ -1617,8 +2030,11 @@ struct NostrFeedService: Sendable {
                 moderationSnapshot: moderationSnapshot
             )
         case .full:
+            let authorRelayTargets = normalizedRelayURLs(
+                (hydrationRelayURLs ?? []) + Self.metadataFallbackRelayURLs + [Self.trendingRelayURL]
+            )
             return await buildAuthorOnlyFeedItems(
-                relayURLs: [Self.trendingRelayURL],
+                relayURLs: authorRelayTargets,
                 events: timelineEvents,
                 moderationSnapshot: moderationSnapshot
             )
@@ -1724,7 +2140,8 @@ struct NostrFeedService: Sendable {
         fetchTimeout: TimeInterval = 12,
         relayFetchMode: RelayFetchMode = .allRelays,
         profileFetchTimeout: TimeInterval = 8,
-        profileRelayFetchMode: RelayFetchMode = .allRelays
+        profileRelayFetchMode: RelayFetchMode = .allRelays,
+        knownTargetPubkeysByEventID: [String: String] = [:]
     ) async throws -> [ActivityRow] {
         guard limit > 0 else { return [] }
         guard let normalizedRootEventID = normalizedEventID(rootEventID) else { return [] }
@@ -1762,7 +2179,35 @@ struct NostrFeedService: Sendable {
             fetchTimeout: fetchTimeout,
             relayFetchMode: relayFetchMode,
             profileFetchTimeout: profileFetchTimeout,
-            profileRelayFetchMode: profileRelayFetchMode
+            profileRelayFetchMode: profileRelayFetchMode,
+            knownTargetPubkeysByEventID: knownTargetPubkeysByEventID
+        )
+    }
+
+    func fetchThreadNoteActivityRows(
+        relayURLs: [URL],
+        rootEventID: String,
+        rootAuthorPubkey: String,
+        limit: Int = 100,
+        fetchTimeout: TimeInterval = 12,
+        relayFetchMode: RelayFetchMode = .allRelays,
+        profileFetchTimeout: TimeInterval = 8,
+        profileRelayFetchMode: RelayFetchMode = .allRelays
+    ) async throws -> [ActivityRow] {
+        let normalizedRootEventID = normalizedEventID(rootEventID) ?? rootEventID.lowercased()
+        let normalizedRootAuthorPubkey = normalizePubkey(rootAuthorPubkey)
+
+        return try await fetchNoteActivityRows(
+            relayURLs: relayURLs,
+            rootEventID: rootEventID,
+            limit: limit,
+            fetchTimeout: fetchTimeout,
+            relayFetchMode: relayFetchMode,
+            profileFetchTimeout: profileFetchTimeout,
+            profileRelayFetchMode: profileRelayFetchMode,
+            knownTargetPubkeysByEventID: normalizedRootAuthorPubkey.isEmpty
+                ? [:]
+                : [normalizedRootEventID: normalizedRootAuthorPubkey]
         )
     }
 
@@ -1773,7 +2218,8 @@ struct NostrFeedService: Sendable {
         fetchTimeout: TimeInterval = 12,
         relayFetchMode: RelayFetchMode = .allRelays,
         profileFetchTimeout: TimeInterval = 8,
-        profileRelayFetchMode: RelayFetchMode = .allRelays
+        profileRelayFetchMode: RelayFetchMode = .allRelays,
+        knownTargetPubkeysByEventID: [String: String] = [:]
     ) async -> [ActivityRow] {
         guard let normalizedRootEventID = normalizedEventID(rootEventID) else { return [] }
 
@@ -1791,7 +2237,8 @@ struct NostrFeedService: Sendable {
             fetchTimeout: fetchTimeout,
             relayFetchMode: relayFetchMode,
             profileFetchTimeout: profileFetchTimeout,
-            profileRelayFetchMode: profileRelayFetchMode
+            profileRelayFetchMode: profileRelayFetchMode,
+            knownTargetPubkeysByEventID: knownTargetPubkeysByEventID
         )
     }
 
@@ -1801,7 +2248,8 @@ struct NostrFeedService: Sendable {
         fetchTimeout: TimeInterval,
         relayFetchMode: RelayFetchMode,
         profileFetchTimeout: TimeInterval,
-        profileRelayFetchMode: RelayFetchMode
+        profileRelayFetchMode: RelayFetchMode,
+        knownTargetPubkeysByEventID: [String: String] = [:]
     ) async -> [ActivityRow] {
         let relayTargets = normalizedRelayURLs(relayURLs)
         guard !relayTargets.isEmpty else { return [] }
@@ -1818,7 +2266,8 @@ struct NostrFeedService: Sendable {
             relayURLs: relayTargets,
             sourceEvents: events,
             fetchTimeout: fetchTimeout,
-            relayFetchMode: relayFetchMode
+            relayFetchMode: relayFetchMode,
+            knownTargetPubkeysByEventID: knownTargetPubkeysByEventID
         )
 
         let actorProfiles = await actorProfilesTask
@@ -1911,7 +2360,7 @@ struct NostrFeedService: Sendable {
         )
 
         let kindsSet = Set(kinds)
-        let fetchedEvents = try await fetchTimelineEvents(
+        let fetchedEvents = try await fetchTimelineEventsFromRelaysOnly(
             relayURLs: relayURLs,
             filter: filter,
             timeout: fetchTimeout,
@@ -1941,37 +2390,13 @@ struct NostrFeedService: Sendable {
         hydrationMode: FeedItemHydrationMode = .full,
         moderationSnapshot: MuteFilterSnapshot? = nil
     ) async -> [FeedItem] {
-        guard limit > 0 else { return [] }
-        let fetchLimit = expandedTimelineLimit(for: limit, moderationSnapshot: moderationSnapshot)
-        let normalizedHashtag = NostrEvent.normalizedHashtagValue(hashtag)
-
-        guard !normalizedHashtag.isEmpty else {
-            return []
-        }
-
-        let filter = NostrFilter(
-            kinds: kinds,
-            limit: fetchLimit,
-            until: until,
-            tagFilters: ["t": [normalizedHashtag]]
-        )
-
-        let kindsSet = Set(kinds)
-        let fetchedEvents = (nostrDatabase.queryEvents(filter: filter) ?? [])
-            .filter { kindsSet.contains($0.kind) }
-        let visibleEvents = filterVisibleEvents(fetchedEvents, moderationSnapshot: moderationSnapshot)
-        let timelineEvents = Array(
-            deduplicateEvents(visibleEvents)
-                .sorted(by: { $0.createdAt > $1.createdAt })
-                .prefix(limit)
-        )
-
-        return await buildFeedItems(
-            relayURLs: [],
-            events: timelineEvents,
-            hydrationMode: hydrationMode,
-            moderationSnapshot: moderationSnapshot
-        )
+        let _ = hashtag
+        let _ = kinds
+        let _ = limit
+        let _ = until
+        let _ = hydrationMode
+        let _ = moderationSnapshot
+        return []
     }
 
     func fetchHashtagFeed(
@@ -2005,7 +2430,7 @@ struct NostrFeedService: Sendable {
         )
 
         let kindsSet = Set(kinds)
-        let fetchedEvents = try await fetchTimelineEvents(
+        let fetchedEvents = try await fetchTimelineEventsFromRelaysOnly(
             relayURLs: relayURLs,
             filter: filter,
             timeout: fetchTimeout,
@@ -2207,7 +2632,7 @@ struct NostrFeedService: Sendable {
         relayURLs: [URL],
         pubkeys: [String],
         fetchTimeout: TimeInterval = 8,
-        relayFetchMode: RelayFetchMode = .allRelays
+        relayFetchMode: RelayFetchMode = .firstNonEmptyRelay
     ) async -> [String: NostrProfile] {
         let normalizedPubkeys = Array(
             Set(
@@ -2224,24 +2649,17 @@ struct NostrFeedService: Sendable {
         )
         var profilesByPubkey = resolved.hits
         var unresolvedPubkeys = Set(resolved.missing)
-
-        var backfillPubkeys = Set(
-            missingPersistedProfilePubkeysInNostrDB(
-                requestedPubkeys: normalizedPubkeys,
-                resolvedProfiles: profilesByPubkey
-            )
-        )
-        guard !unresolvedPubkeys.isEmpty || !backfillPubkeys.isEmpty else {
+        guard !unresolvedPubkeys.isEmpty else {
             return profilesByPubkey
         }
 
         let primaryRelayTargets = normalizedRelayURLs(relayURLs)
         let prioritizedRelayTargets = await relayHintCache.prioritizedRelayURLs(
-            for: Array(unresolvedPubkeys.union(backfillPubkeys)),
+            for: Array(unresolvedPubkeys),
             baseRelayURLs: primaryRelayTargets
         )
 
-        let requestedPubkeys = Array(unresolvedPubkeys.union(backfillPubkeys))
+        let requestedPubkeys = Array(unresolvedPubkeys)
         var fetchedProfiles = await fetchProfilesForPubkeys(
             relayURLs: prioritizedRelayTargets,
             pubkeys: requestedPubkeys,
@@ -2250,13 +2668,12 @@ struct NostrFeedService: Sendable {
         )
         let fetchedPubkeys = Set(fetchedProfiles.keys.map(normalizePubkey))
         unresolvedPubkeys.subtract(fetchedPubkeys)
-        backfillPubkeys.subtract(fetchedPubkeys)
 
-        if !unresolvedPubkeys.isEmpty || !backfillPubkeys.isEmpty {
+        if !unresolvedPubkeys.isEmpty {
             let metadataRelayTargets = metadataRelayURLs(primaryRelayURLs: prioritizedRelayTargets)
             let fallbackProfiles = await fetchProfilesForPubkeys(
                 relayURLs: metadataRelayTargets,
-                pubkeys: Array(unresolvedPubkeys.union(backfillPubkeys)),
+                pubkeys: Array(unresolvedPubkeys),
                 timeout: fetchTimeout,
                 relayFetchMode: relayFetchMode
             )
@@ -2264,7 +2681,6 @@ struct NostrFeedService: Sendable {
                 fetchedProfiles.merge(fallbackProfiles, uniquingKeysWith: { _, new in new })
                 let fallbackPubkeys = Set(fallbackProfiles.keys.map(normalizePubkey))
                 unresolvedPubkeys.subtract(fallbackPubkeys)
-                backfillPubkeys.subtract(fallbackPubkeys)
             }
         }
 
@@ -2279,21 +2695,65 @@ struct NostrFeedService: Sendable {
         return profilesByPubkey
     }
 
+    func refreshLatestReplaceablesForAuthors(
+        relayURLs: [URL],
+        authors: [String],
+        kinds: [Int],
+        perAuthorLimit: Int = 8,
+        fetchTimeout: TimeInterval = 8,
+        relayFetchMode: RelayFetchMode = .allRelays
+    ) async -> [NostrEvent] {
+        let normalizedAuthors = normalizedUniquePubkeys(authors)
+        let kindsSet = Set(kinds)
+        let clampedPerAuthorLimit = max(perAuthorLimit, 1)
+
+        guard !normalizedAuthors.isEmpty, !kindsSet.isEmpty else {
+            return []
+        }
+
+        var collected: [NostrEvent] = []
+        for batch in normalizedAuthors.chunked(into: 80) {
+            let filter = NostrFilter(
+                authors: batch,
+                kinds: Array(kindsSet),
+                limit: max(batch.count * clampedPerAuthorLimit, clampedPerAuthorLimit)
+            )
+
+            guard let batchEvents = try? await fetchTimelineEventsFromRelaysOnly(
+                relayURLs: relayURLs,
+                filter: filter,
+                timeout: fetchTimeout,
+                useCache: false,
+                relayFetchMode: relayFetchMode
+            ) else {
+                continue
+            }
+
+            collected.append(contentsOf: batchEvents)
+        }
+
+        let selected = newestReplaceableEvents(
+            from: collected,
+            kinds: kindsSet,
+            authorPubkeys: Set(normalizedAuthors)
+        )
+
+        guard !selected.isEmpty else {
+            return []
+        }
+
+        await seenEventStore.store(events: selected)
+        await hydrateReplaceableSideEffects(events: selected)
+        return selected
+    }
+
     private func referenceRelayTargets(
         for reference: NostrEventReferencePointer,
         baseRelayURLs: [URL]
     ) async -> [URL] {
-        let primaryRelayURLs = normalizedRelayURLs(reference.relayHints + baseRelayURLs)
-        let relayTargets = metadataRelayURLs(primaryRelayURLs: primaryRelayURLs)
-
-        guard let targetPubkey = reference.targetPubkey else {
-            return relayTargets
-        }
-
-        return await relayHintCache.prioritizedRelayURLs(
-            for: [targetPubkey],
-            baseRelayURLs: relayTargets
-        )
+        let relayTargets = normalizedRelayURLs(reference.relayHints + baseRelayURLs)
+        guard !relayTargets.isEmpty else { return [] }
+        return relayTargets
     }
 
     private func fetchReferencedEventByID(
@@ -2393,6 +2853,7 @@ struct NostrFeedService: Sendable {
         let uniqueEvents = deduplicateEvents(
             filterVisibleEvents(events, moderationSnapshot: moderationSnapshot)
         )
+        let eventIDs = uniqueEvents.map { $0.id.lowercased() }
 
         switch hydrationMode {
         case .cachedProfilesOnly:
@@ -2404,13 +2865,29 @@ struct NostrFeedService: Sendable {
             break
         }
 
-        async let actorProfilesTask = hydrateActorProfiles(for: uniqueEvents, relayURLs: relayURLs)
-        async let displayEventsTask = resolveDisplayEvents(for: uniqueEvents, relayURLs: relayURLs)
+        var itemsByEventID = await presentationCache.cachedItems(for: eventIDs)
+        if !itemsByEventID.isEmpty {
+            itemsByEventID = await refreshedCachedFeedItems(itemsByEventID)
+        }
+        let missingEvents = uniqueEvents.filter { event in
+            guard let cachedItem = itemsByEventID[event.id.lowercased()] else { return true }
+            return cachedItemNeedsFullHydration(cachedItem, sourceEvent: event)
+        }
+
+        guard !missingEvents.isEmpty else {
+            return filterVisibleFeedItems(
+                uniqueEvents.compactMap { itemsByEventID[$0.id.lowercased()] },
+                moderationSnapshot: moderationSnapshot
+            )
+        }
+
+        async let actorProfilesTask = hydrateActorProfiles(for: missingEvents, relayURLs: relayURLs)
+        async let displayEventsTask = resolveDisplayEvents(for: missingEvents, relayURLs: relayURLs)
 
         let profilesByPubkey = await actorProfilesTask
         let displayEventsBySourceID = await displayEventsTask
         async let replyTargetEventsTask = resolveReplyTargetEvents(
-            for: uniqueEvents,
+            for: missingEvents,
             displayEventsBySourceID: displayEventsBySourceID,
             relayURLs: relayURLs
         )
@@ -2445,7 +2922,7 @@ struct NostrFeedService: Sendable {
             )
         }
 
-        let items = uniqueEvents.map { event in
+        let freshItems = missingEvents.map { event in
             let normalizedPubkey = normalizePubkey(event.pubkey)
             let displayEvent = displayEventsBySourceID[event.id.lowercased()]
             let displayProfile = displayEvent.flatMap { displayProfilesByPubkey[normalizePubkey($0.pubkey)] }
@@ -2463,7 +2940,95 @@ struct NostrFeedService: Sendable {
                 replyTargetProfile: replyTargetProfile
             )
         }
-        return filterVisibleFeedItems(items, moderationSnapshot: moderationSnapshot)
+        let filteredFreshItems = filterVisibleFeedItems(freshItems, moderationSnapshot: moderationSnapshot)
+        let mergedFreshItems = filteredFreshItems.map { item in
+            if let existing = itemsByEventID[item.id] {
+                return existing.merged(with: item)
+            }
+            return item
+        }
+        await presentationCache.store(mergedFreshItems)
+        for item in mergedFreshItems {
+            itemsByEventID[item.id] = item
+        }
+
+        return filterVisibleFeedItems(
+            uniqueEvents.compactMap { itemsByEventID[$0.id.lowercased()] },
+            moderationSnapshot: moderationSnapshot
+        )
+    }
+
+    private func refreshedCachedFeedItems(_ cachedItems: [String: FeedItem]) async -> [String: FeedItem] {
+        let associatedPubkeys = Array(
+            Set(
+                cachedItems.values.flatMap { item in
+                    [
+                        normalizePubkey(item.event.pubkey),
+                        normalizePubkey(item.displayEventOverride?.pubkey ?? ""),
+                        normalizePubkey(item.replyTargetEvent?.pubkey ?? "")
+                    ].filter { !$0.isEmpty }
+                }
+            )
+        )
+        guard !associatedPubkeys.isEmpty else { return cachedItems }
+
+        let latestProfilesByPubkey = await profileCache.cachedProfiles(pubkeys: associatedPubkeys)
+        guard !latestProfilesByPubkey.isEmpty else { return cachedItems }
+
+        var refreshed: [String: FeedItem] = [:]
+        refreshed.reserveCapacity(cachedItems.count)
+        for (eventID, item) in cachedItems {
+            refreshed[eventID] = refreshedCachedFeedItem(item, profilesByPubkey: latestProfilesByPubkey)
+        }
+        return refreshed
+    }
+
+    private func refreshedCachedFeedItem(
+        _ item: FeedItem,
+        profilesByPubkey: [String: NostrProfile]
+    ) -> FeedItem {
+        let actorProfile = profilesByPubkey[normalizePubkey(item.event.pubkey)] ?? item.profile
+        let displayProfile = item.displayEventOverride.flatMap {
+            profilesByPubkey[normalizePubkey($0.pubkey)]
+        } ?? item.displayProfileOverride
+        let replyTargetProfile = item.replyTargetEvent.flatMap {
+            profilesByPubkey[normalizePubkey($0.pubkey)]
+        } ?? item.replyTargetProfile
+
+        return FeedItem(
+            event: item.event,
+            profile: actorProfile,
+            displayEventOverride: item.displayEventOverride,
+            displayProfileOverride: displayProfile,
+            replyTargetEvent: item.replyTargetEvent,
+            replyTargetProfile: replyTargetProfile
+        )
+    }
+
+    private func cachedItemNeedsFullHydration(_ item: FeedItem, sourceEvent: NostrEvent) -> Bool {
+        let normalizedSourceID = sourceEvent.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if item.profile == nil {
+            return true
+        }
+
+        if sourceEvent.isRepost, item.displayEvent.id.lowercased() == normalizedSourceID {
+            return true
+        }
+
+        if item.displayEventOverride != nil, item.displayProfileOverride == nil {
+            return true
+        }
+
+        let replySourceEvent = item.displayEvent
+        if replySourceEvent.isReplyNote, item.replyTargetEvent == nil {
+            return true
+        }
+
+        if item.replyTargetEvent != nil, item.replyTargetProfile == nil {
+            return true
+        }
+
+        return false
     }
 
     func buildAuthorHydratedFeedItems(
@@ -2593,7 +3158,7 @@ struct NostrFeedService: Sendable {
         for events: [NostrEvent],
         relayURLs: [URL],
         fetchTimeout: TimeInterval = 8,
-        relayFetchMode: RelayFetchMode = .allRelays
+        relayFetchMode: RelayFetchMode = .firstNonEmptyRelay
     ) async -> [String: NostrProfile] {
         let pubkeysToResolve = Array(
             Set(events.map { normalizePubkey($0.pubkey) })
@@ -2653,26 +3218,21 @@ struct NostrFeedService: Sendable {
         }
 
         guard !missingTargetIDs.isEmpty else { return displayEventsBySourceID }
-
-        let idsFilter = NostrFilter(
-            ids: Array(missingTargetIDs),
-            limit: max(missingTargetIDs.count * 2, missingTargetIDs.count)
-        )
-
-        guard let fetched = try? await fetchTimelineEvents(
-            relayURLs: relayURLs,
-            filter: idsFilter,
-            useCache: false
-        ) else {
-            return displayEventsBySourceID
+        let referencePointersBySourceID = missingSourceToTargetIDs.reduce(into: [String: NostrEventReferencePointer]()) {
+            partialResult,
+            entry in
+            guard let sourceEvent = eventsByID[entry.key] else { return }
+            partialResult[entry.key] = referencePointerForRepostTarget(
+                targetEventID: entry.value,
+                sourceEvent: sourceEvent
+            )
         }
 
-        let fetchedByID = Dictionary(
-            uniqueKeysWithValues: deduplicateEvents(fetched).map { ($0.id.lowercased(), $0) }
+        let fetchedBySourceID = await fetchResolvedReferenceEvents(
+            pointersByKey: referencePointersBySourceID,
+            baseReadRelayURLs: relayURLs
         )
-
-        for (sourceID, targetID) in missingSourceToTargetIDs {
-            guard let targetEvent = fetchedByID[targetID] else { continue }
+        for (sourceID, targetEvent) in fetchedBySourceID {
             displayEventsBySourceID[sourceID] = targetEvent.resolvedRepostContentEvent ?? targetEvent
         }
 
@@ -2801,26 +3361,25 @@ struct NostrFeedService: Sendable {
         }
 
         guard !missingTargetIDs.isEmpty else { return resolvedBySourceID }
-
-        let idsFilter = NostrFilter(
-            ids: Array(missingTargetIDs),
-            limit: max(missingTargetIDs.count * 2, missingTargetIDs.count)
+        let eventsBySourceID = Dictionary(
+            uniqueKeysWithValues: events.map { ($0.id.lowercased(), $0) }
         )
-
-        guard let fetched = try? await fetchTimelineEvents(
-            relayURLs: relayURLs,
-            filter: idsFilter,
-            useCache: false
-        ) else {
-            return resolvedBySourceID
+        let referencePointersBySourceID = missingSourceToTargetIDs.reduce(into: [String: NostrEventReferencePointer]()) {
+            partialResult,
+            entry in
+            guard let sourceEvent = eventsBySourceID[entry.key] else { return }
+            let replySourceEvent = displayEventsBySourceID[entry.key] ?? sourceEvent
+            partialResult[entry.key] = referencePointerForReplyTarget(
+                targetEventID: entry.value,
+                sourceEvent: replySourceEvent
+            )
         }
 
-        let fetchedByID = Dictionary(
-            uniqueKeysWithValues: deduplicateEvents(fetched).map { ($0.id.lowercased(), $0) }
+        let fetchedBySourceID = await fetchResolvedReferenceEvents(
+            pointersByKey: referencePointersBySourceID,
+            baseReadRelayURLs: relayURLs
         )
-
-        for (sourceID, targetID) in missingSourceToTargetIDs {
-            guard let targetEvent = fetchedByID[targetID] else { continue }
+        for (sourceID, targetEvent) in fetchedBySourceID {
             resolvedBySourceID[sourceID] = targetEvent.resolvedRepostContentEvent ?? targetEvent
         }
 
@@ -2831,7 +3390,8 @@ struct NostrFeedService: Sendable {
         relayURLs: [URL],
         sourceEvents: [NostrEvent],
         fetchTimeout: TimeInterval = 12,
-        relayFetchMode: RelayFetchMode = .allRelays
+        relayFetchMode: RelayFetchMode = .allRelays,
+        knownTargetPubkeysByEventID: [String: String] = [:]
     ) async -> [ActivityTargetReference: NostrEvent] {
         let eventsByID = Dictionary(uniqueKeysWithValues: sourceEvents.map { ($0.id.lowercased(), $0) })
 
@@ -2870,55 +3430,37 @@ struct NostrFeedService: Sendable {
             }
         }
 
-        if !missingEventIDs.isEmpty {
-            let idsFilter = NostrFilter(
-                ids: Array(missingEventIDs),
-                limit: missingEventIDs.count
+        let referencePointersByReference = uniqueReferences.reduce(into: [ActivityTargetReference: NostrEventReferencePointer]()) {
+            partialResult,
+            reference in
+            guard resolved[reference] == nil else { return }
+            guard let sourceEvent = firstSourceEvent(for: reference, in: sourceEvents) else { return }
+            var pointer = referencePointerForActivityTarget(
+                reference,
+                sourceEvent: sourceEvent
             )
-            if let fetched = try? await fetchTimelineEvents(
-                relayURLs: relayURLs,
-                filter: idsFilter,
-                timeout: fetchTimeout,
-                relayFetchMode: relayFetchMode
-            ) {
-                for event in deduplicateEvents(fetched).sorted(by: { lhs, rhs in
-                    if lhs.createdAt == rhs.createdAt {
-                        return lhs.id > rhs.id
-                    }
-                    return lhs.createdAt > rhs.createdAt
-                }) {
-                    resolved[.eventID(event.id.lowercased())] = event
-                }
+            if pointer.targetPubkey == nil,
+               case .eventID(let eventID) = reference,
+               let knownTargetPubkey = knownTargetPubkeysByEventID[eventID],
+               !knownTargetPubkey.isEmpty {
+                pointer = NostrEventReferencePointer(
+                    normalizedIdentifier: pointer.normalizedIdentifier,
+                    target: pointer.target,
+                    relayHints: pointer.relayHints,
+                    authorPubkey: knownTargetPubkey
+                )
             }
+            partialResult[reference] = pointer
         }
 
-        if !missingAddresses.isEmpty {
-            let groupedAddresses = Dictionary(grouping: Array(missingAddresses), by: { "\($0.kind)|\($0.pubkey)" })
-
-            for (_, addresses) in groupedAddresses {
-                guard let sample = addresses.first else { continue }
-                let identifiers = Array(Set(addresses.map(\.identifier)))
-                let addressFilter = NostrFilter(
-                    authors: [sample.pubkey],
-                    kinds: [sample.kind],
-                    limit: max(identifiers.count * 4, 20),
-                    tagFilters: ["d": identifiers]
-                )
-
-                guard let fetched = try? await fetchTimelineEvents(
-                    relayURLs: relayURLs,
-                    filter: addressFilter,
-                    timeout: fetchTimeout,
-                    relayFetchMode: relayFetchMode
-                ) else {
-                    continue
-                }
-
-                let newestByAddress = newestAddressEvents(from: fetched, addresses: Set(addresses))
-                for (address, event) in newestByAddress {
-                    resolved[.address(address)] = event
-                }
-            }
+        let fetchedByReference = await fetchResolvedReferenceEvents(
+            pointersByKey: referencePointersByReference,
+            baseReadRelayURLs: relayURLs,
+            fetchTimeout: fetchTimeout,
+            relayFetchMode: relayFetchMode
+        )
+        for (reference, event) in fetchedByReference {
+            resolved[reference] = event
         }
 
         return resolved
@@ -3033,6 +3575,183 @@ struct NostrFeedService: Sendable {
         case .mention, .reply, .quoteShare:
             return nil
         }
+    }
+
+    private func relayGroupKey(for relayURLs: [URL]) -> String {
+        relayURLs
+            .compactMap { RelayURLSupport.normalizedRelayURLString($0) }
+            .joined(separator: "|")
+    }
+
+    private func relayURLs(fromRelayGroupKey key: String) -> [URL] {
+        key
+            .split(separator: "|")
+            .compactMap { RelayURLSupport.normalizedURL(from: String($0)) }
+    }
+
+    private func fetchResolvedReferenceEvents<Key: Hashable>(
+        pointersByKey: [Key: NostrEventReferencePointer],
+        baseReadRelayURLs: [URL],
+        fetchTimeout: TimeInterval = 12,
+        relayFetchMode: RelayFetchMode = .allRelays
+    ) async -> [Key: NostrEvent] {
+        guard !pointersByKey.isEmpty else { return [:] }
+
+        let resolvedByPointer = await fetchReferencedEvents(
+            references: Array(pointersByKey.values),
+            baseRelayURLs: baseReadRelayURLs,
+            fetchTimeout: fetchTimeout,
+            relayFetchMode: relayFetchMode
+        )
+
+        var resolvedByKey: [Key: NostrEvent] = [:]
+        for (key, pointer) in pointersByKey {
+            guard let event = resolvedByPointer[pointer] else { continue }
+            resolvedByKey[key] = event
+        }
+        return resolvedByKey
+    }
+
+    private func referencePointerForRepostTarget(
+        targetEventID: String,
+        sourceEvent: NostrEvent
+    ) -> NostrEventReferencePointer {
+        NostrEventReferencePointer(
+            normalizedIdentifier: targetEventID,
+            target: .eventID(targetEventID),
+            relayHints: relayHintsForEventReference(
+                targetEventID: targetEventID,
+                sourceEvent: sourceEvent,
+                preferredTagNames: ["e"]
+            ),
+            authorPubkey: repostTargetAuthorHint(in: sourceEvent)
+        )
+    }
+
+    private func referencePointerForReplyTarget(
+        targetEventID: String,
+        sourceEvent: NostrEvent
+    ) -> NostrEventReferencePointer {
+        NostrEventReferencePointer(
+            normalizedIdentifier: targetEventID,
+            target: .eventID(targetEventID),
+            relayHints: relayHintsForEventReference(
+                targetEventID: targetEventID,
+                sourceEvent: sourceEvent,
+                preferredTagNames: ["e"]
+            ),
+            authorPubkey: replyTargetAuthorHint(in: sourceEvent)
+        )
+    }
+
+    private func referencePointerForActivityTarget(
+        _ reference: ActivityTargetReference,
+        sourceEvent: NostrEvent
+    ) -> NostrEventReferencePointer {
+        switch reference {
+        case .eventID(let eventID):
+            return NostrEventReferencePointer(
+                normalizedIdentifier: eventID,
+                target: .eventID(eventID),
+                relayHints: relayHintsForEventReference(
+                    targetEventID: eventID,
+                    sourceEvent: sourceEvent,
+                    preferredTagNames: ["q", "e"]
+                ),
+                authorPubkey: activityTargetAuthorHint(in: sourceEvent)
+            )
+
+        case .address(let address):
+            let normalizedIdentifier = "\(address.kind):\(address.pubkey):\(address.identifier)"
+            return NostrEventReferencePointer(
+                normalizedIdentifier: normalizedIdentifier,
+                target: .replaceable(
+                    kind: address.kind,
+                    pubkey: address.pubkey,
+                    identifier: address.identifier
+                ),
+                relayHints: relayHintsForAddressReference(address, sourceEvent: sourceEvent),
+                authorPubkey: address.pubkey
+            )
+        }
+    }
+
+    private func relayHintsForEventReference(
+        targetEventID: String,
+        sourceEvent: NostrEvent,
+        preferredTagNames: Set<String>
+    ) -> [URL] {
+        RelayURLSupport.normalizedRelayURLs(
+            sourceEvent.tags.compactMap { tag in
+                guard tag.count > 2 else { return nil }
+                guard let tagName = tag.first?.lowercased(), preferredTagNames.contains(tagName) else {
+                    return nil
+                }
+                guard normalizedEventID(tag[1]) == targetEventID else { return nil }
+                return RelayURLSupport.normalizedURL(from: tag[2])
+            }
+        )
+    }
+
+    private func relayHintsForAddressReference(
+        _ address: ActivityAddress,
+        sourceEvent: NostrEvent
+    ) -> [URL] {
+        let normalizedIdentifier = "\(address.kind):\(address.pubkey):\(address.identifier)"
+        return RelayURLSupport.normalizedRelayURLs(
+            sourceEvent.tags.compactMap { tag in
+                guard tag.count > 2 else { return nil }
+                guard tag.first?.lowercased() == "a" else { return nil }
+                let candidate = tag[1]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                guard candidate == normalizedIdentifier else { return nil }
+                return RelayURLSupport.normalizedURL(from: tag[2])
+            }
+        )
+    }
+
+    private func repostTargetAuthorHint(in event: NostrEvent) -> String? {
+        firstTaggedPubkey(in: event)
+    }
+
+    private func replyTargetAuthorHint(in event: NostrEvent) -> String? {
+        lastTaggedPubkey(in: event) ?? firstTaggedPubkey(in: event)
+    }
+
+    private func activityTargetAuthorHint(in event: NostrEvent) -> String? {
+        firstTaggedPubkey(in: event)
+    }
+
+    private func firstTaggedPubkey(in event: NostrEvent) -> String? {
+        for tag in event.tags {
+            guard let name = tag.first?.lowercased(), name == "p", tag.count > 1 else { continue }
+            if let pubkey = normalizedEventID(tag[1]) {
+                return pubkey
+            }
+        }
+        return nil
+    }
+
+    private func lastTaggedPubkey(in event: NostrEvent) -> String? {
+        for tag in event.tags.reversed() {
+            guard let name = tag.first?.lowercased(), name == "p", tag.count > 1 else { continue }
+            if let pubkey = normalizedEventID(tag[1]) {
+                return pubkey
+            }
+        }
+        return nil
+    }
+
+    private func firstSourceEvent(
+        for reference: ActivityTargetReference,
+        in sourceEvents: [NostrEvent]
+    ) -> NostrEvent? {
+        for event in sourceEvents {
+            guard resolvedActivityTargetReference(for: event) == reference else { continue }
+            return event
+        }
+        return nil
     }
 
     private func normalizedEventID(_ value: String?) -> String? {
@@ -3232,27 +3951,6 @@ struct NostrFeedService: Sendable {
         return collectedProfiles
     }
 
-    private func missingPersistedProfilePubkeysInNostrDB(
-        requestedPubkeys: [String],
-        resolvedProfiles: [String: NostrProfile]
-    ) -> [String] {
-        let candidatePubkeys = requestedPubkeys.filter { resolvedProfiles[$0] != nil }
-        guard !candidatePubkeys.isEmpty else { return [] }
-
-        let persistedProfiles = nostrDatabase.profiles(pubkeys: candidatePubkeys) ?? [:]
-        var missing: [String] = []
-        missing.reserveCapacity(min(candidatePubkeys.count, Self.profileBackfillBatchSize))
-
-        for pubkey in candidatePubkeys where persistedProfiles[pubkey] == nil {
-            missing.append(pubkey)
-            if missing.count >= Self.profileBackfillBatchSize {
-                break
-            }
-        }
-
-        return missing
-    }
-
     private func decodeNewestProfiles(from events: [NostrEvent]) -> [String: NostrProfile] {
         let newestFirst = deduplicateEvents(events)
             .filter { $0.kind == 0 }
@@ -3311,13 +4009,7 @@ struct NostrFeedService: Sendable {
         relayFetchMode: RelayFetchMode = .allRelays
     ) async throws -> [NostrEvent] {
         let targets = normalizedRelayURLs(relayURLs)
-        let localEvents = localTimelineEvents(relayURLs: targets, filter: filter)
-
-        guard !targets.isEmpty else { return localEvents }
-        if localTimelineEventsSatisfyRequest(localEvents, filter: filter),
-           !shouldRefillFromRelays(relayURLs: targets, filter: filter) {
-            return localEvents
-        }
+        guard !targets.isEmpty else { return [] }
 
         if relayFetchMode == .firstRelayWithEvents {
             let result: (events: [NostrEvent], successfulFetches: Int, firstError: Error?) = await withTaskGroup(
@@ -3358,14 +4050,28 @@ struct NostrFeedService: Sendable {
             }
 
             if !result.events.isEmpty {
-                return mergedTimelineEvents(localEvents + result.events, filter: filter)
-            }
-
-            if !localEvents.isEmpty {
-                return localEvents
+                return mergedTimelineEvents(result.events, filter: filter)
             }
 
             if result.successfulFetches == 0, let firstError = result.firstError {
+                throw firstError
+            }
+            return []
+        }
+
+        if relayFetchMode == .firstNonEmptyRelay {
+            let result = await fetchFirstNonEmptyRelayResult(
+                relayURLs: targets,
+                filter: filter,
+                timeout: timeout,
+                useCache: useCache
+            )
+
+            if result.successfulFetches > 0 {
+                return mergedTimelineEvents(result.mergedEvents, filter: filter)
+            }
+
+            if !result.didTimeOut, result.successfulFetches == 0, let firstError = result.firstError {
                 throw firstError
             }
             return []
@@ -3408,11 +4114,7 @@ struct NostrFeedService: Sendable {
         }
 
         if result.successfulFetches > 0 {
-            return mergedTimelineEvents(localEvents + result.mergedEvents, filter: filter)
-        }
-
-        if !localEvents.isEmpty {
-            return localEvents
+            return mergedTimelineEvents(result.mergedEvents, filter: filter)
         }
 
         if result.successfulFetches == 0, let firstError = result.firstError {
@@ -3421,26 +4123,230 @@ struct NostrFeedService: Sendable {
         return []
     }
 
-    private func localTimelineEvents(
+    private func fetchTimelineEvents(
         relayURLs: [URL],
-        filter: NostrFilter
-    ) -> [NostrEvent] {
-        guard shouldUseLocalTimelineQuery(relayURLs: relayURLs, filter: filter) else {
+        filter: NostrFilter,
+        timeout: TimeInterval = 12,
+        useCache: Bool = true,
+        relayFetchMode: RelayFetchMode = .allRelays,
+        relayOnly: Bool
+    ) async throws -> [NostrEvent] {
+        if relayOnly {
+            return try await fetchTimelineEventsFromRelaysOnly(
+                relayURLs: relayURLs,
+                filter: filter,
+                timeout: timeout,
+                useCache: useCache,
+                relayFetchMode: relayFetchMode
+            )
+        }
+
+        return try await fetchTimelineEvents(
+            relayURLs: relayURLs,
+            filter: filter,
+            timeout: timeout,
+            useCache: useCache,
+            relayFetchMode: relayFetchMode
+        )
+    }
+
+    private func fetchTimelineEventsFromRelaysOnly(
+        relayURLs: [URL],
+        filter: NostrFilter,
+        timeout: TimeInterval = 12,
+        useCache: Bool = true,
+        relayFetchMode: RelayFetchMode = .allRelays
+    ) async throws -> [NostrEvent] {
+        let targets = normalizedRelayURLs(relayURLs)
+        guard !targets.isEmpty else { return [] }
+
+        if relayFetchMode == .firstRelayWithEvents {
+            let result: (events: [NostrEvent], successfulFetches: Int, firstError: Error?) = await withTaskGroup(
+                of: (events: [NostrEvent]?, error: Error?).self,
+                returning: (events: [NostrEvent], successfulFetches: Int, firstError: Error?).self
+            ) { group in
+                for relayURL in targets {
+                    group.addTask {
+                        do {
+                            let events = try await fetchTimelineEvents(
+                                relayURL: relayURL,
+                                filter: filter,
+                                timeout: timeout,
+                                useCache: useCache
+                            )
+                            return (events: events, error: nil)
+                        } catch {
+                            return (events: nil, error: error)
+                        }
+                    }
+                }
+
+                var firstError: Error?
+                var successfulFetches = 0
+
+                for await item in group {
+                    if let events = item.events {
+                        successfulFetches += 1
+                        guard !events.isEmpty else { continue }
+                        group.cancelAll()
+                        return (events, successfulFetches, firstError)
+                    } else if firstError == nil, let error = item.error {
+                        firstError = error
+                    }
+                }
+
+                return ([], successfulFetches, firstError)
+            }
+
+            if !result.events.isEmpty {
+                return mergedTimelineEvents(result.events, filter: filter)
+            }
+
+            if result.successfulFetches == 0, let firstError = result.firstError {
+                throw firstError
+            }
             return []
         }
 
-        return nostrDatabase.queryEvents(filter: filter) ?? []
+        if relayFetchMode == .firstNonEmptyRelay {
+            let result = await fetchFirstNonEmptyRelayResult(
+                relayURLs: targets,
+                filter: filter,
+                timeout: timeout,
+                useCache: useCache
+            )
+
+            if result.successfulFetches > 0 {
+                return mergedTimelineEvents(result.mergedEvents, filter: filter)
+            }
+
+            if !result.didTimeOut, result.successfulFetches == 0, let firstError = result.firstError {
+                throw firstError
+            }
+            return []
+        }
+
+        let result: (mergedEvents: [NostrEvent], successfulFetches: Int, firstError: Error?) = await withTaskGroup(
+            of: (events: [NostrEvent]?, error: Error?).self,
+            returning: (mergedEvents: [NostrEvent], successfulFetches: Int, firstError: Error?).self
+        ) { group in
+            for relayURL in targets {
+                group.addTask {
+                    do {
+                        let events = try await fetchTimelineEvents(
+                            relayURL: relayURL,
+                            filter: filter,
+                            timeout: timeout,
+                            useCache: useCache
+                        )
+                        return (events: events, error: nil)
+                    } catch {
+                        return (events: nil, error: error)
+                    }
+                }
+            }
+
+            var mergedEvents: [NostrEvent] = []
+            var firstError: Error?
+            var successfulFetches = 0
+
+            for await item in group {
+                if let events = item.events {
+                    successfulFetches += 1
+                    mergedEvents.append(contentsOf: events)
+                } else if firstError == nil, let error = item.error {
+                    firstError = error
+                }
+            }
+
+            return (mergedEvents, successfulFetches, firstError)
+        }
+
+        if result.successfulFetches > 0 {
+            return mergedTimelineEvents(result.mergedEvents, filter: filter)
+        }
+
+        if result.successfulFetches == 0, let firstError = result.firstError {
+            throw firstError
+        }
+        return []
     }
 
-    private func shouldUseLocalTimelineQuery(
+    private func fetchFirstNonEmptyRelayResult(
         relayURLs: [URL],
-        filter: NostrFilter
-    ) -> Bool {
-        guard !filter.jsonObject.isEmpty else { return false }
-        if relayURLs.count == 1, relayURLs.first == Self.trendingRelayURL {
-            return false
+        filter: NostrFilter,
+        timeout: TimeInterval,
+        useCache: Bool
+    ) async -> (mergedEvents: [NostrEvent], successfulFetches: Int, firstError: Error?, didTimeOut: Bool) {
+        enum RelayProgress {
+            case relay(events: [NostrEvent]?, error: Error?)
+            case deadline
+            case graceWindowClosed
         }
-        return true
+
+        return await withTaskGroup(
+            of: RelayProgress.self,
+            returning: (mergedEvents: [NostrEvent], successfulFetches: Int, firstError: Error?, didTimeOut: Bool).self
+        ) { group in
+            for relayURL in relayURLs {
+                group.addTask {
+                    do {
+                        let events = try await fetchTimelineEvents(
+                            relayURL: relayURL,
+                            filter: filter,
+                            timeout: timeout,
+                            useCache: useCache
+                        )
+                        return .relay(events: events, error: nil)
+                    } catch {
+                        return .relay(events: nil, error: error)
+                    }
+                }
+            }
+
+            group.addTask {
+                try? await Task.sleep(nanoseconds: Self.timeoutNanoseconds(for: timeout))
+                return .deadline
+            }
+
+            var mergedEvents: [NostrEvent] = []
+            var firstError: Error?
+            var successfulFetches = 0
+            var hasStartedGraceWindow = false
+
+            for await progress in group {
+                switch progress {
+                case .relay(let events, let error):
+                    if let events {
+                        successfulFetches += 1
+                        mergedEvents.append(contentsOf: events)
+
+                        if !hasStartedGraceWindow {
+                            hasStartedGraceWindow = true
+                            let graceTimeout = min(timeout, Self.dittoEOSEGraceTimeout)
+                            group.addTask {
+                                try? await Task.sleep(
+                                    nanoseconds: Self.timeoutNanoseconds(for: graceTimeout)
+                                )
+                                return .graceWindowClosed
+                            }
+                        }
+                    } else if firstError == nil, let error {
+                        firstError = error
+                    }
+                case .graceWindowClosed:
+                    if successfulFetches > 0 {
+                        group.cancelAll()
+                        return (mergedEvents, successfulFetches, firstError, false)
+                    }
+                case .deadline:
+                    group.cancelAll()
+                    return (mergedEvents, successfulFetches, firstError, true)
+                }
+            }
+
+            return (mergedEvents, successfulFetches, firstError, false)
+        }
     }
 
     private func fetchEventsEnforcingTimeout(
@@ -3456,76 +4362,33 @@ struct NostrFeedService: Sendable {
             )
         }
 
-        let continuationBox = RelayFetchContinuationBox<[NostrEvent]>()
-        return try await withCheckedThrowingContinuation { continuation in
-            var timeoutTask: Task<Void, Never>?
-
-            let relayTask = Task {
-                do {
-                    let events = try await relayClient.fetchEvents(
-                        relayURL: relayURL,
-                        filter: filter,
-                        timeout: timeout
-                    )
-                    if await continuationBox.resumeIfNeeded(
-                        continuation: continuation,
-                        with: .success(events)
-                    ) {
-                        timeoutTask?.cancel()
-                    }
-                } catch {
-                    if await continuationBox.resumeIfNeeded(
-                        continuation: continuation,
-                        with: .failure(error)
-                    ) {
-                        timeoutTask?.cancel()
-                    }
-                }
+        return try await withThrowingTaskGroup(of: [NostrEvent].self) { group in
+            group.addTask {
+                try await relayClient.fetchEvents(
+                    relayURL: relayURL,
+                    filter: filter,
+                    timeout: timeout
+                )
             }
 
-            timeoutTask = Task {
-                try? await Task.sleep(
+            group.addTask {
+                try await Task.sleep(
                     nanoseconds: Self.timeoutNanoseconds(for: timeout)
                 )
-                guard !Task.isCancelled else { return }
-
-                if await continuationBox.resumeIfNeeded(
-                    continuation: continuation,
-                    with: .failure(RelayFetchTimeoutError.timedOut)
-                ) {
-                    relayTask.cancel()
-                }
+                throw RelayFetchTimeoutError.timedOut
             }
+
+            defer { group.cancelAll() }
+
+            guard let result = try await group.next() else {
+                throw RelayFetchTimeoutError.timedOut
+            }
+            return result
         }
     }
 
     private nonisolated static func timeoutNanoseconds(for timeout: TimeInterval) -> UInt64 {
         UInt64(max(timeout, 0) * 1_000_000_000)
-    }
-
-    private func shouldRefillFromRelays(
-        relayURLs: [URL],
-        filter: NostrFilter
-    ) -> Bool {
-        guard !relayURLs.isEmpty else { return false }
-        if relayURLs.count == 1, relayURLs.first == Self.trendingRelayURL {
-            return true
-        }
-
-        let normalizedSearch = filter.search?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !normalizedSearch.isEmpty {
-            return false
-        }
-
-        return filter.until == nil && filter.since == nil
-    }
-
-    private func localTimelineEventsSatisfyRequest(
-        _ localEvents: [NostrEvent],
-        filter: NostrFilter
-    ) -> Bool {
-        let requestedLimit = max(filter.limit ?? 0, 1)
-        return localEvents.count >= requestedLimit
     }
 
     private func mergedTimelineEvents(_ events: [NostrEvent], filter: NostrFilter) -> [NostrEvent] {
@@ -3540,6 +4403,63 @@ struct NostrFeedService: Sendable {
             return Array(merged.prefix(limit))
         }
         return merged
+    }
+
+    private func newestReplaceableEvents(
+        from events: [NostrEvent],
+        kinds: Set<Int>,
+        authorPubkeys: Set<String>
+    ) -> [NostrEvent] {
+        guard !events.isEmpty, !kinds.isEmpty, !authorPubkeys.isEmpty else { return [] }
+
+        let sorted = deduplicateEvents(events)
+            .filter { event in
+                kinds.contains(event.kind) && authorPubkeys.contains(normalizePubkey(event.pubkey))
+            }
+            .sorted(by: { lhs, rhs in
+                if lhs.createdAt == rhs.createdAt {
+                    return lhs.id > rhs.id
+                }
+                return lhs.createdAt > rhs.createdAt
+            })
+
+        var selectedByKey: [String: NostrEvent] = [:]
+        for event in sorted {
+            let normalizedPubkey = normalizePubkey(event.pubkey)
+            guard !normalizedPubkey.isEmpty else { continue }
+
+            let identifier = firstReplaceableIdentifier(in: event) ?? ""
+            let key = "\(event.kind)|\(normalizedPubkey)|\(identifier)"
+            if selectedByKey[key] == nil {
+                selectedByKey[key] = event
+            }
+        }
+
+        return selectedByKey.values.sorted(by: { lhs, rhs in
+            if lhs.createdAt == rhs.createdAt {
+                return lhs.id > rhs.id
+            }
+            return lhs.createdAt > rhs.createdAt
+        })
+    }
+
+    private func hydrateReplaceableSideEffects(events: [NostrEvent]) async {
+        guard !events.isEmpty else { return }
+
+        let newestProfiles = decodeNewestProfiles(from: events)
+        if !newestProfiles.isEmpty {
+            await profileCache.store(profiles: newestProfiles, missed: [])
+        }
+
+        for event in events where event.kind == 3 {
+            let snapshot = FollowListSnapshot(
+                content: event.content,
+                tags: event.tags,
+                createdAt: event.createdAt
+            )
+            await followListCache.storeSnapshot(snapshot, for: normalizePubkey(event.pubkey))
+            await relayHintCache.storeHints(snapshot.relayHintsByPubkey)
+        }
     }
 
     private func extractFollowListSnapshot(from events: [NostrEvent]) -> FollowListSnapshot? {
@@ -3557,7 +4477,8 @@ struct NostrFeedService: Sendable {
 
         return FollowListSnapshot(
             content: newest.content,
-            tags: newest.tags
+            tags: newest.tags,
+            createdAt: newest.createdAt
         )
     }
 
@@ -3578,10 +4499,311 @@ struct NostrFeedService: Sendable {
         normalizedRelayURLs(primaryRelayURLs + Self.metadataFallbackRelayURLs)
     }
 
+    private func cachedAuthorRelayDirectoryEntries(
+        for pubkeys: [String]
+    ) async -> [String: AuthorRelayDirectoryEntry] {
+        guard !pubkeys.isEmpty else { return [:] }
+
+        if let directoryCache = relayHintCache as? any AuthorRelayDirectoryCaching {
+            return await directoryCache.entries(for: pubkeys)
+        }
+
+        let relayHintsByPubkey = await relayHintCache.relayHints(for: pubkeys)
+        var entries: [String: AuthorRelayDirectoryEntry] = [:]
+
+        for pubkey in normalizedUniquePubkeys(pubkeys) {
+            entries[pubkey] = AuthorRelayDirectoryEntry(
+                readRelayURLs: [],
+                writeRelayURLs: [],
+                hintRelayURLs: relayHintsByPubkey[pubkey] ?? [],
+                refreshedAt: nil
+            )
+        }
+
+        return entries
+    }
+
+    private func fetchAuthorRelayDirectoryEntries(
+        for pubkeys: [String],
+        baseReadRelayURLs: [URL],
+        existingEntries: [String: AuthorRelayDirectoryEntry]
+    ) async -> [String: AuthorRelayDirectoryEntry] {
+        let normalizedPubkeys = normalizedUniquePubkeys(pubkeys)
+        guard !normalizedPubkeys.isEmpty else { return [:] }
+
+        let profileEventService = ProfileEventService(
+            relayClient: relayClient,
+            seenEventStore: seenEventStore
+        )
+        let normalizedBaseReadRelayURLs = normalizedRelayURLs(baseReadRelayURLs)
+
+        var fetchedEntries: [String: AuthorRelayDirectoryEntry] = [:]
+        for pubkey in normalizedPubkeys {
+            let existingEntry = existingEntries[pubkey]
+            let discoveryRelayURLs = normalizedRelayURLs(
+                (existingEntry?.hintRelayURLs ?? [])
+                    + normalizedBaseReadRelayURLs
+                    + Self.metadataFallbackRelayURLs
+            )
+            guard !discoveryRelayURLs.isEmpty else { continue }
+
+            let snapshot = await profileEventService.fetchRelayConnectionsSnapshot(
+                relayURLs: discoveryRelayURLs,
+                pubkey: pubkey
+            )
+            guard !snapshot.isEmpty else { continue }
+
+            let entry = snapshot.authorRelayDirectoryEntry(
+                hintRelayURLs: existingEntry?.hintRelayURLs ?? []
+            )
+            fetchedEntries[pubkey] = entry
+        }
+
+        if let directoryCache = relayHintCache as? any AuthorRelayDirectoryCaching {
+            for (pubkey, entry) in fetchedEntries {
+                await directoryCache.store(entry: entry, for: pubkey)
+            }
+        }
+
+        return fetchedEntries
+    }
+
+    private func recordOutboxPlanDiagnostics(
+        authors: [String],
+        directoryEntries: [String: AuthorRelayDirectoryEntry]
+    ) async {
+        guard !authors.isEmpty else { return }
+
+        var directoryHits = 0
+        var writeRelayFallbacks = 0
+        var genericReadRelayFallbacks = 0
+
+        for author in authors {
+            guard let entry = directoryEntries[author] else {
+                genericReadRelayFallbacks += 1
+                continue
+            }
+
+            if !entry.readRelayURLs.isEmpty || !entry.writeRelayURLs.isEmpty {
+                directoryHits += 1
+            }
+            if entry.readRelayURLs.isEmpty, !entry.writeRelayURLs.isEmpty {
+                writeRelayFallbacks += 1
+            }
+            if entry.readRelayURLs.isEmpty {
+                genericReadRelayFallbacks += 1
+            }
+        }
+
+        await outboxDiagnosticsStore.record(
+            directoryHits: directoryHits,
+            writeRelayFallbacks: writeRelayFallbacks,
+            genericReadRelayFallbacks: genericReadRelayFallbacks
+        )
+    }
+
+    private func groupedAuthorsByRelaySignature(
+        authors: [String],
+        relayPlan: AuthorRelayPlan
+    ) -> [String: (relayURLs: [URL], authors: [String])] {
+        var grouped: [String: (relayURLs: [URL], authors: [String])] = [:]
+
+        for author in authors {
+            let relayURLs = relayPlan.relayURLs(for: author)
+            let signature = relayURLs
+                .map { $0.absoluteString.lowercased() }
+                .joined(separator: "|")
+
+            if var existing = grouped[signature] {
+                existing.authors.append(author)
+                grouped[signature] = existing
+            } else {
+                grouped[signature] = (relayURLs: relayURLs, authors: [author])
+            }
+        }
+
+        return grouped
+    }
+
+    private func mergedFeedItemsKeepingNewest(
+        existing: [FeedItem],
+        incoming: [FeedItem]
+    ) -> [FeedItem] {
+        guard !incoming.isEmpty else { return existing }
+
+        var itemsByID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+        for item in incoming {
+            itemsByID[item.id] = item
+        }
+
+        return itemsByID.values.sorted { lhs, rhs in
+            if lhs.event.createdAt == rhs.event.createdAt {
+                return lhs.id > rhs.id
+            }
+            return lhs.event.createdAt > rhs.event.createdAt
+        }
+    }
+
+    private func normalizedHintRelayMap(_ hintsByPubkey: [String: [URL]]) -> [String: [URL]] {
+        var normalizedHints: [String: [URL]] = [:]
+
+        for (pubkey, relayURLs) in hintsByPubkey {
+            let normalizedPubkey = normalizePubkey(pubkey)
+            guard !normalizedPubkey.isEmpty else { continue }
+
+            let normalizedRelayURLs = RelayURLSupport.normalizedRelayURLs(relayURLs)
+            guard !normalizedRelayURLs.isEmpty else { continue }
+            normalizedHints[normalizedPubkey] = normalizedRelayURLs
+        }
+
+        return normalizedHints
+    }
     private func normalizePubkey(_ value: String?) -> String {
         (value ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+    }
+
+    private func mentionSearchRelayTargets() async -> [URL] {
+        let readRelayURLs = await MainActor.run {
+            RelaySettingsStore.shared.readRelayURLs
+        }
+        return normalizedRelayURLs(
+            [Self.nostrArchivesSearchRelayURL] + readRelayURLs + Self.metadataFallbackRelayURLs
+        )
+    }
+
+    private func shouldUseNostrArchivesRESTSearch(relayURLs: [URL]) -> Bool {
+        relayURLs.contains { relayURL in
+            relayURL.host?.lowercased() == Self.nostrArchivesSearchRelayURL.host?.lowercased()
+        }
+    }
+
+    private func cachedProfileSearchResults(
+        query: String,
+        limit: Int,
+        preferredPubkeys: Set<String>
+    ) async -> [ProfileSearchResult] {
+        guard limit > 0 else { return [] }
+
+        let recentPubkeys = await profileCache.recentProfilePubkeys(limit: max(limit * 2, 24))
+        let orderedCandidatePubkeys = orderedUniqueProfileSearchPubkeys(
+            preferredPubkeys: preferredPubkeys,
+            recentPubkeys: recentPubkeys
+        )
+        guard !orderedCandidatePubkeys.isEmpty else { return [] }
+
+        let cachedProfiles = await profileCache.cachedProfiles(pubkeys: orderedCandidatePubkeys)
+        let recencyByPubkey = Dictionary(
+            uniqueKeysWithValues: recentPubkeys.enumerated().map { index, pubkey in
+                (pubkey, max(limit * 2 - index, 0))
+            }
+        )
+
+        return orderedCandidatePubkeys.compactMap { pubkey in
+            guard let profile = cachedProfiles[pubkey] else { return nil }
+            guard Self.profileSearchScore(profile: profile, pubkey: pubkey, query: query) != nil else {
+                return nil
+            }
+
+            return ProfileSearchResult(
+                pubkey: pubkey,
+                profile: profile,
+                createdAt: recencyByPubkey[pubkey] ?? 0
+            )
+        }
+    }
+
+    private func orderedUniqueProfileSearchPubkeys(
+        preferredPubkeys: Set<String>,
+        recentPubkeys: [String]
+    ) -> [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+
+        for pubkey in preferredPubkeys.sorted() where seen.insert(pubkey).inserted {
+            ordered.append(pubkey)
+        }
+
+        for pubkey in recentPubkeys where seen.insert(pubkey).inserted {
+            ordered.append(pubkey)
+        }
+
+        return ordered
+    }
+
+    private func mergedProfileSearchResults(
+        groups: [[ProfileSearchResult]],
+        query: String,
+        preferredPubkeys: Set<String>,
+        limit: Int
+    ) -> [ProfileSearchResult] {
+        guard limit > 0 else { return [] }
+
+        var seen = Set<String>()
+        var collected: [ProfileSearchResult] = []
+
+        for group in groups {
+            for result in group {
+                let normalizedPubkey = normalizePubkey(result.pubkey)
+                guard !normalizedPubkey.isEmpty, seen.insert(normalizedPubkey).inserted else { continue }
+                collected.append(
+                    ProfileSearchResult(
+                        pubkey: normalizedPubkey,
+                        profile: result.profile,
+                        createdAt: result.createdAt
+                    )
+                )
+            }
+        }
+
+        let sorted = collected.sorted { lhs, rhs in
+            let lhsScore = mergedProfileSearchScore(
+                result: lhs,
+                query: query,
+                preferredPubkeys: preferredPubkeys
+            )
+            let rhsScore = mergedProfileSearchScore(
+                result: rhs,
+                query: query,
+                preferredPubkeys: preferredPubkeys
+            )
+            if lhsScore == rhsScore {
+                if lhs.createdAt == rhs.createdAt {
+                    return lhs.pubkey < rhs.pubkey
+                }
+                return lhs.createdAt > rhs.createdAt
+            }
+            return lhsScore > rhsScore
+        }
+
+        return Array(sorted.prefix(limit))
+    }
+
+    private func mergedProfileSearchScore(
+        result: ProfileSearchResult,
+        query: String,
+        preferredPubkeys: Set<String>
+    ) -> Int {
+        let normalizedPubkey = normalizePubkey(result.pubkey)
+        var score = 0
+
+        if normalizedPubkey == query {
+            score = 1_000
+        } else if normalizedPubkey.hasPrefix(query) {
+            score = 920
+        } else if let profile = result.profile,
+                  let profileScore = Self.profileSearchScore(profile: profile, pubkey: normalizedPubkey, query: query) {
+            score = profileScore
+        } else {
+            score = 500
+        }
+
+        if preferredPubkeys.contains(normalizedPubkey) {
+            score += 200
+        }
+
+        return score
     }
 
     private func normalizedUniquePubkeys(_ pubkeys: [String]) -> [String] {
@@ -3618,18 +4840,4 @@ private extension Array {
 
 private enum RelayFetchTimeoutError: Error {
     case timedOut
-}
-
-private actor RelayFetchContinuationBox<Value> {
-    private var hasResumed = false
-
-    func resumeIfNeeded(
-        continuation: CheckedContinuation<Value, Error>,
-        with result: Result<Value, Error>
-    ) -> Bool {
-        guard !hasResumed else { return false }
-        hasResumed = true
-        continuation.resume(with: result)
-        return true
-    }
 }

@@ -145,9 +145,13 @@ struct ProfileEditorSheet: View {
                         errorMessage: bannerUploadError,
                         selection: $selectedBannerItem,
                         accessibilityLabel: "Upload profile banner",
-                        recommendedHint: "Recommended size: 1200×580.",
-                        emptyStateText: "No banner uploaded yet.",
-                        usesCircularPreview: false
+                        recommendedHint: "Recommended size: 1200×1600, up to 2.5 MB.",
+                        maximumRecommendedBytes: maximumRecommendedProfileBannerAssetBytes,
+                        oversizedWarningText: "This banner is over 2.5 MB. Re-upload it with Halo so we can resize it properly.",
+                        emptyStateText: "No banner uploaded. Your theme color or gradient will be shown instead.",
+                        usesCircularPreview: false,
+                        removeAccessibilityLabel: "Remove profile banner",
+                        onRemove: { removeImage(.banner) }
                     )
 
                     Divider()
@@ -164,8 +168,12 @@ struct ProfileEditorSheet: View {
                         selection: $selectedAvatarItem,
                         accessibilityLabel: "Upload profile photo",
                         recommendedHint: nil,
-                        emptyStateText: "No profile photo uploaded yet.",
-                        usesCircularPreview: true
+                        maximumRecommendedBytes: maximumRecommendedProfileAssetBytes,
+                        oversizedWarningText: "This image is over 500 KB. Re-upload it with Halo so we can resize and compress it properly.",
+                        emptyStateText: "No profile photo uploaded. Your theme color or gradient will be shown instead.",
+                        usesCircularPreview: true,
+                        removeAccessibilityLabel: "Remove profile photo",
+                        onRemove: { removeImage(.avatar) }
                     )
                 }
             }
@@ -357,11 +365,19 @@ struct ProfileEditorSheet: View {
         selection: Binding<PhotosPickerItem?>,
         accessibilityLabel: String,
         recommendedHint: String?,
+        maximumRecommendedBytes: Int,
+        oversizedWarningText: String,
         emptyStateText: String,
-        usesCircularPreview: Bool
+        usesCircularPreview: Bool,
+        removeAccessibilityLabel: String,
+        onRemove: @escaping () -> Void
     ) -> some View {
         let uploadButtonFont = appSettings.appFont(.footnote, weight: .semibold)
         let uploadButtonBackground = appSettings.themePalette.tertiaryFill
+        let hasExistingImage = hasImage(
+            previewImage: previewImage,
+            remoteURLString: remoteURLString
+        )
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
@@ -381,7 +397,7 @@ struct ProfileEditorSheet: View {
                     Text(imageStatusText(
                         byteCount: byteCount,
                         isLoadingRemoteSize: isLoadingRemoteSize,
-                        hasImage: hasImage(previewImage: previewImage, remoteURLString: remoteURLString)
+                        hasImage: hasExistingImage
                     ))
                     .font(appSettings.appFont(.body))
                     .foregroundStyle(appSettings.themePalette.foreground)
@@ -394,12 +410,12 @@ struct ProfileEditorSheet: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    if let byteCount, byteCount > maximumRecommendedProfileAssetBytes {
-                        Text("This image is over 500 KB. Re-upload it with Halo so we can resize and compress it properly.")
+                    if let byteCount, byteCount > maximumRecommendedBytes {
+                        Text(oversizedWarningText)
                             .font(appSettings.appFont(.caption1, weight: .semibold))
                             .foregroundStyle(.orange)
                             .fixedSize(horizontal: false, vertical: true)
-                    } else if !hasImage(previewImage: previewImage, remoteURLString: remoteURLString) {
+                    } else if !hasExistingImage {
                         Text(emptyStateText)
                             .font(appSettings.appFont(.caption1))
                             .foregroundStyle(appSettings.themePalette.secondaryForeground)
@@ -408,28 +424,54 @@ struct ProfileEditorSheet: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                PhotosPicker(selection: selection, matching: .images) {
-                    HStack(spacing: 6) {
-                        if isUploading {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "arrow.up.circle.fill")
-                        }
+                VStack(alignment: .trailing, spacing: 8) {
+                    PhotosPicker(selection: selection, matching: .images) {
+                        HStack(spacing: 6) {
+                            if isUploading {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.up.circle.fill")
+                            }
 
-                        Text(isUploading ? "Uploading" : "Upload")
+                            Text(isUploading ? "Uploading" : "Upload")
+                        }
+                        .font(uploadButtonFont)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(uploadButtonBackground)
+                        )
                     }
-                    .font(uploadButtonFont)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(uploadButtonBackground)
-                    )
+                    .buttonStyle(.plain)
+                    .disabled(isBusy)
+                    .accessibilityLabel(accessibilityLabel)
+
+                    if hasExistingImage {
+                        Button(role: .destructive, action: onRemove) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "trash")
+                                Text("Remove")
+                            }
+                            .font(uploadButtonFont)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .foregroundStyle(.red)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(appSettings.themePalette.secondaryBackground)
+                            )
+                            .overlay {
+                                Capsule(style: .continuous)
+                                    .stroke(appSettings.themePalette.separator.opacity(0.22), lineWidth: 0.8)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isBusy)
+                        .accessibilityLabel(removeAccessibilityLabel)
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(isBusy)
-                .accessibilityLabel(accessibilityLabel)
             }
 
             if let errorMessage, !errorMessage.isEmpty {
@@ -552,6 +594,7 @@ struct ProfileEditorSheet: View {
     }
 
     private let maximumRecommendedProfileAssetBytes = 500 * 1_024
+    private let maximumRecommendedProfileBannerAssetBytes = 2_500 * 1_024
 
     private var avatarByteCount: Int? {
         avatarPreparedByteCount ?? avatarRemoteByteCount
@@ -664,6 +707,27 @@ struct ProfileEditorSheet: View {
             return expected > 0 ? Int(expected) : nil
         } catch {
             return nil
+        }
+    }
+
+    private func removeImage(_ target: UploadTarget) {
+        switch target {
+        case .avatar:
+            selectedAvatarItem = nil
+            avatarPreviewImage = nil
+            avatarPreparedByteCount = nil
+            avatarRemoteByteCount = nil
+            avatarUploadError = nil
+            isLoadingAvatarRemoteSize = false
+            fields.avatarURLString = ""
+        case .banner:
+            selectedBannerItem = nil
+            bannerPreviewImage = nil
+            bannerPreparedByteCount = nil
+            bannerRemoteByteCount = nil
+            bannerUploadError = nil
+            isLoadingBannerRemoteSize = false
+            fields.bannerURLString = ""
         }
     }
 

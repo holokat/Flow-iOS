@@ -84,7 +84,7 @@ struct AppThemePalette {
     private static let holographicLightChrome = Color(red: 0.988, green: 0.994, blue: 1.0)
     private static let holographicLightSurface = Color(red: 0.957, green: 0.982, blue: 1.0)
     private static let holographicLightRaised = Color(red: 0.976, green: 0.966, blue: 1.0)
-    private static let holographicLightBorder = Color(red: 0.640, green: 0.875, blue: 1.0).opacity(0.36)
+    private static let holographicLightBorder = Color.black.opacity(0.04)
     private static let holographicLightForeground = Color(red: 0.055, green: 0.075, blue: 0.125)
     private static let holographicLightMuted = Color(red: 0.365, green: 0.418, blue: 0.540)
     private static let holographicDarkBackground = Color(red: 0.035, green: 0.043, blue: 0.075)
@@ -232,6 +232,45 @@ struct AppThemePalette {
             border: adaptiveColor(light: light.border, dark: dark.border),
             highlight: adaptiveColor(light: light.highlight, dark: dark.highlight),
             shadow: adaptiveColor(light: light.shadow, dark: dark.shadow)
+        )
+    }
+
+    private static func tintedLightColor(
+        base: Color,
+        accent: Color,
+        amount: CGFloat,
+        opacity: CGFloat = 1
+    ) -> Color {
+        let baseColor = UIColor(base).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        let accentColor = UIColor(accent).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+
+        var baseRed: CGFloat = 0
+        var baseGreen: CGFloat = 0
+        var baseBlue: CGFloat = 0
+        var baseAlpha: CGFloat = 0
+        guard baseColor.getRed(&baseRed, green: &baseGreen, blue: &baseBlue, alpha: &baseAlpha) else {
+            return accent.opacity(opacity)
+        }
+
+        var accentRed: CGFloat = 0
+        var accentGreen: CGFloat = 0
+        var accentBlue: CGFloat = 0
+        var accentAlpha: CGFloat = 0
+        guard accentColor.getRed(&accentRed, green: &accentGreen, blue: &accentBlue, alpha: &accentAlpha) else {
+            return accent.opacity(opacity)
+        }
+
+        let blend = max(0, min(amount, 1))
+        let red = baseRed + ((accentRed - baseRed) * blend)
+        let green = baseGreen + ((accentGreen - baseGreen) * blend)
+        let blue = baseBlue + ((accentBlue - baseBlue) * blend)
+
+        return Color(
+            .sRGB,
+            red: Double(red),
+            green: Double(green),
+            blue: Double(blue),
+            opacity: Double(opacity)
         )
     }
 
@@ -429,6 +468,145 @@ struct AppThemePalette {
         )
     }
 
+    func applyingLightPrimaryAccent(_ accent: Color) -> AppThemePalette {
+        let groupedWash = Self.tintedLightColor(
+            base: .white,
+            accent: accent,
+            amount: 0.018,
+            opacity: 0.985
+        )
+        let backgroundWash = Self.tintedLightColor(
+            base: .white,
+            accent: accent,
+            amount: 0.10
+        )
+        let surfaceWash = Self.tintedLightColor(
+            base: Self.holographicLightSurface,
+            accent: accent,
+            amount: 0.14
+        )
+        let raisedWash = Self.tintedLightColor(
+            base: Self.holographicLightRaised,
+            accent: accent,
+            amount: 0.16
+        )
+        let border = Color.black.opacity(0.04)
+        let strongBorder = border
+        let secondaryFill = Self.tintedLightColor(
+            base: .white,
+            accent: accent,
+            amount: 0.72,
+            opacity: 0.12
+        )
+        let tertiaryFill = Self.tintedLightColor(
+            base: .white,
+            accent: accent,
+            amount: 0.56,
+            opacity: 0.10
+        )
+        let selectedBackground = Self.tintedLightColor(
+            base: .white,
+            accent: accent,
+            amount: 0.72,
+            opacity: 0.16
+        )
+        let supportingBackground = Self.tintedLightColor(
+            base: .white,
+            accent: accent,
+            amount: 0.58,
+            opacity: 0.14
+        )
+        let winningBackground = Self.tintedLightColor(
+            base: .white,
+            accent: accent,
+            amount: 0.62,
+            opacity: 0.18
+        )
+        let winningBorder = border
+
+        return AppThemePalette(
+            background: .white,
+            chromeBackground: .white,
+            chromeBorder: border,
+            mutedForeground: mutedForeground,
+            foreground: foreground,
+            secondaryForeground: secondaryForeground,
+            tertiaryForeground: tertiaryForeground,
+            inverseForeground: inverseForeground,
+            placeholderForeground: placeholderForeground,
+            iconForeground: iconForeground,
+            iconMutedForeground: iconMutedForeground,
+            secondaryBackground: surfaceWash,
+            quoteBackground: .white,
+            groupedBackground: groupedWash,
+            secondaryGroupedBackground: surfaceWash,
+            navigationBackground: .white,
+            navigationControlBackground: .white,
+            sheetBackground: .white,
+            sheetCardBackground: .white,
+            sheetCardBorder: border,
+            sheetInsetBackground: surfaceWash,
+            modalBackground: .white,
+            elevatedBackground: raisedWash,
+            overlayBackground: overlayBackground,
+            secondaryFill: secondaryFill,
+            tertiaryFill: tertiaryFill,
+            separator: border,
+            successForeground: successForeground,
+            warningForeground: warningForeground,
+            errorForeground: errorForeground,
+            linkPreviewBackground: .white,
+            linkPreviewBorder: border,
+            articlePreviewBackgroundTop: .white,
+            articlePreviewBackgroundBottom: backgroundWash,
+            articlePreviewBorder: border,
+            capsuleTabStyle: capsuleTabStyle.map { style in
+                AppThemeCapsuleTabStyle(
+                    background: style.background,
+                    border: border,
+                    foreground: style.foreground,
+                    selectedBackground: selectedBackground,
+                    selectedBorder: strongBorder,
+                    selectedForeground: accent
+                )
+            },
+            profileActionStyle: profileActionStyle.map { style in
+                AppThemeProfileActionStyle(
+                    background: style.background,
+                    border: border,
+                    foreground: style.foreground,
+                    primaryBackground: selectedBackground,
+                    primaryBorder: strongBorder,
+                    primaryForeground: accent,
+                    bannerBackground: style.bannerBackground,
+                    bannerBorder: border,
+                    bannerForeground: style.bannerForeground
+                )
+            },
+            pollStyle: pollStyle.map { style in
+                AppThemePollStyle(
+                    cardBackground: style.cardBackground,
+                    cardBorder: border,
+                    metadataForeground: style.metadataForeground,
+                    optionBackground: style.optionBackground,
+                    optionResultBackground: style.optionResultBackground,
+                    optionBorder: border,
+                    optionSelectedBackground: selectedBackground,
+                    optionSelectedBorder: strongBorder,
+                    optionWinningBackground: winningBackground,
+                    optionWinningBorder: winningBorder,
+                    imagePlaceholderBackground: style.imagePlaceholderBackground,
+                    imagePlaceholderForeground: style.imagePlaceholderForeground,
+                    neutralBadgeBackground: style.neutralBadgeBackground,
+                    neutralBadgeForeground: style.neutralBadgeForeground,
+                    refreshButtonBackground: supportingBackground,
+                    refreshButtonForeground: accent
+                )
+            },
+            feedCardStyle: feedCardStyle
+        )
+    }
+
     static let black = AppThemePalette(
         background: .black,
         chromeBackground: .black,
@@ -473,7 +651,7 @@ struct AppThemePalette {
     static let white = AppThemePalette(
         background: Color.white,
         chromeBackground: Color.white,
-        chromeBorder: Color.black.opacity(0.10),
+        chromeBorder: Self.holographicLightBorder,
         mutedForeground: Color.black.opacity(0.45),
         foreground: Self.whitePrimary,
         secondaryForeground: Self.whiteMuted,
@@ -490,25 +668,25 @@ struct AppThemePalette {
         navigationControlBackground: Color(red: 0.96, green: 0.96, blue: 0.97),
         sheetBackground: Self.whiteRaised,
         sheetCardBackground: .white,
-        sheetCardBorder: Self.whiteBorder,
+        sheetCardBorder: Self.holographicLightBorder,
         sheetInsetBackground: Self.whiteSurface,
         modalBackground: .white,
         elevatedBackground: Color(red: 0.96, green: 0.96, blue: 0.97),
         overlayBackground: Color.black.opacity(0.18),
         secondaryFill: Color.black.opacity(0.08),
         tertiaryFill: Color.black.opacity(0.05),
-        separator: Color.black.opacity(0.10),
+        separator: Self.holographicLightBorder,
         successForeground: .green,
         warningForeground: .orange,
         errorForeground: .red,
         linkPreviewBackground: Color(red: 0.96, green: 0.96, blue: 0.97),
-        linkPreviewBorder: Color.black.opacity(0.10),
+        linkPreviewBorder: Self.holographicLightBorder,
         articlePreviewBackgroundTop: Color(red: 0.96, green: 0.96, blue: 0.97),
         articlePreviewBackgroundBottom: .white,
-        articlePreviewBorder: Color.black.opacity(0.10),
+        articlePreviewBorder: Self.holographicLightBorder,
         capsuleTabStyle: AppThemeCapsuleTabStyle(
             background: Self.whiteSurface,
-            border: Self.whiteBorder,
+            border: Self.holographicLightBorder,
             foreground: Self.whiteMuted,
             selectedBackground: .white,
             selectedBorder: Self.whiteStrongBorder,
@@ -516,22 +694,22 @@ struct AppThemePalette {
         ),
         profileActionStyle: AppThemeProfileActionStyle(
             background: Self.whiteSurface,
-            border: Self.whiteBorder,
+            border: Self.holographicLightBorder,
             foreground: Self.whitePrimary,
             primaryBackground: .white,
             primaryBorder: Self.whiteStrongBorder,
             primaryForeground: .black,
             bannerBackground: Color.white.opacity(0.96),
-            bannerBorder: Self.whiteBorder,
+            bannerBorder: Self.holographicLightBorder,
             bannerForeground: Self.whitePrimary
         ),
         pollStyle: AppThemePollStyle(
             cardBackground: .white,
-            cardBorder: Self.whiteBorder,
+            cardBorder: Self.holographicLightBorder,
             metadataForeground: Self.whiteMuted,
             optionBackground: Self.whiteSurface,
             optionResultBackground: Self.whiteRaised,
-            optionBorder: Color.black.opacity(0.07),
+            optionBorder: Self.holographicLightBorder,
             optionSelectedBackground: Color.black.opacity(0.06),
             optionSelectedBorder: Color.black.opacity(0.12),
             optionWinningBackground: Color.black.opacity(0.08),

@@ -294,6 +294,58 @@ struct ActivityRow: Identifiable, Hashable, Sendable {
     var targetSnippet: String {
         target.snippet
     }
+
+    var threadMuteIdentifier: String? {
+        switch action {
+        case .reaction, .reshare:
+            return normalizedThreadIdentifier(from: target.event?.conversationID)
+                ?? normalizedThreadIdentifier(from: target.eventID)
+                ?? normalizedThreadIdentifier(from: event.conversationID)
+        case .mention, .reply, .quoteShare:
+            return normalizedThreadIdentifier(from: event.conversationID)
+                ?? normalizedThreadIdentifier(from: target.event?.conversationID)
+                ?? normalizedThreadIdentifier(from: target.eventID)
+        }
+    }
+
+    var previewDisplay: ActivityRowPreviewDisplay {
+        switch action {
+        case .mention, .reply, .quoteShare:
+            if let sourceText = normalizedPreviewText(
+                from: event.activitySnippet(maxLength: 120),
+                event: event
+            ) {
+                return .text(sourceText)
+            }
+
+            if let targetText = normalizedPreviewText(
+                from: targetSnippet,
+                event: target.event
+            ) {
+                return .text(targetText)
+            }
+
+            return mediaPreviewDisplay(for: event)
+                ?? mediaPreviewDisplay(for: target.event)
+                ?? .none
+        case .reaction, .reshare:
+            if let targetText = normalizedPreviewText(
+                from: targetSnippet,
+                event: target.event
+            ) {
+                return .text(targetText)
+            }
+
+            return mediaPreviewDisplay(for: target.event) ?? .none
+        }
+    }
+}
+
+enum ActivityRowPreviewDisplay: Equatable, Sendable {
+    case none
+    case text(String)
+    case image(URL)
+    case mediaPlaceholder
 }
 
 extension NostrEvent {
@@ -458,3 +510,68 @@ private func normalizedEmojiIdentifier(from value: String) -> String? {
 
     return trimmed
 }
+
+private func mediaPreviewDisplay(for event: NostrEvent?) -> ActivityRowPreviewDisplay? {
+    guard let event else { return nil }
+
+    if let imageURL = NoteContentParser.imageURLs(in: event).first {
+        return .image(imageURL)
+    }
+
+    if event.hasMedia {
+        return .mediaPlaceholder
+    }
+
+    return nil
+}
+
+private func normalizedPreviewText(from value: String?, event: NostrEvent?) -> String? {
+    guard let normalized = normalizedSnippet(value) else {
+        return nil
+    }
+
+    if let event, event.hasMedia, looksLikeStandaloneMediaLink(normalized) {
+        return nil
+    }
+
+    return normalized
+}
+
+private func normalizedSnippet(_ value: String?) -> String? {
+    let normalized = (value ?? "")
+        .replacingOccurrences(of: "\n", with: " ")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalized.isEmpty ? nil : normalized
+}
+
+private func looksLikeStandaloneMediaLink(_ value: String) -> Bool {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return false }
+
+    let tokens = trimmed.split(whereSeparator: \.isWhitespace)
+    guard tokens.count == 1 else { return false }
+    guard let url = URL(string: String(tokens[0])),
+          let scheme = url.scheme?.lowercased(),
+          scheme == "http" || scheme == "https" else {
+        return false
+    }
+
+    let path = url.path.lowercased()
+    return activityMediaPreviewExtensions.contains { path.hasSuffix($0) }
+}
+
+private func normalizedThreadIdentifier(from value: String?) -> String? {
+    guard let value else { return nil }
+
+    let normalized = value
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+
+    return normalized.isEmpty ? nil : normalized
+}
+
+private let activityMediaPreviewExtensions: Set<String> = [
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".svg",
+    ".mp4", ".webm", ".ogg", ".mov", ".mp3", ".wav", ".flac",
+    ".aac", ".m4a", ".opus", ".wma"
+]

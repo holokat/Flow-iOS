@@ -7,6 +7,8 @@ import XCTest
 final class MediaUploadPreparationTests: XCTestCase {
     private let maxStillImageUploadBytes = 1_500 * 1_024
     private let maxStillImageDimension = 3_000.0
+    private let legacyProfileBannerUploadBytes = 500 * 1_024
+    private let maxProfileBannerUploadBytes = 2_500 * 1_024
 
     func testPrepareUploadMediaOptimizesOversizedJPEGWithinUploadLimits() throws {
         let originalImage = makeLargeTestImage(size: CGSize(width: 4_000, height: 3_000))
@@ -28,6 +30,27 @@ final class MediaUploadPreparationTests: XCTestCase {
         let preparedDimensions = try XCTUnwrap(imageDimensions(for: prepared.data))
         XCTAssertLessThanOrEqual(preparedDimensions.width, maxStillImageDimension)
         XCTAssertLessThanOrEqual(preparedDimensions.height, maxStillImageDimension)
+    }
+
+    func testPrepareProfileBannerUploadKeepsHighQualityBannerUnderRelaxedLimit() throws {
+        let originalImage = makeDetailedBannerImage(size: CGSize(width: 1_200, height: 1_600))
+        let originalData = try XCTUnwrap(originalImage.jpegData(compressionQuality: 0.98))
+
+        let prepared = try MediaUploadPreparation.prepareProfileBannerUpload(
+            data: originalData,
+            mimeType: "image/jpeg",
+            fileExtension: "jpg"
+        )
+
+        XCTAssertEqual(prepared.mimeType, "image/jpeg")
+        XCTAssertEqual(prepared.fileExtension, "jpg")
+        XCTAssertGreaterThan(prepared.data.count, legacyProfileBannerUploadBytes)
+        XCTAssertGreaterThan(Double(prepared.data.count), Double(originalData.count) * 0.65)
+        XCTAssertLessThanOrEqual(prepared.data.count, maxProfileBannerUploadBytes)
+
+        let preparedDimensions = try XCTUnwrap(imageDimensions(for: prepared.data))
+        XCTAssertEqual(preparedDimensions.width, 1_200)
+        XCTAssertEqual(preparedDimensions.height, 1_600)
     }
 
     func testPrepareGIFKeyboardUploadMediaConvertsAnimatedGIFToSmallerMP4() async throws {
@@ -130,6 +153,42 @@ final class MediaUploadPreparationTests: XCTestCase {
             UIColor.white.withAlphaComponent(0.25).setFill()
             context.cgContext.fillEllipse(in: insetRect)
         }
+    }
+
+    private func makeDetailedBannerImage(size: CGSize) -> UIImage {
+        let width = Int(size.width)
+        let height = Int(size.height)
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let offset = (y * width + x) * 4
+                let texture = (x * 31 + y * 17 + (x * y) % 251) & 0xFF
+                pixels[offset] = UInt8(texture)
+                pixels[offset + 1] = UInt8((texture + x / 3 + y / 7) & 0xFF)
+                pixels[offset + 2] = UInt8((texture + x / 5 + y / 2) & 0xFF)
+                pixels[offset + 3] = 255
+            }
+        }
+
+        let data = Data(pixels)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        let provider = CGDataProvider(data: data as CFData)
+        let cgImage = CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo,
+            provider: provider!,
+            decode: nil,
+            shouldInterpolate: true,
+            intent: .defaultIntent
+        )!
+        return UIImage(cgImage: cgImage)
     }
 
     private func makeAnimatedGIFData(frameCount: Int, size: CGSize) -> Data? {

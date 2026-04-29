@@ -22,7 +22,9 @@ struct SettingsNavigationRow<Destination: View>: View {
 
     var body: some View {
         NavigationLink {
-            destination
+            SettingsDetailNavigationHost(title: title) {
+                destination
+            }
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
@@ -99,18 +101,63 @@ struct SettingsToggleRow: View {
 
     let title: String
     @Binding var isOn: Bool
-    let footer: String
+    let footer: String?
+    let info: String?
+
+    init(
+        title: String,
+        isOn: Binding<Bool>,
+        footer: String? = nil,
+        info: String? = nil
+    ) {
+        self.title = title
+        self._isOn = isOn
+        self.footer = footer
+        self.info = info
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Toggle(title, isOn: $isOn)
+            Toggle(isOn: $isOn) {
+                HStack(spacing: 6) {
+                    Text(title)
+                    if let info, !info.isEmpty {
+                        SettingsInfoButton(title: title, message: info)
+                    }
+                }
+            }
 
-            Text(footer)
-                .font(.footnote)
-                .foregroundStyle(appSettings.themePalette.mutedForeground)
-                .fixedSize(horizontal: false, vertical: true)
+            if let footer, !footer.isEmpty {
+                Text(footer)
+                    .font(.footnote)
+                    .foregroundStyle(appSettings.themePalette.mutedForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.vertical, 4)
+    }
+}
+
+struct SettingsInfoButton: View {
+    let title: String
+    let message: String
+
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented = true
+        } label: {
+            Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("More information about \(title)")
+        .alert(title, isPresented: $isPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(message)
+        }
     }
 }
 
@@ -180,20 +227,150 @@ struct SettingsFormSurfaceStyle {
     let navigationBackground: Color
 }
 
+enum SettingsSurfaceBackgroundRole: Equatable {
+    case form
+    case navigation
+}
+
+enum SettingsNavigationChrome {
+    static func navigationBarVisibility(isShowingDetail: Bool) -> Visibility {
+        .hidden
+    }
+}
+
+enum SettingsDetailNavigationLayout {
+    static let height: CGFloat = 92
+    static let horizontalPadding: CGFloat = 20
+    static let backButtonSize: CGFloat = 46
+    static let headerBackgroundRole: SettingsSurfaceBackgroundRole = .form
+}
+
+struct SettingsDetailNavigationHost<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var appSettings: AppSettingsStore
+
+    private let title: String
+    private let onBack: (() -> Void)?
+    private let content: Content
+
+    init(
+        title: String,
+        onBack: (() -> Void)? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.onBack = onBack
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SettingsDetailNavigationHeader(title: title, onBack: goBack)
+
+            content
+        }
+        .background(surfaceStyle.formBackground.ignoresSafeArea())
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(SettingsNavigationChrome.navigationBarVisibility(isShowingDetail: true), for: .navigationBar)
+    }
+
+    private var surfaceStyle: SettingsFormSurfaceStyle {
+        let effectiveColorScheme = appSettings.preferredColorScheme ?? colorScheme
+        return appSettings.settingsFormSurfaceStyle(for: effectiveColorScheme)
+    }
+
+    private func goBack() {
+        if let onBack {
+            onBack()
+        } else {
+            dismiss()
+        }
+    }
+}
+
+private struct SettingsDetailNavigationHeader: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appSettings: AppSettingsStore
+
+    let title: String
+    let onBack: () -> Void
+
+    var body: some View {
+        ZStack {
+            HStack(spacing: 0) {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(appSettings.appFont(.title3, weight: .semibold))
+                        .foregroundStyle(appSettings.themePalette.foreground)
+                        .frame(
+                            width: SettingsDetailNavigationLayout.backButtonSize,
+                            height: SettingsDetailNavigationLayout.backButtonSize
+                        )
+                        .background(surfaceStyle.controlBackground.opacity(0.92), in: Circle())
+                        .overlay {
+                            Circle()
+                                .stroke(appSettings.themeSeparator(defaultOpacity: 0.16), lineWidth: 0.7)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back")
+
+                Spacer(minLength: SettingsDetailNavigationLayout.backButtonSize)
+            }
+
+            Text(title)
+                .font(appSettings.appFont(.headline, weight: .semibold))
+                .foregroundStyle(appSettings.themePalette.foreground)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .frame(maxWidth: .infinity)
+                .accessibilityAddTraits(.isHeader)
+        }
+        .frame(height: SettingsDetailNavigationLayout.height)
+        .padding(.horizontal, SettingsDetailNavigationLayout.horizontalPadding)
+        .background(surfaceStyle.background(for: SettingsDetailNavigationLayout.headerBackgroundRole))
+    }
+
+    private var surfaceStyle: SettingsFormSurfaceStyle {
+        let effectiveColorScheme = appSettings.preferredColorScheme ?? colorScheme
+        return appSettings.settingsFormSurfaceStyle(for: effectiveColorScheme)
+    }
+}
+
+extension SettingsFormSurfaceStyle {
+    func background(for role: SettingsSurfaceBackgroundRole) -> Color {
+        switch role {
+        case .form:
+            formBackground
+        case .navigation:
+            navigationBackground
+        }
+    }
+}
+
 extension AppSettingsStore {
     func settingsFormSurfaceStyle(for colorScheme: ColorScheme) -> SettingsFormSurfaceStyle {
         let palette = themePalette
         let subcardBackground = colorScheme == .light
             ? palette.sheetCardBackground
             : palette.sheetInsetBackground
+        let formBackground: Color = colorScheme == .light
+            ? .white
+            : palette.sheetBackground
+        let navigationBackground: Color = colorScheme == .light
+            ? .white
+            : palette.navigationBackground
 
         return SettingsFormSurfaceStyle(
-            formBackground: palette.sheetBackground,
+            formBackground: formBackground,
             cardBackground: palette.sheetCardBackground,
             cardBorder: settingsCardBorder,
             subcardBackground: subcardBackground,
             controlBackground: palette.sheetInsetBackground,
-            navigationBackground: palette.sheetBackground
+            navigationBackground: navigationBackground
         )
     }
 }
@@ -233,6 +410,7 @@ struct ThemedSettingsForm<Content: View>: View {
 }
 
 struct ThemedSettingsTitleHeader<Trailing: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     private let title: String
@@ -267,7 +445,12 @@ struct ThemedSettingsTitleHeader<Trailing: View>: View {
         .padding(.horizontal, 20)
         .padding(.top, 20)
         .padding(.bottom, 16)
-        .background(appSettings.themePalette.sheetBackground)
+        .background(titleBackground)
+    }
+
+    private var titleBackground: Color {
+        let effectiveColorScheme = appSettings.preferredColorScheme ?? colorScheme
+        return appSettings.settingsFormSurfaceStyle(for: effectiveColorScheme).formBackground
     }
 }
 

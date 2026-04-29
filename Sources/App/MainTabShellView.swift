@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct MainTabShellView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.scenePhase) private var scenePhase
     enum Tab: String, CaseIterable, Hashable {
         case home
@@ -19,7 +21,7 @@ struct MainTabShellView: View {
 
         var symbolName: String {
             switch self {
-            case .home: return "building.columns"
+            case .home: return "house"
             case .search: return "magnifyingglass"
             case .dms: return "bubble.left"
             case .activity: return "bell"
@@ -119,50 +121,7 @@ struct MainTabShellView: View {
         .sheet(item: composeSheetDraftBinding, onDismiss: {
             composeSheetCoordinator.dismiss()
         }) { draft in
-            ComposeNoteSheet(
-                currentAccountPubkey: auth.currentAccount?.pubkey,
-                currentNsec: auth.currentNsec,
-                writeRelayURLs: effectiveWriteRelayURLs,
-                initialText: draft.initialText,
-                initialAdditionalTags: draft.initialAdditionalTags,
-                initialUploadedAttachments: draft.initialUploadedAttachments,
-                initialSharedAttachments: draft.initialSharedAttachments,
-                initialSelectedMentions: draft.initialSelectedMentions,
-                initialPollDraft: draft.initialPollDraft,
-                replyTargetEvent: draft.replyTargetEvent,
-                replyTargetDisplayNameHint: draft.replyTargetDisplayNameHint,
-                replyTargetHandleHint: draft.replyTargetHandleHint,
-                replyTargetAvatarURLHint: draft.replyTargetAvatarURLHint,
-                quotedEvent: draft.quotedEvent,
-                quotedDisplayNameHint: draft.quotedDisplayNameHint,
-                quotedHandleHint: draft.quotedHandleHint,
-                quotedAvatarURLHint: draft.quotedAvatarURLHint,
-                savedDraftID: draft.savedDraftID,
-                onOptimisticPublished: { item in
-                    switch selectedTab {
-                    case .home:
-                        homeViewModel.insertOptimisticPublishedItem(item)
-                    case .search:
-                        Task {
-                            await searchViewModel.refresh()
-                        }
-                    case .dms, .activity:
-                        break
-                    }
-                },
-                onPublished: {
-                    Task {
-                        switch selectedTab {
-                        case .home:
-                            await homeViewModel.refresh()
-                        case .search:
-                            await searchViewModel.refresh()
-                        case .dms, .activity:
-                            break
-                        }
-                    }
-                }
-            )
+            composeNoteSheet(for: draft)
         }
         .sheet(isPresented: $isShowingAuthSheet) {
             AuthSheetView(
@@ -178,6 +137,9 @@ struct MainTabShellView: View {
                 accountPubkey: auth.currentAccount?.pubkey,
                 nsec: auth.currentNsec
             )
+            Task { @MainActor in
+                await prewarmInitialHomeFeed()
+            }
             configureFollowStore()
             configureMuteStore()
             configureActivityViewModel()
@@ -282,19 +244,8 @@ struct MainTabShellView: View {
 
     @ViewBuilder
     private var bottomTabBarBackground: some View {
-        if appSettings.activeTheme == .sakura {
-            ZStack {
-                appSettings.themePalette.navigationBackground
-
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.76),
-                        Color(red: 1.0, green: 0.960, blue: 0.978).opacity(0.66)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
+        if effectiveChromeColorScheme == .light {
+            Color.white
         } else if appSettings.activeTheme == .gamer {
             appSettings.themePalette.background
         } else {
@@ -302,8 +253,13 @@ struct MainTabShellView: View {
         }
     }
 
+    private var effectiveChromeColorScheme: ColorScheme {
+        appSettings.preferredColorScheme ?? colorScheme
+    }
+
     private func tabBarButton(for tab: Tab) -> some View {
         let isHighlighted = isTabHighlighted(tab)
+        let showsUnreadBadge = tab == .activity && activityViewModel.hasUnread && !isActivityListVisible
 
         return Button {
             handleTabSelection(tab)
@@ -320,14 +276,14 @@ struct MainTabShellView: View {
                     .frame(height: 46)
                     .contentShape(Rectangle())
 
-                if tab == .activity, activityViewModel.hasUnread, !isActivityListVisible {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 10, height: 10)
+                if showsUnreadBadge {
+                    ActivityUnreadBadgeView()
                         .offset(x: -20, y: 8)
+                        .transition(FlowTransitionMotion.notificationBadgeTransition(reduceMotion: accessibilityReduceMotion))
                         .accessibilityHidden(true)
                 }
             }
+            .animation(FlowTransitionMotion.badgeAnimation(reduceMotion: accessibilityReduceMotion), value: showsUnreadBadge)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.accessibilityLabel)
@@ -425,6 +381,54 @@ struct MainTabShellView: View {
         )
     }
 
+    @ViewBuilder
+    private func composeNoteSheet(for draft: AppComposeSheetDraft) -> some View {
+        ComposeNoteSheet(
+            currentAccountPubkey: auth.currentAccount?.pubkey,
+            currentNsec: auth.currentNsec,
+            writeRelayURLs: effectiveWriteRelayURLs,
+            initialText: draft.initialText,
+            initialAdditionalTags: draft.initialAdditionalTags,
+            initialUploadedAttachments: draft.initialUploadedAttachments,
+            initialSharedAttachments: draft.initialSharedAttachments,
+            initialSelectedMentions: draft.initialSelectedMentions,
+            initialPollDraft: draft.initialPollDraft,
+            replyTargetEvent: draft.replyTargetEvent,
+            replyTargetDisplayNameHint: draft.replyTargetDisplayNameHint,
+            replyTargetHandleHint: draft.replyTargetHandleHint,
+            replyTargetAvatarURLHint: draft.replyTargetAvatarURLHint,
+            quotedEvent: draft.quotedEvent,
+            quotedDisplayNameHint: draft.quotedDisplayNameHint,
+            quotedHandleHint: draft.quotedHandleHint,
+            quotedAvatarURLHint: draft.quotedAvatarURLHint,
+            savedDraftID: draft.savedDraftID,
+            onOptimisticPublished: { item in
+                switch selectedTab {
+                case .home:
+                    homeViewModel.insertOptimisticPublishedItem(item)
+                case .search:
+                    Task {
+                        await searchViewModel.refresh()
+                    }
+                case .dms, .activity:
+                    break
+                }
+            },
+            onPublished: {
+                Task {
+                    switch selectedTab {
+                    case .home:
+                        await homeViewModel.refresh()
+                    case .search:
+                        await searchViewModel.refresh()
+                    case .dms, .activity:
+                        break
+                    }
+                }
+            }
+        )
+    }
+
     private func handleComposeTap() {
         guard auth.currentAccount != nil else {
             authSheetInitialTab = .signIn
@@ -468,6 +472,34 @@ struct MainTabShellView: View {
             currentUserPubkey: auth.currentAccount?.pubkey,
             readRelayURLs: effectiveReadRelayURLs
         )
+    }
+
+    @MainActor
+    private func prewarmInitialHomeFeed() async {
+        let accountPubkey = auth.currentAccount?.pubkey
+        let currentNsec = auth.currentNsec
+        let interestFeedStore = InterestFeedStore.shared
+        let hashtagFavoritesStore = HashtagFavoritesStore.shared
+        let relayFavoritesStore = RelayFavoritesStore.shared
+
+        appSettings.configure(accountPubkey: accountPubkey)
+        relaySettings.configure(
+            accountPubkey: accountPubkey,
+            nsec: currentNsec
+        )
+
+        interestFeedStore.configure(accountPubkey: accountPubkey)
+        hashtagFavoritesStore.configure(accountPubkey: accountPubkey)
+        relayFavoritesStore.configure(accountPubkey: accountPubkey)
+
+        homeViewModel.updateReadRelayURLs(effectiveReadRelayURLs)
+        homeViewModel.updateInterestHashtags(interestFeedStore.hashtags)
+        homeViewModel.updateFavoriteHashtags(hashtagFavoritesStore.favoriteHashtags)
+        homeViewModel.updateFavoriteRelays(relayFavoritesStore.favoriteRelayURLs)
+        homeViewModel.updatePollsFeedVisibility(appSettings.pollsFeedVisible)
+        homeViewModel.updateCustomFeeds(appSettings.customFeeds)
+        homeViewModel.updateCurrentUserPubkey(accountPubkey)
+        await homeViewModel.loadIfNeeded()
     }
 
     private func configureLiveReactsSubscription() {
@@ -520,6 +552,14 @@ struct MainTabShellView: View {
 
     private func syncActivityTabActiveState() {
         activityViewModel.setActivityTabActive(isActivityListVisible)
+    }
+}
+
+private struct ActivityUnreadBadgeView: View {
+    var body: some View {
+        Circle()
+            .fill(Color.red)
+            .frame(width: 10, height: 10)
     }
 }
 

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct HomeSlideoutMenuView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var relaySettings: RelaySettingsStore
@@ -83,7 +84,7 @@ struct HomeSlideoutMenuView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(appSettings.themePalette.sheetBackground)
+        .background(menuBackground)
         .sheet(isPresented: $isShowingProfileQR) {
             if let currentAccount = auth.currentAccount {
                 ProfileQRCodeSheet(
@@ -95,7 +96,7 @@ struct HomeSlideoutMenuView: View {
                         onOpenScannedProfile(pubkey)
                     }
                 )
-                .presentationBackground(appSettings.themePalette.sheetBackground)
+                .presentationBackground(menuBackground)
             }
         }
         .task(id: accountHeaderLookupID) {
@@ -111,6 +112,14 @@ struct HomeSlideoutMenuView: View {
                 await refreshAccountHeaderName()
             }
         }
+    }
+
+    private var menuBackground: Color {
+        effectiveMenuColorScheme == .light ? .white : appSettings.themePalette.sheetBackground
+    }
+
+    private var effectiveMenuColorScheme: ColorScheme {
+        appSettings.preferredColorScheme ?? colorScheme
     }
 
     private func accountHeader(_ account: AuthAccount) -> some View {

@@ -1,11 +1,14 @@
 import NostrSDK
 import SwiftUI
-import UIKit
+
+enum SettingsPrimaryColorSwatchSelectionIndicator {
+    static let selectedSystemImageName: String? = nil
+    static let selectedBorderWidth: CGFloat = 2.5
+    static let defaultBorderWidth: CGFloat = 1
+}
 
 struct SettingsAppearanceView: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
-
-    let onOpenPrimaryColorPicker: () -> Void
 
     private var appearanceThemeOptions: [AppThemeOption] {
         AppThemeOption.appearanceOptions
@@ -34,20 +37,8 @@ struct SettingsAppearanceView: View {
                 .padding(.vertical, 2)
             }
 
-            Section("Visual Mode") {
-                VStack(alignment: .leading, spacing: 12) {
-                    FlowCapsuleTabBar(
-                        selection: $appSettings.visualAccentMode,
-                        items: AppVisualAccentMode.allCases,
-                        title: { $0.title }
-                    )
-
-                    if appSettings.visualAccentMode == .expressive {
-                        expressiveAccentSection
-                    } else {
-                        minimalAccentSection
-                    }
-                }
+            Section("Primary Color") {
+                primaryColorSection
                 .padding(.vertical, 2)
             }
 
@@ -237,117 +228,51 @@ struct SettingsAppearanceView: View {
         .disabled(!option.isEnabled)
     }
 
-    private var expressiveAccentSection: some View {
+    private var primaryColorSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            LazyVGrid(
-                columns: [
-                    GridItem(.flexible(), spacing: 10),
-                    GridItem(.flexible(), spacing: 10)
-                ],
-                spacing: 10
-            ) {
-                ForEach(ExpressiveGradientOption.allCases) { option in
-                    expressiveGradientCard(for: option)
+            HStack(spacing: 10) {
+                ForEach(AppSettingsStore.availablePrimaryColorOptions) { option in
+                    primaryColorOptionCard(for: option)
                 }
+                Spacer(minLength: 0)
             }
 
-            HStack(spacing: 12) {
-                Text("Link Color")
-                    .foregroundStyle(.primary)
-
-                Spacer(minLength: 12)
-
-                Circle()
-                    .fill(appSettings.linkColor)
-                    .frame(width: 22, height: 22)
-                    .overlay {
-                        Circle()
-                            .stroke(appSettings.themeSeparator(defaultOpacity: 0.08), lineWidth: 1)
-                    }
-
-                Button {
-                    appSettings.refreshExpressiveLinkColor()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(appSettings.primaryColor)
-                        .frame(width: 32, height: 32)
-                        .background(appSettings.primaryColor.opacity(0.12), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Refresh link color")
-            }
-            .padding(.top, 2)
+            Text("Buttons, links, and selected states all use the same primary color.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
-    private var minimalAccentSection: some View {
-        Button {
-            appSettings.visualAccentMode = .minimal
-            onOpenPrimaryColorPicker()
-        } label: {
-            HStack(spacing: 12) {
-                Text("Primary Color")
-                    .foregroundStyle(.primary)
-
-                Spacer(minLength: 12)
-
-                Circle()
-                    .fill(appSettings.primaryColor)
-                    .frame(width: 22, height: 22)
-                    .overlay {
-                        Circle()
-                            .stroke(appSettings.themeSeparator(defaultOpacity: 0.08), lineWidth: 1)
-                    }
-
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func expressiveGradientCard(for option: ExpressiveGradientOption) -> some View {
-        let isSelected = appSettings.visualAccentMode == .expressive && appSettings.expressiveGradientOption == option
+    private func primaryColorOptionCard(for option: AppPrimaryColorOption) -> some View {
+        let isSelected = appSettings.primaryColorOption == option
 
         return Button {
-            appSettings.expressiveGradientOption = option
+            appSettings.primaryColor = option.color
         } label: {
-            VStack(alignment: .leading, spacing: 9) {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(option.buttonGradient)
-                    .frame(height: 46)
-                    .overlay(alignment: .topTrailing) {
-                        if isSelected {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(option.buttonTextColor)
-                                .padding(7)
-                        }
-                    }
-
-                Text(option.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(appSettings.themePalette.secondaryBackground)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(
-                        isSelected ? appSettings.linkColor : appSettings.themeSeparator(defaultOpacity: 0.18),
-                        lineWidth: isSelected ? 1.5 : 1
-                    )
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            Circle()
+                .fill(option.color)
+                .frame(width: 26, height: 26)
+                .overlay {
+                    Circle()
+                        .stroke(Color.white.opacity(0.32), lineWidth: 1)
+                }
+                .padding(5)
+                .background(
+                    Circle()
+                        .fill(appSettings.themePalette.secondaryBackground)
+                )
+                .overlay {
+                    Circle()
+                        .stroke(
+                            isSelected ? appSettings.linkColor : appSettings.themeSeparator(defaultOpacity: 0.18),
+                            lineWidth: isSelected
+                                ? SettingsPrimaryColorSwatchSelectionIndicator.selectedBorderWidth
+                                : SettingsPrimaryColorSwatchSelectionIndicator.defaultBorderWidth
+                        )
+                }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Primary color \(option.hexCode)")
     }
 
     private func themePreviewFill(for option: AppThemeOption) -> LinearGradient {
@@ -461,49 +386,5 @@ struct SettingsAppearanceView: View {
             content: "Switching font size here updates note readability in the feed. #flow",
             sig: String(repeating: "c", count: 128)
         )
-    }
-}
-
-struct SettingsNativeColorPicker: UIViewControllerRepresentable {
-    let title: String
-    @Binding var color: Color
-    let onDismiss: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(color: $color, onDismiss: onDismiss)
-    }
-
-    func makeUIViewController(context: Context) -> UIColorPickerViewController {
-        let controller = UIColorPickerViewController()
-        controller.title = title
-        controller.supportsAlpha = false
-        controller.selectedColor = UIColor(color)
-        controller.delegate = context.coordinator
-        return controller
-    }
-
-    func updateUIViewController(_ controller: UIColorPickerViewController, context: Context) {
-        let currentUIColor = UIColor(color)
-        if controller.selectedColor != currentUIColor {
-            controller.selectedColor = currentUIColor
-        }
-    }
-
-    final class Coordinator: NSObject, UIColorPickerViewControllerDelegate {
-        @Binding private var color: Color
-        private let onDismiss: () -> Void
-
-        init(color: Binding<Color>, onDismiss: @escaping () -> Void) {
-            _color = color
-            self.onDismiss = onDismiss
-        }
-
-        func colorPickerViewControllerDidSelectColor(_ viewController: UIColorPickerViewController) {
-            color = Color(viewController.selectedColor)
-        }
-
-        func colorPickerViewControllerDidFinish(_ viewController: UIColorPickerViewController) {
-            onDismiss()
-        }
     }
 }

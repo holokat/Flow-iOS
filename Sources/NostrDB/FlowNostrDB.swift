@@ -22,6 +22,9 @@ struct FlowNostrDBDiagnostics: Equatable, Sendable {
     var recentOverlayEventCount: Int = 0
     var recentReplaceableOverlayCount: Int = 0
     var diskUsageBytes: Int64 = 0
+
+    var hotIndexEventCount: Int { persistedEventCount }
+    var hotIndexProfileCount: Int { persistedProfileCount }
 }
 
 struct FlowNostrDBOpenAttemptFailure: Equatable, Sendable {

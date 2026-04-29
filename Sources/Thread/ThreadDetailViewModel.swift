@@ -180,9 +180,10 @@ final class ThreadDetailViewModel: ObservableObject {
         }
 
         do {
-            noteActivityRows = try await service.fetchNoteActivityRows(
+            noteActivityRows = try await service.fetchThreadNoteActivityRows(
                 relayURLs: readRelayURLs,
                 rootEventID: rootItem.displayEventID,
+                rootAuthorPubkey: rootItem.displayAuthorPubkey,
                 fetchTimeout: Self.fastNoteActivityFetchTimeout,
                 relayFetchMode: Self.fastNoteActivityRelayFetchMode,
                 profileFetchTimeout: Self.fastNoteActivityFetchTimeout,
@@ -304,9 +305,10 @@ final class ThreadDetailViewModel: ObservableObject {
             guard let self else { return }
 
             do {
-                let refreshedRows = try await self.service.fetchNoteActivityRows(
+                let refreshedRows = try await self.service.fetchThreadNoteActivityRows(
                     relayURLs: relayTargets,
                     rootEventID: rootEventID,
+                    rootAuthorPubkey: self.rootItem.displayAuthorPubkey,
                     fetchTimeout: Self.fullNoteActivityFetchTimeout,
                     relayFetchMode: Self.fullNoteActivityRelayFetchMode,
                     profileFetchTimeout: Self.fullNoteActivityFetchTimeout,

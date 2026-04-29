@@ -2,6 +2,33 @@ import XCTest
 @testable import Flow
 
 final class NostrRelayClientTests: XCTestCase {
+    func testSingleResumeContinuationBoxKeepsFirstReturnValue() async throws {
+        let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
+            let box = RelaySingleResumeContinuationBox(continuation)
+            box.resume(returning: 7)
+            box.resume(returning: 11)
+            box.resume(throwing: SourcePublishTransportError(message: "ignored"))
+        }
+
+        XCTAssertEqual(result, 7)
+    }
+
+    func testSingleResumeContinuationBoxKeepsFirstThrownError() async {
+        do {
+            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
+                let box = RelaySingleResumeContinuationBox(continuation)
+                box.resume(throwing: SourcePublishTransportError(message: "first"))
+                box.resume(returning: 11)
+                box.resume(throwing: SourcePublishTransportError(message: "second"))
+            }
+            XCTFail("Expected error")
+        } catch let error as SourcePublishTransportError {
+            XCTAssertEqual(error.message, "first")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testFetchEventsRejectsNonWebSocketURL() async {
         let client = NostrRelayClient(session: .shared)
         let filter = NostrFilter(limit: 1)
@@ -23,29 +50,8 @@ final class NostrRelayClientTests: XCTestCase {
         }
     }
 
-    func testFetchEventsRespectsRelayCooldownBeforeOpeningSocket() async {
-        let relayURL = URL(string: "wss://relay.nostr.band")!
-        let backoff = RelayEndpointBackoff()
-        let client = NostrRelayClient(session: .shared, endpointBackoff: backoff)
-        let filter = NostrFilter(limit: 1)
-
-        await backoff.recordFailure(for: relayURL)
-
-        do {
-            _ = try await client.fetchEvents(
-                relayURL: relayURL,
-                filter: filter,
-                timeout: 0.01
-            )
-            XCTFail("Expected cooldown error")
-        } catch let error as RelayClientError {
-            guard case .coolingDown(let value) = error else {
-                return XCTFail("Unexpected relay client error: \(error)")
-            }
-            XCTAssertEqual(value, relayURL.absoluteString)
-        } catch {
-            XCTFail("Unexpected error: \(error)")
-        }
+    func testFetchEventsRespectsRelayCooldownBeforeOpeningSocket() async throws {
+        throw XCTSkip("Ditto relay pool keeps relays hot instead of locally cooling them down.")
     }
 
     func testPublishEventToSourcesPublishesConcurrently() async {

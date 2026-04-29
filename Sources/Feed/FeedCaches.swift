@@ -183,18 +183,15 @@ actor FollowListSnapshotCache: FollowListSnapshotStoring {
 
     private let fileManager: FileManager
     private let directoryURL: URL
-    private let nostrDatabase: FlowNostrDB
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     private let maxSnapshots = 1_500
     private let maxAge: TimeInterval = 60 * 60 * 24 * 7
 
     init(
-        fileManager: FileManager = .default,
-        nostrDatabase: FlowNostrDB = .shared
+        fileManager: FileManager = .default
     ) {
         self.fileManager = fileManager
-        self.nostrDatabase = nostrDatabase
         let root = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         self.directoryURL = root.appendingPathComponent("x21-follow-list-cache", isDirectory: true)
@@ -203,11 +200,6 @@ actor FollowListSnapshotCache: FollowListSnapshotStoring {
     func cachedSnapshot(pubkey: String, maxAge overrideMaxAge: TimeInterval? = nil) async -> FollowListSnapshot? {
         let normalizedPubkey = normalizePubkey(pubkey)
         guard !normalizedPubkey.isEmpty else { return nil }
-
-        if overrideMaxAge == nil,
-           let snapshot = nostrDatabase.followListSnapshot(pubkey: normalizedPubkey) {
-            return snapshot
-        }
 
         ensureDirectory()
         guard let payload = readPayload(pubkey: normalizedPubkey) else { return nil }
@@ -395,13 +387,20 @@ actor WebOfTrustGraphCache {
     }
 }
 
-actor ProfileRelayHintCache: ProfileRelayHintCaching {
+actor ProfileRelayHintCache: ProfileRelayHintCaching, AuthorRelayDirectoryCaching {
     static let shared = ProfileRelayHintCache()
+
+    struct Diagnostics: Equatable, Sendable {
+        let totalEntries: Int
+        let outboxReadyEntries: Int
+        let writeOnlyEntries: Int
+        let hintOnlyEntries: Int
+    }
 
     private let maxEntries = 8_000
     private let maxHintsPerPubkey = 8
 
-    private var relayHintsByPubkey: [String: [URL]] = [:]
+    private var relayDirectoryByPubkey: [String: AuthorRelayDirectoryEntry] = [:]
     private var recency: [String] = []
 
     func storeHints(_ hintsByPubkey: [String: [URL]]) {
@@ -409,13 +408,24 @@ actor ProfileRelayHintCache: ProfileRelayHintCaching {
             let pubkey = normalizePubkey(rawPubkey)
             guard !pubkey.isEmpty else { continue }
 
+            let existingEntry = relayDirectoryByPubkey[pubkey] ?? AuthorRelayDirectoryEntry(
+                readRelayURLs: [],
+                writeRelayURLs: [],
+                hintRelayURLs: [],
+                refreshedAt: nil
+            )
             let mergedRelayURLs = mergeRelayURLs(
-                existing: relayHintsByPubkey[pubkey] ?? [],
+                existing: existingEntry.hintRelayURLs,
                 incoming: relayURLs
             )
             guard !mergedRelayURLs.isEmpty else { continue }
 
-            relayHintsByPubkey[pubkey] = Array(mergedRelayURLs.prefix(maxHintsPerPubkey))
+            relayDirectoryByPubkey[pubkey] = AuthorRelayDirectoryEntry(
+                readRelayURLs: existingEntry.readRelayURLs,
+                writeRelayURLs: existingEntry.writeRelayURLs,
+                hintRelayURLs: Array(mergedRelayURLs.prefix(maxHintsPerPubkey)),
+                refreshedAt: existingEntry.refreshedAt
+            )
             touch(pubkey)
         }
 
@@ -441,11 +451,15 @@ actor ProfileRelayHintCache: ProfileRelayHintCaching {
         }
 
         for pubkey in normalizedPubkeys {
-            if let hintedRelayURLs = relayHintsByPubkey[pubkey] {
-                touch(pubkey)
-                for relayURL in hintedRelayURLs {
-                    append(relayURL)
-                }
+            guard let entry = relayDirectoryByPubkey[pubkey] else { continue }
+            touch(pubkey)
+
+            let primaryRelayURLs = entry.readRelayURLs.isEmpty
+                ? entry.writeRelayURLs
+                : entry.readRelayURLs
+
+            for relayURL in primaryRelayURLs + entry.hintRelayURLs {
+                append(relayURL)
             }
         }
 
@@ -454,6 +468,95 @@ actor ProfileRelayHintCache: ProfileRelayHintCaching {
         }
 
         return ordered
+    }
+
+    func relayHints(for pubkeys: [String]) -> [String: [URL]] {
+        let normalizedPubkeys = Array(
+            Set(
+                pubkeys
+                    .map(normalizePubkey)
+                    .filter { !$0.isEmpty }
+            )
+        )
+
+        var hints: [String: [URL]] = [:]
+        for pubkey in normalizedPubkeys {
+            guard let relayURLs = relayDirectoryByPubkey[pubkey]?.hintRelayURLs, !relayURLs.isEmpty else {
+                continue
+            }
+            touch(pubkey)
+            hints[pubkey] = relayURLs
+        }
+
+        return hints
+    }
+
+    func entry(for pubkey: String) -> AuthorRelayDirectoryEntry? {
+        let normalizedPubkey = normalizePubkey(pubkey)
+        guard !normalizedPubkey.isEmpty else { return nil }
+        let entry = relayDirectoryByPubkey[normalizedPubkey]
+        if entry != nil {
+            touch(normalizedPubkey)
+        }
+        return entry
+    }
+
+    func entries(for pubkeys: [String]) -> [String: AuthorRelayDirectoryEntry] {
+        let normalizedPubkeys = Array(
+            Set(
+                pubkeys
+                    .map(normalizePubkey)
+                    .filter { !$0.isEmpty }
+            )
+        )
+
+        var results: [String: AuthorRelayDirectoryEntry] = [:]
+        for pubkey in normalizedPubkeys {
+            guard let entry = relayDirectoryByPubkey[pubkey] else { continue }
+            touch(pubkey)
+            results[pubkey] = entry
+        }
+        return results
+    }
+
+    func store(entry: AuthorRelayDirectoryEntry, for pubkey: String) {
+        let normalizedPubkey = normalizePubkey(pubkey)
+        guard !normalizedPubkey.isEmpty else { return }
+
+        let existingEntry = relayDirectoryByPubkey[normalizedPubkey]
+        relayDirectoryByPubkey[normalizedPubkey] = AuthorRelayDirectoryEntry(
+            readRelayURLs: RelayURLSupport.normalizedRelayURLs(entry.readRelayURLs),
+            writeRelayURLs: RelayURLSupport.normalizedRelayURLs(entry.writeRelayURLs),
+            hintRelayURLs: entry.hintRelayURLs.isEmpty
+                ? (existingEntry?.hintRelayURLs ?? [])
+                : RelayURLSupport.normalizedRelayURLs(entry.hintRelayURLs),
+            refreshedAt: entry.refreshedAt ?? existingEntry?.refreshedAt
+        )
+        touch(normalizedPubkey)
+        pruneIfNeeded()
+    }
+
+    func diagnosticsSnapshot() -> Diagnostics {
+        var outboxReadyEntries = 0
+        var writeOnlyEntries = 0
+        var hintOnlyEntries = 0
+
+        for entry in relayDirectoryByPubkey.values {
+            if !entry.readRelayURLs.isEmpty {
+                outboxReadyEntries += 1
+            } else if !entry.writeRelayURLs.isEmpty {
+                writeOnlyEntries += 1
+            } else if !entry.hintRelayURLs.isEmpty {
+                hintOnlyEntries += 1
+            }
+        }
+
+        return Diagnostics(
+            totalEntries: relayDirectoryByPubkey.count,
+            outboxReadyEntries: outboxReadyEntries,
+            writeOnlyEntries: writeOnlyEntries,
+            hintOnlyEntries: hintOnlyEntries
+        )
     }
 
     private func mergeRelayURLs(existing: [URL], incoming: [URL]) -> [URL] {
@@ -479,7 +582,7 @@ actor ProfileRelayHintCache: ProfileRelayHintCaching {
 
         let overflow = recency.count - maxEntries
         for pubkey in recency.prefix(overflow) {
-            relayHintsByPubkey.removeValue(forKey: pubkey)
+            relayDirectoryByPubkey.removeValue(forKey: pubkey)
         }
         recency.removeFirst(overflow)
     }
@@ -495,18 +598,15 @@ actor ProfileCache: ProfileCaching {
     private let maxEntries = 4_000
     private let missTTL: TimeInterval = 60 * 20
     private let snapshotStore: ProfileSnapshotStore
-    private let nostrDatabase: FlowNostrDB
     private var profiles: [String: PersistedProfileSnapshot] = [:]
     private var knownMisses: [String: Date] = [:]
     private var recency: [String] = []
     private var priorityPubkeys: Set<String> = []
 
     init(
-        snapshotStore: ProfileSnapshotStore = .shared,
-        nostrDatabase: FlowNostrDB = .shared
+        snapshotStore: ProfileSnapshotStore = .shared
     ) {
         self.snapshotStore = snapshotStore
-        self.nostrDatabase = nostrDatabase
     }
 
     func resolve(
@@ -534,8 +634,6 @@ actor ProfileCache: ProfileCaching {
             }
         }
 
-        var snapshotsToPersist: [String: PersistedProfileSnapshot] = [:]
-
         if !unresolved.isEmpty {
             let persisted = await snapshotStore.getMany(pubkeys: unresolved)
             for (pubkey, snapshot) in persisted {
@@ -546,24 +644,6 @@ actor ProfileCache: ProfileCaching {
             }
             unresolved.removeAll(where: { persisted[$0] != nil })
             pruneOverflowIfNeeded()
-        }
-
-        if !unresolved.isEmpty {
-            if let nostrProfiles = nostrDatabase.profiles(pubkeys: unresolved), !nostrProfiles.isEmpty {
-                for (pubkey, profile) in nostrProfiles {
-                    let snapshot = PersistedProfileSnapshot(profile: profile, fetchedAt: now)
-                    profiles[pubkey] = snapshot
-                    hits[pubkey] = profile
-                    snapshotsToPersist[pubkey] = snapshot
-                    knownMisses.removeValue(forKey: pubkey)
-                    touch(pubkey)
-                }
-                unresolved.removeAll(where: { nostrProfiles[$0] != nil })
-            }
-        }
-
-        if !snapshotsToPersist.isEmpty {
-            await snapshotStore.putMany(entries: snapshotsToPersist)
         }
 
         let missing = unresolved.filter { pubkey in
@@ -582,6 +662,11 @@ actor ProfileCache: ProfileCaching {
     func cachedProfiles(pubkeys: [String]) async -> [String: NostrProfile] {
         let resolved = await resolve(pubkeys: pubkeys)
         return resolved.hits
+    }
+
+    func recentProfilePubkeys(limit: Int) async -> [String] {
+        guard limit > 0 else { return [] }
+        return Array(recency.suffix(limit).reversed())
     }
 
     func store(profiles newProfiles: [String: NostrProfile], missed: [String]) async {

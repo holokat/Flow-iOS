@@ -240,10 +240,12 @@ private struct SettingsCustomFeedEditorSheet: View {
 
                 Section {
                     NavigationLink {
-                        SettingsCustomFeedPersonPickerView(
-                            selectedPubkeys: $draft.authorPubkeys,
-                            relayURLs: personSearchRelayURLs
-                        )
+                        SettingsDetailNavigationHost(title: "Add Person") {
+                            SettingsCustomFeedPersonPickerView(
+                                selectedPubkeys: $draft.authorPubkeys,
+                                relayURLs: personSearchRelayURLs
+                            )
+                        }
                     } label: {
                         Label("Add Person", systemImage: "person.crop.circle.badge.plus")
                     }
@@ -402,7 +404,7 @@ private struct SettingsCustomFeedPersonPickerView: View {
     var body: some View {
         SettingsFeedPersonPicker(
             relayURLs: relayURLs,
-            searchFooter: "Search uses Vertex plus the selected relay set. You can also paste a hex pubkey, npub, or nprofile directly.",
+            searchFooter: "You can also paste a hex pubkey, npub, or nprofile directly.",
             isAdded: { pubkey in
                 selectedPubkeys.contains(pubkey.lowercased())
             },

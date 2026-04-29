@@ -72,9 +72,6 @@ final class HashtagFeedViewModel: ObservableObject {
         self.items = Self.sortedNewestFirst(
             seedItems.filter { $0.displayEvent.containsHashtag(self.normalizedHashtag) }
         )
-        if !self.items.isEmpty {
-            scheduleItemHydration(for: self.items)
-        }
     }
 
     deinit {
@@ -181,7 +178,6 @@ final class HashtagFeedViewModel: ObservableObject {
                     hasReachedEnd = false
                 }
             }
-            scheduleItemHydration(for: items)
         } catch {
             if items.isEmpty {
                 errorMessage = "Couldn't load #\(normalizedHashtag) right now."
@@ -213,7 +209,7 @@ final class HashtagFeedViewModel: ObservableObject {
                 kinds: requestKinds,
                 limit: pageSize,
                 until: until,
-                hydrationMode: .cachedProfilesOnly,
+                hydrationMode: .full,
                 fetchTimeout: Self.fullHashtagFetchTimeout,
                 relayFetchMode: .allRelays,
                 moderationSnapshot: muteFilterSnapshot
@@ -227,7 +223,6 @@ final class HashtagFeedViewModel: ObservableObject {
             oldestCreatedAt = fetched.last?.event.createdAt
             hasReachedEnd = FeedPaginationHeuristic.shouldStopPaging(afterFetchedCount: fetched.count)
             mergeKeepingNewest(itemsToMerge: fetched)
-            scheduleItemHydration(for: items)
         } catch {
             errorMessage = "Couldn't load more posts."
         }
@@ -279,18 +274,13 @@ final class HashtagFeedViewModel: ObservableObject {
 
         itemHydrationTask = Task { [weak self] in
             guard let self else { return }
-            let hydrated = await self.service.buildFeedItems(
+            _ = await self.service.buildFeedItems(
                 relayURLs: relayTargets,
                 events: events,
                 hydrationMode: .full,
                 moderationSnapshot: self.muteFilterSnapshot
             )
             guard !Task.isCancelled else { return }
-            guard !hydrated.isEmpty else { return }
-
-            await MainActor.run {
-                self.mergeKeepingNewest(itemsToMerge: hydrated)
-            }
         }
     }
 
@@ -301,7 +291,7 @@ final class HashtagFeedViewModel: ObservableObject {
             kinds: requestKinds,
             limit: min(pageSize, Self.fastInitialPageSize),
             until: nil,
-            hydrationMode: .cachedProfilesOnly,
+            hydrationMode: .full,
             fetchTimeout: Self.fastHashtagFetchTimeout,
             relayFetchMode: Self.fastHashtagRelayFetchMode,
             moderationSnapshot: muteFilterSnapshot
@@ -317,7 +307,7 @@ final class HashtagFeedViewModel: ObservableObject {
             kinds: requestKinds,
             limit: pageSize,
             until: nil,
-            hydrationMode: .cachedProfilesOnly,
+            hydrationMode: .full,
             fetchTimeout: Self.fullHashtagFetchTimeout,
             relayFetchMode: .allRelays,
             moderationSnapshot: muteFilterSnapshot
@@ -332,7 +322,7 @@ final class HashtagFeedViewModel: ObservableObject {
             kinds: requestKinds,
             limit: pageSize,
             until: nil,
-            hydrationMode: .cachedProfilesOnly,
+            hydrationMode: .full,
             fetchTimeout: Self.fullHashtagFetchTimeout,
             relayFetchMode: .allRelays,
             moderationSnapshot: muteFilterSnapshot
@@ -352,7 +342,7 @@ final class HashtagFeedViewModel: ObservableObject {
                 kinds: self.requestKinds,
                 limit: self.pageSize,
                 until: nil,
-                hydrationMode: .cachedProfilesOnly,
+                hydrationMode: .full,
                 fetchTimeout: Self.fullHashtagFetchTimeout,
                 relayFetchMode: .allRelays,
                 moderationSnapshot: self.muteFilterSnapshot
@@ -367,7 +357,6 @@ final class HashtagFeedViewModel: ObservableObject {
                 self.hasReachedEnd = FeedPaginationHeuristic.shouldStopPaging(
                     afterFetchedCount: expanded.count
                 )
-                self.scheduleItemHydration(for: self.items)
             }
         }
     }
@@ -436,7 +425,6 @@ final class RelayFeedViewModel: ObservableObject {
     private var oldestCreatedAt: Int?
     private var hasReachedEnd = false
     private var hasLoadedInitialState = false
-    private var itemHydrationTask: Task<Void, Never>?
     private var itemsRevision = 0
     private var visibleItemsCacheKey: VisibleItemsCacheKey?
     private var visibleItemsCache: [FeedItem] = []
@@ -452,10 +440,6 @@ final class RelayFeedViewModel: ObservableObject {
         self.title = title ?? RelayURLSupport.displayName(for: normalizedURL)
         self.pageSize = pageSize
         self.service = service
-    }
-
-    deinit {
-        itemHydrationTask?.cancel()
     }
 
     var relayHostLabel: String {
@@ -514,20 +498,17 @@ final class RelayFeedViewModel: ObservableObject {
         errorMessage = nil
         hasReachedEnd = false
         oldestCreatedAt = nil
-        itemHydrationTask?.cancel()
-        itemHydrationTask = nil
 
         defer {
             isLoading = false
         }
 
         do {
-            let fetched = try await fetchPage(until: nil, hydrationMode: .cachedProfilesOnly)
+            let fetched = try await fetchPage(until: nil, hydrationMode: .full)
             let visibleFetched = pruneMutedItems(fetched)
             items = visibleFetched
             oldestCreatedAt = visibleFetched.last?.event.createdAt
             hasReachedEnd = FeedPaginationHeuristic.shouldStopPaging(afterFetchedCount: fetched.count)
-            scheduleItemHydration(for: visibleFetched)
         } catch {
             if items.isEmpty {
                 errorMessage = "Couldn't load \(title) right now."
@@ -545,14 +526,12 @@ final class RelayFeedViewModel: ObservableObject {
         guard until > 0 else { return }
 
         isLoadingMore = true
-        itemHydrationTask?.cancel()
-        itemHydrationTask = nil
         defer {
             isLoadingMore = false
         }
 
         do {
-            let fetched = try await fetchPage(until: until, hydrationMode: .cachedProfilesOnly)
+            let fetched = try await fetchPage(until: until, hydrationMode: .full)
             if fetched.isEmpty {
                 hasReachedEnd = true
                 return
@@ -562,7 +541,6 @@ final class RelayFeedViewModel: ObservableObject {
             oldestCreatedAt = visibleFetched.last?.event.createdAt ?? fetched.last?.event.createdAt
             hasReachedEnd = FeedPaginationHeuristic.shouldStopPaging(afterFetchedCount: fetched.count)
             mergeKeepingNewest(itemsToMerge: visibleFetched)
-            scheduleItemHydration(for: items)
         } catch {
             errorMessage = "Couldn't load more posts."
         }
@@ -608,30 +586,6 @@ final class RelayFeedViewModel: ObservableObject {
         return sourceItems.filter { item in
             !snapshot.shouldHideAny(in: item.moderationEvents)
                 && !AppSettingsStore.shared.shouldHideSpamMarkedPubkey(item.displayAuthorPubkey)
-        }
-    }
-
-    private func scheduleItemHydration(for sourceItems: [FeedItem]) {
-        itemHydrationTask?.cancel()
-
-        let events = sourceItems.map(\.event)
-        guard !events.isEmpty else { return }
-        let relayTargets = [relayURL]
-
-        itemHydrationTask = Task { [weak self] in
-            guard let self else { return }
-            let hydrated = await self.service.buildFeedItems(
-                relayURLs: relayTargets,
-                events: events,
-                hydrationMode: .full,
-                moderationSnapshot: self.muteFilterSnapshot
-            )
-            guard !Task.isCancelled else { return }
-            guard !hydrated.isEmpty else { return }
-
-            await MainActor.run {
-                self.mergeKeepingNewest(itemsToMerge: hydrated)
-            }
         }
     }
 

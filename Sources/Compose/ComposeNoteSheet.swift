@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 struct ComposeNoteSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var toastCenter: AppToastCenter
     @EnvironmentObject private var composeDraftStore: AppComposeDraftStore
@@ -263,13 +264,20 @@ struct ComposeNoteSheet: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: availableSavedDraftCount > 0 ? "tray.full.fill" : "tray")
+                    .id(availableSavedDraftCount > 0)
+                    .transition(FlowTransitionMotion.iconSwapTransition(reduceMotion: accessibilityReduceMotion))
+                    .foregroundStyle(appSettings.primaryColor)
 
                 if let draftLibraryCountText {
                     Text(draftLibraryCountText)
                         .font(.caption.weight(.semibold))
                         .monospacedDigit()
+                        .id(draftLibraryCountText)
+                        .transition(FlowTransitionMotion.numberPopTransition(reduceMotion: accessibilityReduceMotion))
                 }
             }
+            .animation(FlowTransitionMotion.iconSwapAnimation(reduceMotion: accessibilityReduceMotion), value: availableSavedDraftCount > 0)
+            .animation(FlowTransitionMotion.numberPopAnimation(reduceMotion: accessibilityReduceMotion), value: draftLibraryCountText)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(appSettings.themePalette.secondaryForeground)
             .padding(.horizontal, ComposeToolbarLayout.draftButtonHorizontalPadding)
@@ -363,7 +371,7 @@ struct ComposeNoteSheet: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(appSettings.themePalette.iconMutedForeground)
+                .foregroundStyle(appSettings.primaryColor)
                 .disabled(isUploadingMedia || viewModel.isPublishing)
 
                 cameraAttachmentButton(symbolFont: .system(size: 18, weight: .medium))
@@ -379,7 +387,7 @@ struct ComposeNoteSheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(appSettings.themePalette.iconMutedForeground)
+                .foregroundStyle(appSettings.primaryColor)
                 .disabled(isUploadingMedia || viewModel.isPublishing)
 
                 Button {
@@ -410,8 +418,11 @@ struct ComposeNoteSheet: View {
                         composeToolbarCircle(isActive: pollDraft != nil) {
                             Image(systemName: pollDraft == nil ? "chart.bar.xaxis" : "chart.bar.fill")
                                 .font(.system(size: 17, weight: .medium))
+                                .id(pollDraft != nil)
+                                .transition(FlowTransitionMotion.iconSwapTransition(reduceMotion: accessibilityReduceMotion))
                         }
                     }
+                    .animation(FlowTransitionMotion.iconSwapAnimation(reduceMotion: accessibilityReduceMotion), value: pollDraft != nil)
                     .buttonStyle(.plain)
                     .disabled(viewModel.isPublishing || isUploadingMedia)
                     .accessibilityLabel(pollDraft == nil ? "Add poll" : "Edit poll")
@@ -820,8 +831,8 @@ struct ComposeNoteSheet: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         content()
-            .foregroundStyle(isActive ? Color.white : appSettings.themePalette.iconMutedForeground)
-            .tint(isActive ? Color.white : appSettings.themePalette.iconMutedForeground)
+            .foregroundStyle(isActive ? Color.white : appSettings.primaryColor)
+            .tint(isActive ? Color.white : appSettings.primaryColor)
             .frame(width: 32, height: 32)
             .background(
                 isActive ? appSettings.primaryColor : appSettings.themePalette.tertiaryFill,
@@ -1480,7 +1491,7 @@ struct ComposeNoteSheet: View {
     }
 
     private func togglePollDraft() {
-        withAnimation(.easeInOut(duration: 0.18)) {
+        withAnimation(FlowTransitionMotion.iconSwapAnimation(reduceMotion: accessibilityReduceMotion)) {
             if pollDraft == nil {
                 pollDraft = .defaultDraft()
             } else {
@@ -2423,6 +2434,7 @@ private struct ComposeMentionSuggestionPanel: View {
 }
 
 private struct ComposeContextPreviewCardView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     let title: String
@@ -2490,12 +2502,23 @@ private struct ComposeContextPreviewCardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(appSettings.themePalette.secondaryBackground)
+                .fill(contextPreviewBackground)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(appSettings.themePalette.separator.opacity(0.3), lineWidth: 0.8)
         )
+    }
+
+    private var contextPreviewBackground: Color {
+        if effectiveContextPreviewColorScheme == .light {
+            return .white
+        }
+        return appSettings.themePalette.secondaryBackground
+    }
+
+    private var effectiveContextPreviewColorScheme: ColorScheme {
+        appSettings.preferredColorScheme ?? colorScheme
     }
 }
 

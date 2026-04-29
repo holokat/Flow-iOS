@@ -184,6 +184,7 @@ struct FeedRowView: View {
     @EnvironmentObject private var toastCenter: AppToastCenter
     private let reactionStats = NoteReactionStatsService.shared
     private let muteStore = MuteStore.shared
+    private let mutedThreadStore = MutedThreadStore.shared
 
     struct AvatarMenuActions {
         let followLabel: String
@@ -328,6 +329,9 @@ struct FeedRowView: View {
                 onMute: {
                     handleMuteAuthor()
                 },
+                onMuteThread: {
+                    handleMuteThread()
+                },
                 spamMarkTitle: spamMarkActionTitle,
                 spamMarkIcon: spamMarkActionIcon,
                 canToggleSpamMark: canToggleAuthorSpamMark,
@@ -338,7 +342,7 @@ struct FeedRowView: View {
                     presentReportFlow()
                 }
             )
-            .presentationDetents([.height(canTranslateNote ? 600 : 545), .medium])
+            .presentationDetents([.height(canTranslateNote ? 655 : 600), .medium])
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $isShowingReportSheet) {
@@ -555,7 +559,7 @@ struct FeedRowView: View {
             }
 
             ShareLink(item: copyableNoteLink) {
-                Image(systemName: "paperplane")
+                Image(systemName: "square.and.arrow.up")
                     .frame(minWidth: 34, minHeight: 28, alignment: .leading)
             }
             .buttonStyle(.plain)
@@ -957,6 +961,18 @@ struct FeedRowView: View {
         }
     }
 
+    private func handleMuteThread() {
+        let threadID = item.displayEvent.conversationID
+        mutedThreadStore.configure(accountPubkey: auth.currentAccount?.pubkey)
+
+        if mutedThreadStore.mute(threadID) {
+            onMuteConversation?(threadID)
+            toastCenter.show("Muted thread")
+        } else {
+            toastCenter.show("Thread already muted", style: .info)
+        }
+    }
+
     private func handleToggleAuthorSpamMark() {
         guard canToggleAuthorSpamMark else { return }
         if isAuthorMarkedSpam {
@@ -1006,6 +1022,7 @@ struct NoteOptionsBottomSheetView: View {
     let showsTranslateAction: Bool
     let onTranslate: (() -> Void)?
     let onMute: () -> Void
+    let onMuteThread: (() -> Void)?
     let spamMarkTitle: String
     let spamMarkIcon: String
     let canToggleSpamMark: Bool
@@ -1070,21 +1087,25 @@ struct NoteOptionsBottomSheetView: View {
 
             VStack(spacing: 0) {
                 optionRow(
-                    title: "Bookmark",
-                    icon: "bookmark",
-                    isEnabled: false,
-                    tint: .secondary
-                )
-
-                sheetDivider
-
-                optionRow(
                     title: "Mute",
                     icon: "speaker.slash",
                     isEnabled: true,
                     tint: .primary
                 ) {
                     onMute()
+                }
+
+                if let onMuteThread {
+                    sheetDivider
+
+                    optionRow(
+                        title: "Mute Thread",
+                        icon: "bell.slash",
+                        isEnabled: true,
+                        tint: .primary
+                    ) {
+                        onMuteThread()
+                    }
                 }
 
                 sheetDivider

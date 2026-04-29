@@ -1,0 +1,301 @@
+import XCTest
+@testable import Flow
+
+final class EventArchiveStoreTests: XCTestCase {
+    func testArchiveStoreRoundTripsEventsAndPrunesByByteBudget() async throws {
+        let rootURL = try makeRootURL(prefix: "EventArchiveStore")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = EventArchiveTestFileManager(rootURL: rootURL)
+        let store = EventArchiveStore(
+            fileManager: fileManager,
+            budget: .init(
+                archiveSoftLimitBytes: 80_000,
+                archiveHardLimitBytes: 96_000,
+                hotIndexTargetEventCount: 100,
+                minimumFreeDiskBytes: 0
+            )
+        )
+
+        let events = (0..<50).map { index in
+            makeEvent(
+                id: String(format: "%064x", index),
+                content: String(repeating: "x", count: 1_024),
+                createdAt: 1_700_000_000 + index
+            )
+        }
+
+        await store.store(events: events)
+
+        let diagnostics = await store.diagnosticsSnapshot()
+        let resolved = await store.events(ids: [events.first!.id, events.last!.id])
+        let footprintBytes = try archiveFootprintBytes(rootURL: rootURL)
+
+        XCTAssertEqual(diagnostics.archiveBytes, footprintBytes)
+        XCTAssertLessThanOrEqual(diagnostics.archiveBytes, 80_000)
+        XCTAssertLessThan(diagnostics.archiveCount, events.count)
+        XCTAssertEqual(resolved[events.last!.id.lowercased()]?.content, events.last!.content)
+        XCTAssertEqual(resolved.count, 1)
+    }
+
+    func testRecentEventsKeepsPinnedIDsWhenSelectingHotIndexSeed() async throws {
+        let rootURL = try makeRootURL(prefix: "EventArchivePinned")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = EventArchiveTestFileManager(rootURL: rootURL)
+        let store = EventArchiveStore(fileManager: fileManager)
+
+        let oldest = makeEvent(id: hex("1"), content: "oldest", createdAt: 1_700_000_000)
+        let middle = makeEvent(id: hex("2"), content: "middle", createdAt: 1_700_000_100)
+        let newest = makeEvent(id: hex("3"), content: "newest", createdAt: 1_700_000_200)
+
+        await store.store(events: [oldest, middle, newest])
+
+        let retained = await store.recentEvents(limit: 2, pinnedIDs: [oldest.id.lowercased()])
+
+        XCTAssertEqual(
+            Set(retained.map { $0.id.lowercased() }),
+            Set([oldest.id.lowercased(), newest.id.lowercased()])
+        )
+    }
+
+    func testArchiveStoreEnforcesHardBudgetEvenWhenOnlyPinnedRowsRemain() async throws {
+        let rootURL = try makeRootURL(prefix: "EventArchivePinnedBudget")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = EventArchiveTestFileManager(rootURL: rootURL)
+        let store = EventArchiveStore(
+            fileManager: fileManager,
+            budget: .init(
+                archiveSoftLimitBytes: 80_000,
+                archiveHardLimitBytes: 96_000,
+                hotIndexTargetEventCount: 10,
+                minimumFreeDiskBytes: 0
+            )
+        )
+
+        let events = (0..<3).map { index in
+            makeEvent(
+                id: String(format: "%064x", index),
+                content: String(repeating: "p", count: 32_768),
+                createdAt: 1_700_000_000 + index
+            )
+        }
+
+        await store.storeRecentFeed(key: "following:test", events: events)
+
+        let diagnostics = await store.diagnosticsSnapshot()
+        let restored = await store.events(ids: events.map(\.id))
+        let footprintBytes = try archiveFootprintBytes(rootURL: rootURL)
+
+        XCTAssertEqual(diagnostics.archiveBytes, footprintBytes)
+        XCTAssertLessThanOrEqual(diagnostics.archiveBytes, 80_000)
+        XCTAssertLessThan(restored.count, events.count)
+    }
+
+    func testArchiveStoreReportsAndEnforcesOnDiskSQLiteFootprint() async throws {
+        let rootURL = try makeRootURL(prefix: "EventArchiveFootprint")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = EventArchiveTestFileManager(rootURL: rootURL)
+        let store = EventArchiveStore(
+            fileManager: fileManager,
+            budget: .init(
+                archiveSoftLimitBytes: 96_000,
+                archiveHardLimitBytes: 112_000,
+                hotIndexTargetEventCount: 100,
+                minimumFreeDiskBytes: 0
+            )
+        )
+
+        let events = (0..<24).map { index in
+            makeEvent(
+                id: String(format: "%064x", index),
+                content: String(repeating: "w", count: 4_096),
+                createdAt: 1_700_000_000 + index
+            )
+        }
+
+        await store.store(events: events)
+
+        let diagnostics = await store.diagnosticsSnapshot()
+        let footprintBytes = try archiveFootprintBytes(rootURL: rootURL)
+
+        XCTAssertEqual(diagnostics.archiveBytes, footprintBytes)
+        XCTAssertLessThanOrEqual(footprintBytes, 96_000)
+    }
+
+    func testDiagnosticsSnapshotReportsArchiveAndPinnedFeedCounts() async throws {
+        let rootURL = try makeRootURL(prefix: "EventArchiveDiagnostics")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = EventArchiveTestFileManager(rootURL: rootURL)
+        let store = EventArchiveStore(fileManager: fileManager)
+
+        let first = makeEvent(id: hex("4"), content: "first", createdAt: 1_700_000_000)
+        let second = makeEvent(id: hex("5"), content: "second", createdAt: 1_700_000_100)
+
+        await store.storeRecentFeed(key: "following:test", events: [first, second])
+
+        let diagnostics = await store.diagnosticsSnapshot()
+
+        XCTAssertEqual(diagnostics.archiveCount, 2)
+        XCTAssertEqual(diagnostics.pinnedFeedEventCount, 2)
+        XCTAssertGreaterThan(diagnostics.archiveBytes, 0)
+    }
+
+    func testArchiveStoreBatchesCompactionPassesWhilePruning() async throws {
+        let rootURL = try makeRootURL(prefix: "EventArchiveBatchPrune")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = EventArchiveTestFileManager(rootURL: rootURL)
+        let maintenanceCounter = MaintenanceCounter()
+        let store = EventArchiveStore(
+            fileManager: fileManager,
+            budget: .init(
+                archiveSoftLimitBytes: 80_000,
+                archiveHardLimitBytes: 96_000,
+                hotIndexTargetEventCount: 100,
+                minimumFreeDiskBytes: 0
+            ),
+            maintenanceObserver: {
+                maintenanceCounter.increment()
+            }
+        )
+
+        let events = (0..<18).map { index in
+            makeEvent(
+                id: String(format: "%064x", index),
+                content: String(repeating: "b", count: 8_192),
+                createdAt: 1_700_000_000 + index
+            )
+        }
+
+        await store.store(events: events)
+
+        let diagnostics = await store.diagnosticsSnapshot()
+        let deletedCount = events.count - diagnostics.archiveCount
+
+        XCTAssertGreaterThan(deletedCount, 4)
+        XCTAssertLessThan(maintenanceCounter.count, deletedCount)
+    }
+
+    func testArchiveStoreRechecksMinimumFreeDiskAfterEachPrunePass() async throws {
+        let rootURL = try makeRootURL(prefix: "EventArchiveLowDisk")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = EventArchiveTestFileManager(rootURL: rootURL)
+        let freeDiskProbe = SequencedFreeDiskProbe(values: [30_000, 30_000, 40_000, 50_000])
+        let store = EventArchiveStore(
+            fileManager: fileManager,
+            budget: .init(
+                archiveSoftLimitBytes: 1_000_000,
+                archiveHardLimitBytes: 2_000_000,
+                hotIndexTargetEventCount: 100,
+                minimumFreeDiskBytes: 50_000
+            ),
+            availableFreeDiskBytesProvider: { _ in
+                freeDiskProbe.nextValue()
+            }
+        )
+
+        let events = (0..<17).map { index in
+            makeEvent(
+                id: String(format: "%064x", index),
+                content: String(repeating: "d", count: 2_048),
+                createdAt: 1_700_000_000 + index
+            )
+        }
+
+        await store.store(events: events)
+
+        let diagnostics = await store.diagnosticsSnapshot()
+
+        XCTAssertEqual(
+            diagnostics.archiveCount,
+            0,
+            "Pruning should continue until minimum free disk is satisfied."
+        )
+    }
+
+    private func makeRootURL(prefix: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func makeEvent(
+        id: String,
+        content: String,
+        createdAt: Int
+    ) -> NostrEvent {
+        NostrEvent(
+            id: id,
+            pubkey: hex("a"),
+            createdAt: createdAt,
+            kind: 1,
+            tags: [],
+            content: content,
+            sig: String(repeating: "f", count: 128)
+        )
+    }
+
+    private func hex(_ character: Character) -> String {
+        String(repeating: String(character), count: 64)
+    }
+
+    private func archiveFootprintBytes(rootURL: URL) throws -> Int64 {
+        let databaseURL = rootURL
+            .appendingPathComponent("FeedArchive", isDirectory: true)
+            .appendingPathComponent("event-archive.sqlite", isDirectory: false)
+        let componentURLs = [
+            databaseURL,
+            URL(fileURLWithPath: databaseURL.path + "-wal"),
+            URL(fileURLWithPath: databaseURL.path + "-shm"),
+        ]
+
+        return try componentURLs.reduce(into: Int64(0)) { total, url in
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            total += (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        }
+    }
+}
+
+private final class EventArchiveTestFileManager: FileManager, @unchecked Sendable {
+    let rootURL: URL
+
+    init(rootURL: URL) {
+        self.rootURL = rootURL
+        super.init()
+    }
+
+    override func urls(for directory: SearchPathDirectory, in domainMask: SearchPathDomainMask) -> [URL] {
+        [rootURL]
+    }
+}
+
+private final class MaintenanceCounter: @unchecked Sendable {
+    private(set) var count = 0
+
+    func increment() {
+        count += 1
+    }
+}
+
+private final class SequencedFreeDiskProbe: @unchecked Sendable {
+    private let values: [Int64]
+    private var index = 0
+
+    init(values: [Int64]) {
+        self.values = values
+    }
+
+    func nextValue() -> Int64 {
+        guard !values.isEmpty else { return .max }
+        let value = values[min(index, values.count - 1)]
+        index += 1
+        return value
+    }
+}

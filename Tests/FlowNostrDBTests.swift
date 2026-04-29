@@ -29,7 +29,7 @@ final class FlowNostrDBTests: XCTestCase {
 
         let fileManager = FlowNostrDBTestFileManager(rootURL: rootURL)
         let database = FlowNostrDB(fileManager: fileManager)
-        let store = SeenEventStore(fileManager: fileManager, nostrDatabase: database)
+        let store = SeenEventStore(fileManager: fileManager)
         let key = "following:test"
 
         let first = makeTestEvent(
@@ -96,7 +96,7 @@ final class FlowNostrDBTests: XCTestCase {
         let fileManager = FlowNostrDBTestFileManager(rootURL: rootURL)
         let database = FlowNostrDB(fileManager: fileManager)
         let snapshotStore = ProfileSnapshotStore(fileManager: fileManager)
-        let cache = ProfileCache(snapshotStore: snapshotStore, nostrDatabase: database)
+        let cache = ProfileCache(snapshotStore: snapshotStore)
         let pubkey = hex("e")
 
         let event = makeTestEvent(
@@ -120,7 +120,7 @@ final class FlowNostrDBTests: XCTestCase {
 
         let fileManager = FlowNostrDBTestFileManager(rootURL: rootURL)
         let database = FlowNostrDB(fileManager: fileManager)
-        let cache = FollowListSnapshotCache(fileManager: fileManager, nostrDatabase: database)
+        let cache = FollowListSnapshotCache(fileManager: fileManager)
         let pubkey = hex("1")
         let followedPubkey = hex("2")
 
@@ -220,6 +220,8 @@ final class FlowNostrDBTests: XCTestCase {
         XCTAssertEqual(diagnostics.successfulIngestCallCount, 1)
         XCTAssertGreaterThanOrEqual(diagnostics.persistedEventCount, 0)
         XCTAssertGreaterThanOrEqual(diagnostics.persistedProfileCount, 0)
+        XCTAssertEqual(diagnostics.hotIndexEventCount, diagnostics.persistedEventCount)
+        XCTAssertEqual(diagnostics.hotIndexProfileCount, diagnostics.persistedProfileCount)
         XCTAssertGreaterThanOrEqual(diagnostics.diskUsageBytes, 0)
     }
 
@@ -464,8 +466,8 @@ final class FlowNostrDBTests: XCTestCase {
         XCTAssertNil(database.events(ids: [oldest.id])?[oldest.id.lowercased()])
     }
 
-    func testSeenEventStoreRebuildsFlowDBFromRecentMirrorWhenDiskUsageThresholdExceeded() async throws {
-        let rootURL = try makeRootURL(prefix: "FlowSeenEventStoreRebuild")
+    func testSeenEventStoreRebuildsFlowDBFromRecentArchiveEventsWhenDiskUsageThresholdExceeded() async throws {
+        let rootURL = try makeRootURL(prefix: "FlowSeenEventArchiveRebuild")
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         let fileManager = FlowNostrDBTestFileManager(rootURL: rootURL)
@@ -473,11 +475,7 @@ final class FlowNostrDBTests: XCTestCase {
             fileManager: fileManager,
             maxMapUsageBeforeRebuild: 0.00000001
         )
-        let store = SeenEventStore(
-            fileManager: fileManager,
-            nostrDatabase: database,
-            maxRetainedNostrDBEventCount: 2
-        )
+        let store = SeenEventStore(fileManager: fileManager)
 
         let oldest = makeTestEvent(
             id: hex("7"),
@@ -514,6 +512,95 @@ final class FlowNostrDBTests: XCTestCase {
             middle.id.lowercased(),
         ])
         XCTAssertNil(database.events(ids: [oldest.id])?[oldest.id.lowercased()])
+    }
+
+    func testSeenEventStoreBoundsRebuildSeedWhenRecentFeedPinsMoreThanHotIndexTarget() async throws {
+        let rootURL = try makeRootURL(prefix: "FlowSeenEventArchivePinnedRebuild")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = FlowNostrDBTestFileManager(rootURL: rootURL)
+        let database = FlowNostrDB(
+            fileManager: fileManager,
+            maxMapUsageBeforeRebuild: 0.00000001
+        )
+        let store = SeenEventStore(fileManager: fileManager)
+
+        let oldest = makeTestEvent(
+            id: hex("a"),
+            pubkey: hex("1"),
+            kind: 1,
+            tags: [],
+            content: "oldest",
+            createdAt: 1_700_000_000
+        )
+        let middle = makeTestEvent(
+            id: hex("b"),
+            pubkey: hex("2"),
+            kind: 1,
+            tags: [],
+            content: "middle",
+            createdAt: 1_700_000_100
+        )
+        let newest = makeTestEvent(
+            id: hex("c"),
+            pubkey: hex("3"),
+            kind: 1,
+            tags: [],
+            content: "newest",
+            createdAt: 1_700_000_200
+        )
+
+        await store.storeRecentFeed(key: "following:test", events: [oldest, middle, newest])
+        await store.store(events: [makeTestEvent(
+            id: hex("d"),
+            pubkey: hex("4"),
+            kind: 1,
+            tags: [],
+            content: "trigger",
+            createdAt: 1_700_000_300
+        )])
+
+        let retained = database.queryEvents(filter: NostrFilter(kinds: [1], limit: 10))
+        XCTAssertEqual(retained?.count, 2)
+    }
+
+    func testSeenEventStoreRebuildPrefersLaterSeenEventsOverNewerCreatedAt() async throws {
+        let rootURL = try makeRootURL(prefix: "FlowSeenEventArchiveSeenPriority")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = FlowNostrDBTestFileManager(rootURL: rootURL)
+        let database = FlowNostrDB(
+            fileManager: fileManager,
+            maxMapUsageBeforeRebuild: 0.00000001
+        )
+        let store = SeenEventStore(fileManager: fileManager)
+
+        let newerCreatedEarlierSeen = makeTestEvent(
+            id: hex("d"),
+            pubkey: hex("1"),
+            kind: 1,
+            tags: [],
+            content: "newer-created",
+            createdAt: 1_700_000_200
+        )
+        let olderCreatedLaterSeen = makeTestEvent(
+            id: hex("e"),
+            pubkey: hex("2"),
+            kind: 1,
+            tags: [],
+            content: "later-seen",
+            createdAt: 1_700_000_100
+        )
+
+        await store.store(events: [newerCreatedEarlierSeen])
+        try await Task.sleep(nanoseconds: 20_000_000)
+        await store.store(events: [olderCreatedLaterSeen])
+
+        let retained = database.queryEvents(filter: NostrFilter(kinds: [1], limit: 10))
+        XCTAssertEqual(retained?.map { $0.id.lowercased() }, [
+            olderCreatedLaterSeen.id.lowercased(),
+        ])
+        XCTAssertNil(database.events(ids: [newerCreatedEarlierSeen.id])?[newerCreatedEarlierSeen.id.lowercased()])
     }
 
     private func makeRootURL(prefix: String) throws -> URL {

@@ -59,6 +59,7 @@ enum FeedMode: String, CaseIterable, Identifiable {
 enum HomePrimaryFeedSource: Identifiable, Hashable {
     case network
     case following
+    case articles
     case polls
     case trending
     case interests
@@ -73,6 +74,8 @@ enum HomePrimaryFeedSource: Identifiable, Hashable {
             return "network"
         case .following:
             return "following"
+        case .articles:
+            return "articles"
         case .polls:
             return "polls"
         case .trending:
@@ -96,6 +99,8 @@ enum HomePrimaryFeedSource: Identifiable, Hashable {
             return "network"
         case .following:
             return "following"
+        case .articles:
+            return "articles"
         case .polls:
             return "polls"
         case .trending:
@@ -124,6 +129,10 @@ enum HomePrimaryFeedSource: Identifiable, Hashable {
         }
         if normalized == "following" {
             self = .following
+            return
+        }
+        if normalized == "articles" {
+            self = .articles
             return
         }
         if normalized == "polls" {
@@ -191,12 +200,24 @@ enum HomePrimaryFeedSource: Identifiable, Hashable {
 enum HomeFeedError: Error {
     case networkRequiresLogin
     case followingRequiresLogin
+    case articlesRequiresLogin
     case pollsRequiresLogin
 }
 
 struct HomeFeedPageResult {
     let items: [FeedItem]
     let hadMoreAvailable: Bool
+    let paginationCursor: Int?
+
+    init(
+        items: [FeedItem],
+        hadMoreAvailable: Bool,
+        paginationCursor: Int? = nil
+    ) {
+        self.items = items
+        self.hadMoreAvailable = hadMoreAvailable
+        self.paginationCursor = paginationCursor
+    }
 }
 
 struct HomeFeedLiveSubscriptionTarget: Sendable {
@@ -207,14 +228,14 @@ struct HomeFeedLiveSubscriptionTarget: Sendable {
 
 @MainActor
 enum HomeFeedSourceResolver {
-    private static let trendingRelayURL = URL(string: "wss://trending.relays.land")!
+    private static let trendingRelayURL = NostrFeedService.nostrArchivesTrendingRelayURL
     private static let newsFallbackRelayURL = URL(string: "wss://news.utxo.one")!
     private static let customFeedSupplementalRelayURLs: [URL] = [
         URL(string: "wss://relay.damus.io/"),
         URL(string: "wss://nos.lol/"),
         URL(string: "wss://relay.nostr.band/"),
         URL(string: "wss://nostr.mom/"),
-        URL(string: "wss://search.nos.today/")
+        NostrFeedService.nostrArchivesSearchRelayURL
     ].compactMap { $0 }
 
     static func normalizedRelayURLs(_ relayURLs: [URL]) -> [URL] {
@@ -350,6 +371,8 @@ enum HomeFeedSourceResolver {
         switch source {
         case .interests, .custom, .network, .following, .hashtag, .relay:
             return FeedKindFilters.normalizedKinds(showKinds)
+        case .articles:
+            return [FeedKindFilters.longFormArticle]
         case .polls:
             return FeedKindFilters.pollKinds
         case .trending, .news:
@@ -380,7 +403,7 @@ enum HomeFeedSourceResolver {
 
     static func usesCompositePagination(_ source: HomePrimaryFeedSource) -> Bool {
         switch source {
-        case .following, .polls, .news, .custom:
+        case .following, .articles, .polls, .news, .custom:
             return true
         default:
             return false
@@ -468,8 +491,8 @@ enum HomeFeedPageFetcher {
         )
         async let authorItemsTask = authors.isEmpty
             ? [FeedItem]()
-            : service.fetchFollowingFeed(
-                relayURLs: newsRelayURLs,
+            : service.fetchFollowingFeedRecoveringWithOutbox(
+                baseReadRelayURLs: hydrationRelayURLs,
                 authors: authors,
                 kinds: [1],
                 limit: limit,
@@ -585,6 +608,7 @@ enum HomeFeedPageFetcher {
                 hydrationMode: hydrationMode,
                 fetchTimeout: fetchTimeout,
                 relayFetchMode: relayFetchMode,
+                relayOnly: true,
                 moderationSnapshot: moderationSnapshot
             )
         async let hashtagItemsTask = fetchCustomFeedHashtagItems(
@@ -798,8 +822,9 @@ enum HomeFeedLiveUpdatePlanner {
 
             let authors = Array(HomeFeedSourceResolver.configuredNewsAuthorPubkeys().prefix(400))
             if !authors.isEmpty {
+                let newsAuthorRelayTargets = HomeFeedSourceResolver.normalizedRelayURLs(newsRelayTargets + readRelayURLs)
                 plannedTargets.append(contentsOf: targets(
-                    relayURLs: newsRelayTargets,
+                    relayURLs: newsAuthorRelayTargets,
                     filter: NostrFilter(authors: authors, kinds: [1], limit: 100),
                     scopeSignature: "news-authors:\(authors.joined(separator: ","))"
                 ))
@@ -867,6 +892,22 @@ enum HomeFeedLiveUpdatePlanner {
                 relayURLs: HomeFeedSourceResolver.relayURLs(for: .following, readRelayURLs: readRelayURLs),
                 filter: NostrFilter(authors: liveAuthors, kinds: kinds, limit: 100),
                 scopeSignature: "following:\(liveAuthors.joined(separator: ","))"
+            )
+
+        case .articles:
+            let liveAuthors = Array(
+                HomeFeedViewModel.followingAuthorPubkeys(
+                    followingPubkeys: followingPubkeys,
+                    currentUserPubkey: currentUserPubkey
+                )
+                .prefix(400)
+            )
+            .sorted()
+            guard !liveAuthors.isEmpty else { return [] }
+            return targets(
+                relayURLs: HomeFeedSourceResolver.relayURLs(for: .articles, readRelayURLs: readRelayURLs),
+                filter: NostrFilter(authors: liveAuthors, kinds: [FeedKindFilters.longFormArticle], limit: 100),
+                scopeSignature: "articles:\(liveAuthors.joined(separator: ","))"
             )
 
         case .polls:

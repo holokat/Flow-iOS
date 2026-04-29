@@ -170,7 +170,6 @@ final class SourcePublishStatsStore: ObservableObject {
 
 enum RelayClientError: LocalizedError {
     case invalidRelayURL(String)
-    case coolingDown(String)
     case closed(String)
     case publishRejected(String)
     case publishTimedOut
@@ -179,8 +178,6 @@ enum RelayClientError: LocalizedError {
         switch self {
         case .invalidRelayURL(let value):
             return "Invalid source URL: \(value)"
-        case .coolingDown(let value):
-            return "Source is cooling down after repeated failures: \(value)"
         case .closed(let reason):
             return "Source closed the subscription: \(reason)"
         case .publishRejected(let reason):
@@ -191,108 +188,532 @@ enum RelayClientError: LocalizedError {
     }
 }
 
-actor RelayEndpointBackoff {
-    static let shared = RelayEndpointBackoff()
-    static let sharedRead = RelayEndpointBackoff()
-    static let sharedReaction = RelayEndpointBackoff()
-    static let sharedPublish = RelayEndpointBackoff()
+enum RelayConnectionTimeoutError: LocalizedError {
+    case timedOut
 
-    private struct Entry {
-        var failureCount: Int
-        var retryAfter: Date
+    var errorDescription: String? {
+        "Source timed out."
+    }
+}
+
+public final class RelaySingleResumeContinuationBox<Success>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Success, Error>?
+
+    public init(_ continuation: CheckedContinuation<Success, Error>) {
+        self.continuation = continuation
     }
 
-    private let aggressiveHosts: Set<String>
-    private let maxEntries = 64
-    private var failures: [String: Entry] = [:]
-    private var failureOrder: [String] = []
-
-    init(aggressiveHosts: Set<String> = ["relay.nostr.band", "relay.damus.io"]) {
-        self.aggressiveHosts = aggressiveHosts
+    public func resume(returning value: Success) {
+        takeContinuation()?.resume(returning: value)
     }
 
-    func canAttempt(_ url: URL, now: Date = Date()) -> Bool {
-        clearExpiredEntries(now: now)
-
-        guard let key = endpointKey(for: url),
-              let entry = failures[key] else {
-            return true
-        }
-
-        return entry.retryAfter <= now
+    public func resume(throwing error: Error) {
+        takeContinuation()?.resume(throwing: error)
     }
 
-    func recordSuccess(for url: URL) {
-        guard let key = endpointKey(for: url) else { return }
-        failures.removeValue(forKey: key)
-        failureOrder.removeAll { $0 == key }
+    private func takeContinuation() -> CheckedContinuation<Success, Error>? {
+        lock.lock()
+        defer { lock.unlock() }
+        let captured = continuation
+        continuation = nil
+        return captured
+    }
+}
+
+actor NostrRelayPool {
+    static let shared = NostrRelayPool()
+
+    private var connections: [String: NostrRelaySocketConnection] = [:]
+
+    func fetchEvents(
+        relayURL: URL,
+        filter: NostrFilter,
+        timeout: TimeInterval,
+        session: URLSession
+    ) async throws -> [NostrEvent] {
+        let connection = connection(for: relayURL, session: session)
+        return try await connection.fetchEvents(filter: filter, timeout: timeout)
     }
 
-    func recordFailure(for url: URL) {
-        guard let key = endpointKey(for: url) else { return }
-
-        let baseDelay: TimeInterval = aggressiveHosts.contains(url.host?.lowercased() ?? "") ? 60 : 20
-        let nextFailureCount = (failures[key]?.failureCount ?? 0) + 1
-        let multiplier = pow(2.0, Double(min(nextFailureCount - 1, 5)))
-        let delay = min(baseDelay * multiplier, 15 * 60)
-
-        failures[key] = Entry(
-            failureCount: nextFailureCount,
-            retryAfter: Date().addingTimeInterval(delay)
+    func publishEvent(
+        relayURL: URL,
+        eventObject: [String: Any],
+        eventID: String,
+        timeout: TimeInterval,
+        session: URLSession
+    ) async throws {
+        let connection = connection(for: relayURL, session: session)
+        try await connection.publishEvent(
+            eventObject: eventObject,
+            eventID: eventID,
+            timeout: timeout
         )
-        failureOrder.removeAll { $0 == key }
-        failureOrder.append(key)
-        trimIfNeeded()
     }
 
-    private func clearExpiredEntries(now: Date) {
-        let expiredKeys = failures.compactMap { key, entry in
-            entry.retryAfter <= now ? key : nil
+    func streamEvents(
+        relayURL: URL,
+        filter: NostrFilter,
+        session: URLSession
+    ) async -> AsyncThrowingStream<NostrEvent, Error> {
+        let connection = connection(for: relayURL, session: session)
+        return await connection.streamEvents(filter: filter)
+    }
+
+    private func connection(
+        for relayURL: URL,
+        session: URLSession
+    ) -> NostrRelaySocketConnection {
+        let key = RelayURLSupport.normalizedRelayURLString(relayURL)
+            ?? relayURL.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let existing = connections[key] {
+            return existing
         }
-        guard !expiredKeys.isEmpty else { return }
 
-        let expiredSet = Set(expiredKeys)
-        expiredKeys.forEach { failures.removeValue(forKey: $0) }
-        failureOrder.removeAll { expiredSet.contains($0) }
+        let created = NostrRelaySocketConnection(
+            relayURL: relayURL,
+            session: session
+        )
+        connections[key] = created
+        return created
+    }
+}
+
+private actor NostrRelaySocketConnection {
+    private struct QuerySubscription {
+        let request: String
+        var events: [NostrEvent]
+        let continuation: CheckedContinuation<[NostrEvent], Error>
     }
 
-    private func trimIfNeeded() {
-        while failureOrder.count > maxEntries {
-            let removedKey = failureOrder.removeFirst()
-            failures.removeValue(forKey: removedKey)
+    private struct LiveSubscription {
+        let request: String
+        let continuation: AsyncThrowingStream<NostrEvent, Error>.Continuation
+    }
+
+    private struct PublishRequest {
+        let request: String
+        let continuation: CheckedContinuation<Void, Error>
+    }
+
+    private let relayURL: URL
+    private let session: URLSession
+    private let pingIntervalNanoseconds: UInt64 = 25_000_000_000
+
+    private var socket: URLSessionWebSocketTask?
+    private var receiveTask: Task<Void, Never>?
+    private var pingTask: Task<Void, Never>?
+    private var querySubscriptions: [String: QuerySubscription] = [:]
+    private var liveSubscriptions: [String: LiveSubscription] = [:]
+    private var pendingPublishes: [String: PublishRequest] = [:]
+
+    init(
+        relayURL: URL,
+        session: URLSession
+    ) {
+        self.relayURL = relayURL
+        self.session = session
+    }
+
+    func fetchEvents(
+        filter: NostrFilter,
+        timeout: TimeInterval
+    ) async throws -> [NostrEvent] {
+        try await openIfNeeded()
+
+        let subscriptionID = UUID().uuidString
+        let request = try serializeJSONArray(["REQ", subscriptionID, filter.jsonObject])
+
+        return try await withThrowingTaskGroup(of: [NostrEvent].self) { group in
+            group.addTask {
+                try await self.awaitQuery(subscriptionID: subscriptionID, request: request)
+            }
+            group.addTask {
+                try await Task.sleep(
+                    nanoseconds: Self.timeoutNanoseconds(for: timeout)
+                )
+                await self.cancelQuery(
+                    subscriptionID: subscriptionID,
+                    error: RelayConnectionTimeoutError.timedOut
+                )
+                throw RelayConnectionTimeoutError.timedOut
+            }
+
+            defer { group.cancelAll() }
+
+            guard let result = try await group.next() else {
+                throw RelayConnectionTimeoutError.timedOut
+            }
+            return result
         }
     }
 
-    private func endpointKey(for url: URL) -> String? {
-        let normalized = url.absoluteString
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return normalized.isEmpty ? nil : normalized
+    func publishEvent(
+        eventObject: [String: Any],
+        eventID: String,
+        timeout: TimeInterval
+    ) async throws {
+        try await openIfNeeded()
+
+        let request = try serializeJSONArray(["EVENT", eventObject])
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await self.awaitPublish(eventID: eventID, request: request)
+            }
+            group.addTask {
+                try await Task.sleep(
+                    nanoseconds: Self.timeoutNanoseconds(for: timeout)
+                )
+                await self.cancelPublish(eventID: eventID)
+                throw RelayClientError.publishTimedOut
+            }
+
+            defer { group.cancelAll() }
+
+            guard let _ = try await group.next() else {
+                throw RelayClientError.publishTimedOut
+            }
+        }
+    }
+
+    func streamEvents(
+        filter: NostrFilter
+    ) -> AsyncThrowingStream<NostrEvent, Error> {
+        let subscriptionID = UUID().uuidString
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    try await self.openIfNeeded()
+                    let request = try self.serializeJSONArray(
+                        ["REQ", subscriptionID, filter.jsonObject]
+                    )
+                    await self.registerLiveSubscription(
+                        subscriptionID: subscriptionID,
+                        request: request,
+                        continuation: continuation
+                    )
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                Task {
+                    await self.cancelLiveSubscription(subscriptionID: subscriptionID)
+                }
+            }
+        }
+    }
+
+    private func awaitQuery(
+        subscriptionID: String,
+        request: String
+    ) async throws -> [NostrEvent] {
+        try await withCheckedThrowingContinuation { continuation in
+            querySubscriptions[subscriptionID] = QuerySubscription(
+                request: request,
+                events: [],
+                continuation: continuation
+            )
+
+            Task {
+                do {
+                    try await self.send(text: request)
+                } catch {
+                    await self.failQuery(subscriptionID: subscriptionID, error: error)
+                }
+            }
+        }
+    }
+
+    private func awaitPublish(
+        eventID: String,
+        request: String
+    ) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            pendingPublishes[eventID] = PublishRequest(
+                request: request,
+                continuation: continuation
+            )
+
+            Task {
+                do {
+                    try await self.send(text: request)
+                } catch {
+                    await self.failPublish(eventID: eventID, error: error)
+                }
+            }
+        }
+    }
+
+    private func registerLiveSubscription(
+        subscriptionID: String,
+        request: String,
+        continuation: AsyncThrowingStream<NostrEvent, Error>.Continuation
+    ) async {
+        liveSubscriptions[subscriptionID] = LiveSubscription(
+            request: request,
+            continuation: continuation
+        )
+
+        do {
+            try await send(text: request)
+        } catch {
+            liveSubscriptions.removeValue(forKey: subscriptionID)
+            continuation.finish(throwing: error)
+        }
+    }
+
+    private func cancelQuery(
+        subscriptionID: String,
+        error: Error
+    ) async {
+        guard let query = querySubscriptions.removeValue(forKey: subscriptionID) else { return }
+        if let closeRequest = try? serializeJSONArray(["CLOSE", subscriptionID]) {
+            try? await send(text: closeRequest)
+        }
+        query.continuation.resume(throwing: error)
+    }
+
+    private func cancelLiveSubscription(subscriptionID: String) async {
+        guard liveSubscriptions.removeValue(forKey: subscriptionID) != nil else { return }
+        if let closeRequest = try? serializeJSONArray(["CLOSE", subscriptionID]) {
+            try? await send(text: closeRequest)
+        }
+    }
+
+    private func cancelPublish(eventID: String) async {
+        guard let publish = pendingPublishes.removeValue(forKey: eventID) else { return }
+        publish.continuation.resume(throwing: RelayClientError.publishTimedOut)
+    }
+
+    private func failQuery(
+        subscriptionID: String,
+        error: Error
+    ) async {
+        guard let query = querySubscriptions.removeValue(forKey: subscriptionID) else { return }
+        query.continuation.resume(throwing: error)
+    }
+
+    private func failPublish(
+        eventID: String,
+        error: Error
+    ) async {
+        guard let publish = pendingPublishes.removeValue(forKey: eventID) else { return }
+        publish.continuation.resume(throwing: error)
+    }
+
+    private func openIfNeeded() async throws {
+        guard socket == nil else { return }
+
+        let task = session.webSocketTask(with: relayURL)
+        task.resume()
+        socket = task
+        startReceiveLoop(for: task)
+        startPingLoop(for: task)
+    }
+
+    private func startReceiveLoop(
+        for socket: URLSessionWebSocketTask
+    ) {
+        receiveTask?.cancel()
+        receiveTask = Task {
+            while !Task.isCancelled {
+                do {
+                    let message = try await socket.receive()
+                    await self.handle(message: message)
+                } catch {
+                    await self.handleSocketFailure(error)
+                    return
+                }
+            }
+        }
+    }
+
+    private func startPingLoop(
+        for socket: URLSessionWebSocketTask
+    ) {
+        pingTask?.cancel()
+        pingTask = Task {
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: pingIntervalNanoseconds)
+                    try await self.awaitPing(on: socket)
+                } catch {
+                    if Task.isCancelled {
+                        return
+                    }
+                    await self.handleSocketFailure(error)
+                    return
+                }
+            }
+        }
+    }
+
+    private func handle(
+        message: URLSessionWebSocketTask.Message
+    ) async {
+        let text: String
+        switch message {
+        case .string(let value):
+            text = value
+        case .data(let data):
+            text = String(data: data, encoding: .utf8) ?? ""
+        @unknown default:
+            text = ""
+        }
+
+        guard let inbound = RelayInboundMessage.parse(text) else {
+            return
+        }
+
+        switch inbound {
+        case .event(let subscriptionID, let event):
+            if var query = querySubscriptions[subscriptionID] {
+                query.events.append(event)
+                querySubscriptions[subscriptionID] = query
+            }
+            if let live = liveSubscriptions[subscriptionID] {
+                live.continuation.yield(event)
+            }
+
+        case .eose(let subscriptionID):
+            guard let query = querySubscriptions.removeValue(forKey: subscriptionID) else {
+                return
+            }
+            if let closeRequest = try? serializeJSONArray(["CLOSE", subscriptionID]) {
+                try? await send(text: closeRequest)
+            }
+            query.continuation.resume(returning: query.events)
+
+        case .notice:
+            return
+
+        case .closed(let subscriptionID, let reason):
+            if let query = querySubscriptions.removeValue(forKey: subscriptionID) {
+                query.continuation.resume(throwing: RelayClientError.closed(reason))
+            }
+            if let live = liveSubscriptions.removeValue(forKey: subscriptionID) {
+                live.continuation.finish(throwing: RelayClientError.closed(reason))
+            }
+
+        case .ok(let eventID, let accepted, let reason):
+            guard let publish = pendingPublishes.removeValue(forKey: eventID) else { return }
+            if accepted {
+                publish.continuation.resume()
+            } else {
+                publish.continuation.resume(
+                    throwing: RelayClientError.publishRejected(reason ?? "Unknown reason")
+                )
+            }
+
+        case .auth(let challenge):
+            do {
+                let authRequest = try relayAuthRequestString(
+                    challenge: challenge,
+                    relayURL: relayURL
+                )
+                try await send(text: authRequest)
+                try await resendActiveRequests()
+            } catch {
+                await handleSocketFailure(error)
+            }
+        }
+    }
+
+    private func resendActiveRequests() async throws {
+        for subscription in querySubscriptions.values {
+            try await send(text: subscription.request)
+        }
+
+        for subscription in liveSubscriptions.values {
+            try await send(text: subscription.request)
+        }
+
+        for publish in pendingPublishes.values {
+            try await send(text: publish.request)
+        }
+    }
+
+    private func handleSocketFailure(
+        _ error: Error
+    ) async {
+        let queryContinuations = querySubscriptions.values.map(\.continuation)
+        let liveContinuations = liveSubscriptions.values.map(\.continuation)
+        let publishContinuations = pendingPublishes.values.map(\.continuation)
+
+        querySubscriptions.removeAll()
+        liveSubscriptions.removeAll()
+        pendingPublishes.removeAll()
+
+        receiveTask?.cancel()
+        receiveTask = nil
+        pingTask?.cancel()
+        pingTask = nil
+
+        socket?.cancel(with: .goingAway, reason: nil)
+        socket = nil
+
+        for continuation in queryContinuations {
+            continuation.resume(throwing: error)
+        }
+        for continuation in liveContinuations {
+            continuation.finish(throwing: error)
+        }
+        for continuation in publishContinuations {
+            continuation.resume(throwing: error)
+        }
+    }
+
+    private func send(
+        text: String
+    ) async throws {
+        guard let socket else {
+            throw RelayClientError.closed("Source socket is unavailable.")
+        }
+        try await socket.send(.string(text))
+    }
+
+    private func awaitPing(
+        on socket: URLSessionWebSocketTask
+    ) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let singleResumeContinuation = RelaySingleResumeContinuationBox(continuation)
+            socket.sendPing { error in
+                if let error {
+                    singleResumeContinuation.resume(throwing: error)
+                } else {
+                    singleResumeContinuation.resume(returning: ())
+                }
+            }
+        }
+    }
+
+    private func serializeJSONArray(
+        _ value: [Any]
+    ) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: value, options: [])
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private nonisolated static func timeoutNanoseconds(
+        for timeout: TimeInterval
+    ) -> UInt64 {
+        UInt64(max(timeout, 0) * 1_000_000_000)
     }
 }
 
 final class NostrRelayClient: @unchecked Sendable {
     private let session: URLSession
-    private let fetchEndpointBackoff: RelayEndpointBackoff
-    private let publishEndpointBackoff: RelayEndpointBackoff
+    private let connectionPool: NostrRelayPool
 
     init(
         session: URLSession = .shared,
-        fetchEndpointBackoff: RelayEndpointBackoff = .sharedRead,
-        publishEndpointBackoff: RelayEndpointBackoff = .sharedPublish
+        connectionPool: NostrRelayPool = .shared
     ) {
         self.session = session
-        self.fetchEndpointBackoff = fetchEndpointBackoff
-        self.publishEndpointBackoff = publishEndpointBackoff
-    }
-
-    init(
-        session: URLSession = .shared,
-        endpointBackoff: RelayEndpointBackoff
-    ) {
-        self.session = session
-        self.fetchEndpointBackoff = endpointBackoff
-        self.publishEndpointBackoff = endpointBackoff
+        self.connectionPool = connectionPool
     }
 
     func fetchEvents(
@@ -301,71 +722,12 @@ final class NostrRelayClient: @unchecked Sendable {
         timeout: TimeInterval = 12
     ) async throws -> [NostrEvent] {
         let validatedRelayURL = try validatedWebSocketRelayURL(relayURL)
-        guard await fetchEndpointBackoff.canAttempt(validatedRelayURL) else {
-            throw RelayClientError.coolingDown(validatedRelayURL.absoluteString)
-        }
-
-        do {
-            let socket = session.webSocketTask(with: validatedRelayURL)
-            socket.resume()
-
-            let subscriptionID = UUID().uuidString
-            let request = try serializeJSONArray(["REQ", subscriptionID, filter.jsonObject])
-            try await socket.send(.string(request))
-
-            defer {
-                Task {
-                    if let close = try? serializeJSONArray(["CLOSE", subscriptionID]) {
-                        try? await socket.send(.string(close))
-                    }
-                    socket.cancel(with: .normalClosure, reason: nil)
-                }
-            }
-
-            var events: [NostrEvent] = []
-            let deadline = Date().addingTimeInterval(timeout)
-
-            while Date() < deadline {
-                let remaining = deadline.timeIntervalSinceNow
-                guard remaining > 0 else { break }
-
-                guard let text = try await receiveText(from: socket, timeout: remaining) else {
-                    break
-                }
-
-                guard let message = RelayInboundMessage.parse(text) else {
-                    continue
-                }
-
-                switch message {
-                case .event(let id, let event):
-                    if id == subscriptionID {
-                        events.append(event)
-                    }
-                case .eose(let id):
-                    if id == subscriptionID {
-                        await fetchEndpointBackoff.recordSuccess(for: validatedRelayURL)
-                        return events
-                    }
-                case .ok:
-                    continue
-                case .closed(let id, let reason):
-                    if id == subscriptionID {
-                        throw RelayClientError.closed(reason)
-                    }
-                case .notice:
-                    continue
-                }
-            }
-
-            await fetchEndpointBackoff.recordSuccess(for: validatedRelayURL)
-            return events
-        } catch {
-            if shouldRecordBackoff(for: error) {
-                await fetchEndpointBackoff.recordFailure(for: validatedRelayURL)
-            }
-            throw error
-        }
+        return try await connectionPool.fetchEvents(
+            relayURL: validatedRelayURL,
+            filter: filter,
+            timeout: timeout,
+            session: session
+        )
     }
 
     func publishEvent(
@@ -375,59 +737,13 @@ final class NostrRelayClient: @unchecked Sendable {
         timeout: TimeInterval = 10
     ) async throws {
         let validatedRelayURL = try validatedWebSocketRelayURL(relayURL)
-        guard await publishEndpointBackoff.canAttempt(validatedRelayURL) else {
-            throw RelayClientError.coolingDown(validatedRelayURL.absoluteString)
-        }
-
-        do {
-            let socket = session.webSocketTask(with: validatedRelayURL)
-            socket.resume()
-
-            let request = try serializeJSONArray(["EVENT", eventObject])
-            try await socket.send(.string(request))
-
-            defer {
-                socket.cancel(with: .normalClosure, reason: nil)
-            }
-
-            let deadline = Date().addingTimeInterval(timeout)
-
-            while Date() < deadline {
-                let remaining = deadline.timeIntervalSinceNow
-                guard remaining > 0 else { break }
-
-                guard let text = try await receiveText(from: socket, timeout: remaining) else {
-                    break
-                }
-
-                guard let message = RelayInboundMessage.parse(text) else {
-                    continue
-                }
-
-                switch message {
-                case .ok(let ackedEventID, let accepted, let reason):
-                    guard ackedEventID == eventID else { continue }
-                    if accepted {
-                        await publishEndpointBackoff.recordSuccess(for: validatedRelayURL)
-                        return
-                    }
-                    throw RelayClientError.publishRejected(reason ?? "Unknown reason")
-
-                case .closed(_, let reason):
-                    throw RelayClientError.closed(reason)
-
-                case .notice, .event, .eose:
-                    continue
-                }
-            }
-
-            throw RelayClientError.publishTimedOut
-        } catch {
-            if shouldRecordBackoff(for: error) {
-                await publishEndpointBackoff.recordFailure(for: validatedRelayURL)
-            }
-            throw error
-        }
+        try await connectionPool.publishEvent(
+            relayURL: validatedRelayURL,
+            eventObject: eventObject,
+            eventID: eventID,
+            timeout: timeout,
+            session: session
+        )
     }
 
     func publishEvent(
@@ -459,77 +775,11 @@ final class NostrRelayClient: @unchecked Sendable {
         return try await fetchEvents(relayURL: relayURL, filter: filter, timeout: timeout)
     }
 
-    private func receiveText(
-        from socket: URLSessionWebSocketTask,
-        timeout: TimeInterval
-    ) async throws -> String? {
-        let result = await withTaskGroup(of: Result<String?, Error>.self) { group in
-            group.addTask {
-                do {
-                    let message = try await socket.receive()
-                    switch message {
-                    case .string(let text):
-                        return .success(text)
-                    case .data(let data):
-                        return .success(String(data: data, encoding: .utf8))
-                    @unknown default:
-                        return .success(nil)
-                    }
-                } catch {
-                    return .failure(error)
-                }
-            }
-
-            group.addTask {
-                let nanoseconds = UInt64(max(timeout, 0) * 1_000_000_000)
-                do {
-                    try await Task.sleep(nanoseconds: nanoseconds)
-                } catch {
-                    return .success(nil)
-                }
-
-                guard !Task.isCancelled else {
-                    return .success(nil)
-                }
-
-                socket.cancel(with: .goingAway, reason: nil)
-                return .success(nil)
-            }
-
-            let result = await group.next() ?? .success(nil)
-            group.cancelAll()
-            return result
-        }
-        return try result.get()
-    }
-
     private func validatedWebSocketRelayURL(_ relayURL: URL) throws -> URL {
-        guard let scheme = relayURL.scheme?.lowercased(),
-              scheme == "ws" || scheme == "wss",
-              let host = relayURL.host,
-              !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let normalizedRelayURL = RelayURLSupport.normalizedURL(from: relayURL.absoluteString) else {
             throw RelayClientError.invalidRelayURL(relayURL.absoluteString)
         }
-        return relayURL
-    }
-
-    private func serializeJSONArray(_ value: [Any]) throws -> String {
-        let data = try JSONSerialization.data(withJSONObject: value, options: [])
-        return String(decoding: data, as: UTF8.self)
-    }
-
-    private func shouldRecordBackoff(for error: Error) -> Bool {
-        if let relayError = error as? RelayClientError {
-            switch relayError {
-            case .invalidRelayURL, .coolingDown, .publishRejected:
-                return false
-            case .closed, .publishTimedOut:
-                return true
-            }
-        }
-
-        let nsError = error as NSError
-        return nsError.domain == NSURLErrorDomain
+        return normalizedRelayURL
     }
 }
 
@@ -728,8 +978,6 @@ private enum SourcePublishFailureClassifier {
     static func isRateLimited(error: Error, message: String) -> Bool {
         if let relayError = error as? RelayClientError {
             switch relayError {
-            case .coolingDown:
-                return true
             case .publishRejected(let reason):
                 return isRateLimitMessage(reason)
             case .invalidRelayURL, .closed, .publishTimedOut:

@@ -1405,7 +1405,7 @@ struct NoteImageFullscreenViewer: View {
             }
 
             ShareLink(item: urls[selectedIndex]) {
-                Image(systemName: "paperplane")
+                Image(systemName: "square.and.arrow.up")
                     .foregroundStyle(chromeForegroundColor)
                     .frame(minWidth: 36, minHeight: 28, alignment: .leading)
             }
@@ -1506,7 +1506,7 @@ struct NoteImageFullscreenViewer: View {
 
             VStack(alignment: .leading, spacing: 16) {
                 Capsule()
-                    .fill(appSettings.themePalette.separator.opacity(0.82))
+                    .fill(appSettings.themeSeparator(defaultOpacity: 0.82))
                     .frame(width: 42, height: 5)
                     .frame(maxWidth: .infinity)
 
@@ -2533,6 +2533,7 @@ final class NoteInlineFeedVideoPlayerContainerView: UIView {
 
 struct NoteAudioPlayerView: View {
     let url: URL
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
     @State private var player: AVPlayer
     @State private var isPlaying = false
@@ -2601,11 +2602,11 @@ struct NoteAudioPlayerView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(appSettings.themePalette.secondaryBackground.opacity(0.94))
+                .fill(audioPlayerBackground)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(appSettings.themePalette.separator.opacity(0.72), lineWidth: 0.7)
+                .stroke(appSettings.themeSeparator(defaultOpacity: 0.72), lineWidth: 0.7)
         )
         .onAppear {
             configurePlaybackObservers()
@@ -2626,6 +2627,17 @@ struct NoteAudioPlayerView: View {
             isPlaying = false
             removePlaybackObservers()
         }
+    }
+
+    private var audioPlayerBackground: Color {
+        if effectiveAudioColorScheme == .light {
+            return .white
+        }
+        return appSettings.themePalette.secondaryBackground.opacity(0.94)
+    }
+
+    private var effectiveAudioColorScheme: ColorScheme {
+        appSettings.preferredColorScheme ?? colorScheme
     }
 
     private var hasPlayableDuration: Bool {

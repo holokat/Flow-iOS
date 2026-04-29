@@ -49,8 +49,8 @@ enum MediaUploadPreparation {
     private static let maxStillImageUploadBytes = 1_500 * 1_024
     private static let maxStillImageDimension: CGFloat = 3_000
     private static let maxProfileImageDimension: CGFloat = 460
-    private static let profileBannerTargetSize = CGSize(width: 1_200, height: 580)
-    private static let maxProfileBannerBytes = 500 * 1_024
+    private static let profileBannerTargetSize = CGSize(width: 1_200, height: 1_600)
+    private static let maxProfileBannerBytes = 2_500 * 1_024
     private static let animatedProfileGIFVideoThresholdBytes = 1 * 1_024 * 1_024
     private static let animatedProfileVideoBitRate = 420_000
     private static let animatedGIFUploadVideoMaxDimension: CGFloat = 720
@@ -812,7 +812,7 @@ enum MediaUploadPreparation {
             opaque: true
         )
 
-        let compressionQualities: [CGFloat] = [0.84, 0.76, 0.68, 0.60, 0.52, 0.44]
+        let compressionQualities: [CGFloat] = [0.96, 0.94, 0.92, 0.90]
         for quality in compressionQualities {
             guard let jpegData = opaqueRender.jpegData(compressionQuality: quality) else {
                 continue

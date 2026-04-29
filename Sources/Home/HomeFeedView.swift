@@ -8,12 +8,14 @@ struct HomeFeedView: View {
     private static let autoMergeTopThreshold: CGFloat = 56
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var relaySettings: RelaySettingsStore
     @ObservedObject var viewModel: HomeFeedViewModel
     @Binding var isShowingSideMenu: Bool
     private let reactionStats = NoteReactionStatsService.shared
+    @StateObject private var engagementViewport = FeedEngagementViewportCoordinator()
     @ObservedObject private var followStore = FollowStore.shared
     @ObservedObject private var muteStore = MuteStore.shared
     @ObservedObject private var interestFeedStore = InterestFeedStore.shared
@@ -266,11 +268,17 @@ struct HomeFeedView: View {
 
     private var feedModeHeaderRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if viewModel.feedSource != .polls {
+            if viewModel.feedSource == .articles {
+                Label("Articles from people you follow", systemImage: "doc.text")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+            } else if viewModel.feedSource != .polls {
                 FlowCapsuleTabBar(
                     selection: $viewModel.mode,
                     items: HomeFeedMode.allCases,
-                    selectedBackground: topNavigationControlFill,
+                    selectedBackground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedBackground,
+                    selectedForeground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedForeground,
+                    selectedStroke: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedStroke,
                     title: { $0.title }
                 )
 
@@ -412,7 +420,7 @@ struct HomeFeedView: View {
     private var topNavigationBar: some View {
         HStack(spacing: 12) {
             Button {
-                isShowingSideMenu = true
+                openSideMenu()
             } label: {
                 topNavAccountIcon
             }
@@ -424,22 +432,7 @@ struct HomeFeedView: View {
             Button {
                 isShowingFeedSourcePicker = true
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: feedSourceIconName(for: viewModel.feedSource))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(appSettings.primaryColor)
-                    Text(feedSourceLabel(for: viewModel.feedSource))
-                        .font(appSettings.appFont(.headline, weight: .semibold))
-                        .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(.footnote.weight(.semibold))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(topNavigationControlFill)
-                )
+                feedSourcePickerLabel
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Choose feed source")
@@ -458,21 +451,36 @@ struct HomeFeedView: View {
         }
     }
 
+    private var feedSourcePickerLabel: some View {
+        ZStack {
+            HStack(spacing: 6) {
+                Image(systemName: feedSourceIconName(for: viewModel.feedSource))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(appSettings.primaryColor)
+                Text(feedSourceLabel(for: viewModel.feedSource))
+                    .font(appSettings.appFont(.headline, weight: .semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .rotationEffect(.degrees(isShowingFeedSourcePicker ? 180 : 0))
+            }
+            .id(viewModel.feedSource.id)
+            .transition(FlowTransitionMotion.textStateSwapTransition(reduceMotion: accessibilityReduceMotion))
+        }
+        .animation(FlowTransitionMotion.textSwapAnimation(reduceMotion: accessibilityReduceMotion), value: viewModel.feedSource.id)
+        .animation(FlowTransitionMotion.iconSwapAnimation(reduceMotion: accessibilityReduceMotion), value: isShowingFeedSourcePicker)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            Capsule(style: .continuous)
+                .fill(feedSourcePickerFill)
+        )
+    }
+
     @ViewBuilder
     private var topNavigationBackground: some View {
-        if appSettings.activeTheme == .sakura {
-            ZStack {
-                appSettings.themePalette.chromeBackground
-
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.78),
-                        Color(red: 1.0, green: 0.960, blue: 0.978).opacity(0.66)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
+        if effectiveChromeColorScheme == .light {
+            Color.white
         } else if appSettings.activeTheme == .gamer {
             appSettings.themePalette.background
         } else if appSettings.activeTheme == .dracula {
@@ -483,16 +491,29 @@ struct HomeFeedView: View {
     }
 
     private var topNavigationControlFill: Color {
-        if appSettings.activeTheme == .sakura {
-            return Color.white.opacity(0.88)
+        if effectiveChromeColorScheme == .light {
+            return Color.black.opacity(0.045)
         } else if appSettings.activeTheme == .gamer {
             return appSettings.themePalette.chromeBackground.opacity(0.88)
         }
-        return appSettings.themePalette.secondaryBackground
+        return appSettings.themePalette.navigationControlBackground
+    }
+
+    private var feedSourcePickerFill: Color {
+        if effectiveChromeColorScheme == .light {
+            return Color.black.opacity(0.035)
+        } else if appSettings.activeTheme == .gamer {
+            return appSettings.themePalette.chromeBackground.opacity(0.82)
+        }
+        return appSettings.themePalette.navigationControlBackground
+    }
+
+    private var effectiveChromeColorScheme: ColorScheme {
+        appSettings.preferredColorScheme ?? colorScheme
     }
 
     private var feedSourcePickerBackground: Color {
-        appSettings.themePalette.sheetBackground
+        effectiveChromeColorScheme == .light ? .white : appSettings.themePalette.sheetBackground
     }
 
     private var feedSourcePickerSurfaceStyle: SettingsFormSurfaceStyle {
@@ -546,7 +567,7 @@ struct HomeFeedView: View {
 
     private var filterButton: some View {
         Group {
-            if viewModel.feedSource == .polls {
+            if viewModel.feedSource == .polls || viewModel.feedSource == .articles {
                 Color.clear
                     .frame(width: 46, height: 46)
                     .accessibilityHidden(true)
@@ -733,9 +754,20 @@ struct HomeFeedView: View {
                     .multilineTextAlignment(.center)
                     .foregroundStyle(appSettings.themePalette.secondaryForeground)
             } else if viewModel.followingFeedHasNoFollowings {
-                Text("No followed accounts yet")
+                Text(viewModel.feedSource == .articles ? "No followed writers yet" : "No followed accounts yet")
                     .font(.headline)
-                Text("Follow people or switch to Network from the feed selector.")
+                Text(
+                    viewModel.feedSource == .articles
+                        ? "Follow some people to discover their writing."
+                        : "Follow people or switch to Network from the feed selector."
+                )
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+            } else if viewModel.feedSource == .articles {
+                Text("No articles yet")
+                    .font(.headline)
+                Text("When people you follow publish long-form writing, it will show up here.")
                     .font(.subheadline)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(appSettings.themePalette.secondaryForeground)
@@ -838,7 +870,10 @@ struct HomeFeedView: View {
         .listRowBackground(Color.clear)
         .onAppear {
             if appSettings.reactionsVisibleInFeeds {
-                reactionStats.prefetch(events: [item.displayEvent], relayURLs: effectiveReadRelayURLs)
+                engagementViewport.noteVisible(
+                    event: item.displayEvent,
+                    relayURLs: effectiveReadRelayURLs
+                )
             }
             Task(priority: .utility) {
                 await viewModel.loadMoreIfNeeded(currentItem: item)
@@ -851,8 +886,24 @@ struct HomeFeedView: View {
         isShowingAuthSheet = true
     }
 
+    private func openSideMenu() {
+        if let animation = FlowTransitionMotion.sidePanelAnimation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
+                isShowingSideMenu = true
+            }
+        } else {
+            isShowingSideMenu = true
+        }
+    }
+
     private func closeSideMenu() {
-        isShowingSideMenu = false
+        if let animation = FlowTransitionMotion.sidePanelAnimation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
+                isShowingSideMenu = false
+            }
+        } else {
+            isShowingSideMenu = false
+        }
     }
 
     private var authSheet: some View {
@@ -894,6 +945,8 @@ struct HomeFeedView: View {
             return "Network"
         case .following:
             return "Following"
+        case .articles:
+            return "Articles"
         case .polls:
             return "Polls"
         case .trending:
@@ -918,6 +971,8 @@ struct HomeFeedView: View {
             return "dot.radiowaves.left.and.right"
         case .following:
             return "person.2"
+        case .articles:
+            return "doc.text"
         case .polls:
             return "chart.bar.xaxis"
         case .trending:
@@ -966,7 +1021,7 @@ struct HomeFeedView: View {
         .clipShape(Circle())
         .overlay {
             Circle()
-                .stroke(appSettings.themePalette.separator.opacity(0.35), lineWidth: 0.7)
+                .stroke(appSettings.themeSeparator(defaultOpacity: 0.35), lineWidth: 0.7)
         }
     }
 
@@ -1056,7 +1111,7 @@ struct HomeFeedView: View {
             )
             .overlay(
                 Capsule(style: .continuous)
-                    .stroke(appSettings.themePalette.separator.opacity(0.35), lineWidth: 0.5)
+                    .stroke(appSettings.themeSeparator(defaultOpacity: 0.35), lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)
@@ -1251,6 +1306,7 @@ struct HomeFeedView: View {
 }
 
 private struct HomeFeedRootContent: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Binding var isShowingSideMenu: Bool
 
     let topNavigationBar: () -> AnyView
@@ -1270,10 +1326,10 @@ private struct HomeFeedRootContent: View {
 
             if isShowingSideMenu {
                 sideMenuOverlay()
-                    .transition(.opacity)
+                    .transition(FlowTransitionMotion.sidePanelTransition(reduceMotion: accessibilityReduceMotion))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: isShowingSideMenu)
+        .animation(FlowTransitionMotion.sidePanelAnimation(reduceMotion: accessibilityReduceMotion), value: isShowingSideMenu)
         .toolbar(.hidden, for: .navigationBar)
     }
 }

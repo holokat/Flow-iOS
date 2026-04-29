@@ -9,7 +9,7 @@ struct SettingsGeneralView: View {
     var body: some View {
         ThemedSettingsForm {
             Section {
-                LabeledContent("Break Reminder") {
+                LabeledContent {
                     Picker("Break Reminder", selection: breakReminderIntervalBinding) {
                         ForEach(BreakReminderInterval.allCases) { interval in
                             Text(interval.title).tag(interval)
@@ -17,12 +17,20 @@ struct SettingsGeneralView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Break Reminder")
+                        SettingsInfoButton(
+                            title: "Break Reminder",
+                            message: "Halo shows a gentle reminder after it has stayed open for the selected time. Leaving the app or dismissing the reminder resets the timer."
+                        )
+                    }
                 }
 
                 Button {
                     presentPreviewReminder()
                 } label: {
-                    Label("Preview Break Reminder", systemImage: "hourglass.bottomhalf.filled")
+                    Label("Preview Reminder", systemImage: "hourglass.bottomhalf.filled")
                 }
 
                 SettingsToggleRow(
@@ -31,13 +39,14 @@ struct SettingsGeneralView: View {
                         get: { appSettings.liveReactsEnabled },
                         set: { appSettings.liveReactsEnabled = $0 }
                     ),
-                    footer: "Animate incoming reactions from the Pulse tab area in real time while Halo is open."
+                    footer: "Animate live reactions.",
+                    info: "Reactions rise from the Pulse tab area while Halo is open."
                 )
 
                 Button {
                     liveReactsPreviewCoordinator.emitPreviewSequence()
                 } label: {
-                    Label("Simulate Reaction Fountain", systemImage: "sparkles")
+                    Label("Preview Fountain", systemImage: "sparkles")
                 }
 
                 SettingsToggleRow(
@@ -46,7 +55,8 @@ struct SettingsGeneralView: View {
                         get: { appSettings.floatingComposeButtonEnabled },
                         set: { appSettings.floatingComposeButtonEnabled = $0 }
                     ),
-                    footer: "Show compose in the corner."
+                    footer: "Show compose in the corner.",
+                    info: nil
                 )
 
                 SettingsToggleRow(
@@ -55,7 +65,8 @@ struct SettingsGeneralView: View {
                         get: { appSettings.hideNSFWContent },
                         set: { appSettings.hideNSFWContent = $0 }
                     ),
-                    footer: "Automatically hide notes tagged as NSFW."
+                    footer: "Hide notes tagged NSFW.",
+                    info: nil
                 )
 
                 SettingsToggleRow(
@@ -64,7 +75,8 @@ struct SettingsGeneralView: View {
                         get: { appSettings.textOnlyMode },
                         set: { appSettings.textOnlyMode = $0 }
                     ),
-                    footer: "Strip media from notes and profiles to reduce bandwidth usage. Images and videos are replaced with placeholders."
+                    footer: "Replace media with placeholders.",
+                    info: "Removes images and videos from notes and profiles to save bandwidth."
                 )
 
                 SettingsToggleRow(
@@ -73,13 +85,15 @@ struct SettingsGeneralView: View {
                         get: { appSettings.slowConnectionMode },
                         set: { appSettings.slowConnectionMode = $0 }
                     ),
-                    footer: "Connect only to relay.damus.io and hide reactions to reduce relay load."
+                    footer: "Use a lighter relay setup.",
+                    info: "Connects only to relay.damus.io and hides reactions to reduce relay load."
                 )
             } header: {
                 Text("General")
             } footer: {
-                Text("When enabled, Halo shows a gentle break reminder after the app has stayed open continuously for this long. Leaving the app or closing the reminder resets the timer. Use Preview to test the sheet right away.")
+                Text("Preview lets you test the reminder right away.")
             }
+
         }
         .navigationTitle("General")
         .navigationBarTitleDisplayMode(.inline)

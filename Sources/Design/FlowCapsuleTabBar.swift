@@ -1,5 +1,19 @@
 import SwiftUI
 
+enum FlowCapsuleTabBarStylePreset {
+    enum NotificationTabs {
+        static let selectedBackground: Color? = nil
+        static let selectedForeground: Color? = nil
+        static let selectedStroke: Color? = nil
+    }
+
+    enum HomeFeedModeTabs {
+        static let selectedBackground = NotificationTabs.selectedBackground
+        static let selectedForeground = NotificationTabs.selectedForeground
+        static let selectedStroke = NotificationTabs.selectedStroke
+    }
+}
+
 struct FlowCapsuleTabBar<Selection: Hashable>: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
@@ -8,17 +22,23 @@ struct FlowCapsuleTabBar<Selection: Hashable>: View {
     private let items: [Selection]
     private let title: (Selection) -> String
     private let selectedBackgroundOverride: Color?
+    private let selectedForegroundOverride: Color?
+    private let selectedStrokeOverride: Color?
     @Namespace private var selectionNamespace
 
     init(
         selection: Binding<Selection>,
         items: [Selection],
         selectedBackground: Color? = nil,
+        selectedForeground: Color? = nil,
+        selectedStroke: Color? = nil,
         title: @escaping (Selection) -> String
     ) {
         _selection = selection
         self.items = items
         self.selectedBackgroundOverride = selectedBackground
+        self.selectedForegroundOverride = selectedForeground
+        self.selectedStrokeOverride = selectedStroke
         self.title = title
     }
 
@@ -104,6 +124,9 @@ struct FlowCapsuleTabBar<Selection: Hashable>: View {
     }
 
     private var selectedStroke: Color {
+        if let selectedStrokeOverride {
+            return selectedStrokeOverride
+        }
         if usesCustomPrimarySelection {
             return appSettings.primaryColor.opacity(colorScheme == .dark ? 0.54 : 0.36)
         }
@@ -121,6 +144,9 @@ struct FlowCapsuleTabBar<Selection: Hashable>: View {
     }
 
     private var selectedForeground: Color {
+        if let selectedForegroundOverride {
+            return selectedForegroundOverride
+        }
         if usesCustomPrimarySelection {
             return appSettings.primaryColor
         }

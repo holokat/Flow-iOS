@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum AppThemeBackgroundSpotlight {
     case none
@@ -23,8 +24,8 @@ struct AppThemeBackgroundSpotlightLayout {
         switch placement {
         case .feed:
             return CGSize(
-                width: max(size.width * 1.58, 560),
-                height: max(size.height * 0.52, 390)
+                width: max(size.width * 1.24, 460),
+                height: max(size.height * 0.34, 280)
             )
         case .profile:
             return CGSize(
@@ -40,8 +41,8 @@ struct AppThemeBackgroundSpotlightLayout {
         switch placement {
         case .feed:
             return CGSize(
-                width: max(size.width * 1.10, 390),
-                height: max(size.height * 0.36, 280)
+                width: max(size.width * 0.92, 320),
+                height: max(size.height * 0.24, 210)
             )
         case .profile:
             return CGSize(
@@ -56,7 +57,7 @@ struct AppThemeBackgroundSpotlightLayout {
     var primaryOffset: CGSize {
         switch placement {
         case .feed:
-            return CGSize(width: size.width * 0.16, height: size.height * 0.34)
+            return CGSize(width: size.width * 0.46, height: size.height * 0.84)
         case .profile:
             return CGSize(width: -size.width * 0.18, height: size.height * 0.34)
         case .none:
@@ -67,7 +68,7 @@ struct AppThemeBackgroundSpotlightLayout {
     var secondaryOffset: CGSize {
         switch placement {
         case .feed:
-            return CGSize(width: -size.width * 0.28, height: size.height * 0.42)
+            return CGSize(width: size.width * 0.24, height: size.height * 0.94)
         case .profile:
             return CGSize(width: size.width * 0.28, height: size.height * 0.40)
         case .none:
@@ -84,39 +85,65 @@ struct AppThemeBackgroundSpotlightLayout {
     }
 
     func primaryOpacity(for theme: AppThemeOption) -> Double {
-        theme.usesDarkGradientTreatment ? 0.13 : 0.14
+        theme.usesDarkGradientTreatment ? 0.11 : 0.10
     }
 
     func secondaryOpacity(for theme: AppThemeOption) -> Double {
-        theme.usesDarkGradientTreatment ? 0.07 : 0.08
+        theme.usesDarkGradientTreatment ? 0.06 : 0.05
     }
 }
 
 struct AppThemeBackgroundSpotlightColors {
     let theme: AppThemeOption
-    let gradientOption: HolographicGradientOption
+    let accentColor: Color
 
-    init(theme: AppThemeOption, gradientOption: HolographicGradientOption = .softHolographicSheen) {
+    init(theme: AppThemeOption, accentColor: Color) {
         self.theme = theme
-        self.gradientOption = gradientOption
+        self.accentColor = accentColor
     }
 
     var primaryStart: Color {
-        gradientOption.accentPalette(for: theme).primary
+        blendedAccent(toward: .white, amount: theme.usesDarkGradientTreatment ? 0.06 : 0.16)
     }
 
     var primaryEnd: Color {
-        gradientOption.accentPalette(for: theme).secondary
+        blendedAccent(toward: .white, amount: theme.usesDarkGradientTreatment ? 0.16 : 0.34)
     }
 
     var secondaryStart: Color {
-        gradientOption.accentPalette(for: theme).secondary
+        blendedAccent(toward: .white, amount: theme.usesDarkGradientTreatment ? 0.12 : 0.26)
     }
 
     var secondaryEnd: Color {
-        theme.usesDarkGradientTreatment
-            ? gradientOption.accentPalette(for: theme).primary
-            : gradientOption.accentPalette(for: theme).tertiary
+        blendedAccent(toward: .white, amount: theme.usesDarkGradientTreatment ? 0.26 : 0.48)
+    }
+
+    private func blendedAccent(toward target: UIColor, amount: CGFloat) -> Color {
+        let style: UIUserInterfaceStyle = theme.usesDarkGradientTreatment ? .dark : .light
+        let resolvedAccent = UIColor(accentColor).resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
+
+        var accentRed: CGFloat = 0
+        var accentGreen: CGFloat = 0
+        var accentBlue: CGFloat = 0
+        var accentAlpha: CGFloat = 0
+        guard resolvedAccent.getRed(&accentRed, green: &accentGreen, blue: &accentBlue, alpha: &accentAlpha) else {
+            return accentColor
+        }
+
+        var targetRed: CGFloat = 0
+        var targetGreen: CGFloat = 0
+        var targetBlue: CGFloat = 0
+        var targetAlpha: CGFloat = 0
+        guard target.getRed(&targetRed, green: &targetGreen, blue: &targetBlue, alpha: &targetAlpha) else {
+            return accentColor
+        }
+
+        let blend = max(0, min(amount, 1))
+        let red = accentRed + ((targetRed - accentRed) * blend)
+        let green = accentGreen + ((targetGreen - accentGreen) * blend)
+        let blue = accentBlue + ((targetBlue - accentBlue) * blend)
+
+        return Color(.sRGB, red: Double(red), green: Double(green), blue: Double(blue), opacity: 1)
     }
 }
 
@@ -202,7 +229,7 @@ struct AppThemeBackgroundView: View {
             if holographicSpotlight.isVisible(for: appSettings.activeTheme) {
                 HolographicSpotlightAccent(
                     theme: appSettings.activeTheme,
-                    gradientOption: appSettings.activeHolographicGradientOption ?? .softHolographicSheen,
+                    accentColor: appSettings.primaryColor,
                     placement: holographicSpotlight
                 )
             }
@@ -212,7 +239,7 @@ struct AppThemeBackgroundView: View {
 
 private struct HolographicSpotlightAccent: View {
     let theme: AppThemeOption
-    let gradientOption: HolographicGradientOption
+    let accentColor: Color
     let placement: AppThemeBackgroundSpotlight
 
     var body: some View {
@@ -232,7 +259,7 @@ private struct HolographicSpotlightAccent: View {
 
     private func primarySpotlight(layout: AppThemeBackgroundSpotlightLayout) -> some View {
         let opacity = layout.primaryOpacity(for: theme)
-        let colors = AppThemeBackgroundSpotlightColors(theme: theme, gradientOption: gradientOption)
+        let colors = AppThemeBackgroundSpotlightColors(theme: theme, accentColor: accentColor)
 
         return RadialGradient(
             colors: [
@@ -250,7 +277,7 @@ private struct HolographicSpotlightAccent: View {
 
     private func secondarySpotlight(layout: AppThemeBackgroundSpotlightLayout) -> some View {
         let opacity = layout.secondaryOpacity(for: theme)
-        let colors = AppThemeBackgroundSpotlightColors(theme: theme, gradientOption: gradientOption)
+        let colors = AppThemeBackgroundSpotlightColors(theme: theme, accentColor: accentColor)
 
         return RadialGradient(
             colors: [

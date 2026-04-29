@@ -61,7 +61,7 @@ final class SearchViewModel: ObservableObject {
     private(set) var relayURL: URL
 
     private static let searchableRelayURLs: [URL] = [
-        URL(string: "wss://search.nos.today/")
+        NostrFeedService.nostrArchivesSearchRelayURL
     ].compactMap { $0 }
 
     private static let bigRelayURLs: [URL] = [
@@ -512,7 +512,7 @@ final class SearchViewModel: ObservableObject {
             query: query,
             kinds: Self.searchFeedKinds,
             limit: pageSize,
-            hydrationMode: .cachedProfilesOnly,
+            hydrationMode: .full,
             moderationSnapshot: muteFilterSnapshot
         )
         return FeedFetchResult(items: items, failed: false)
@@ -525,7 +525,7 @@ final class SearchViewModel: ObservableObject {
         guard let item = await service.fetchReferencedFeedItem(
             reference: reference,
             relayURLs: relayURLs,
-            hydrationMode: .cachedProfilesOnly,
+            hydrationMode: .full,
             fetchTimeout: Self.noteSearchFetchTimeout,
             moderationSnapshot: muteFilterSnapshot
         ) else {
@@ -543,7 +543,7 @@ final class SearchViewModel: ObservableObject {
                 query: query,
                 kinds: Self.searchFeedKinds,
                 limit: pageSize,
-                hydrationMode: .cachedProfilesOnly,
+                hydrationMode: .full,
                 fetchTimeout: Self.noteSearchFetchTimeout,
                 relayFetchMode: Self.noteSearchRelayFetchMode,
                 moderationSnapshot: muteFilterSnapshot
@@ -564,7 +564,7 @@ final class SearchViewModel: ObservableObject {
                 kinds: Self.searchFeedKinds,
                 limit: pageSize,
                 until: nil,
-                hydrationMode: .cachedProfilesOnly,
+                hydrationMode: .full,
                 fetchTimeout: Self.noteSearchFetchTimeout,
                 relayFetchMode: Self.noteSearchRelayFetchMode,
                 moderationSnapshot: muteFilterSnapshot
@@ -582,7 +582,7 @@ final class SearchViewModel: ObservableObject {
             kinds: Self.searchFeedKinds,
             limit: pageSize,
             until: nil,
-            hydrationMode: .cachedProfilesOnly,
+            hydrationMode: .full,
             moderationSnapshot: muteFilterSnapshot
         )
         return FeedFetchResult(items: items, failed: false)
@@ -708,9 +708,10 @@ final class SearchViewModel: ObservableObject {
                 kinds: Self.searchFeedKinds,
                 limit: pageSize,
                 until: nil,
-                hydrationMode: .cachedProfilesOnly,
+                hydrationMode: .full,
                 fetchTimeout: Self.noteSearchFetchTimeout,
                 relayFetchMode: Self.noteSearchRelayFetchMode,
+                relayOnly: true,
                 moderationSnapshot: muteFilterSnapshot
             )
             return FeedFetchResult(items: items, failed: false)
@@ -728,9 +729,10 @@ final class SearchViewModel: ObservableObject {
                 kinds: Self.searchFeedKinds,
                 limit: pageSize,
                 until: nil,
-                hydrationMode: .cachedProfilesOnly,
+                hydrationMode: .full,
                 fetchTimeout: Self.noteSearchFetchTimeout,
                 relayFetchMode: Self.noteSearchRelayFetchMode,
+                relayOnly: true,
                 moderationSnapshot: muteFilterSnapshot
             )
             return FeedFetchResult(items: items, failed: false)
@@ -1218,10 +1220,10 @@ final class SearchViewModel: ObservableObject {
         until: Int?,
         moderationSnapshot: MuteFilterSnapshot?
     ) async throws -> [FeedItem] {
-        _ = relayURLs
         return try await service.fetchTrendingNotes(
             limit: min(limit, 100),
             until: until,
+            hydrationRelayURLs: relayURLs,
             moderationSnapshot: moderationSnapshot
         )
     }

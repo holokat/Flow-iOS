@@ -182,6 +182,7 @@ final class FollowStore: ObservableObject {
         publishTask = Task { [weak self] in
             await self?.publishFollowList(
                 for: session,
+                intendedFollowings: updated,
                 targetPubkeys: normalizedTargets,
                 shouldFollow: shouldFollow,
                 rollbackFollowings: previous
@@ -202,7 +203,13 @@ final class FollowStore: ObservableObject {
             let relayTargets = followListRelayTargets(for: session)
             guard !relayTargets.isEmpty else { return }
 
-            let snapshot = try await feedService.fetchFollowListSnapshot(
+            let cachedSnapshot = await feedService.cachedFollowListSnapshot(pubkey: session.accountPubkey)
+            let currentSnapshot = preferredFollowListSnapshot(
+                current: latestFollowListSnapshot,
+                candidate: cachedSnapshot
+            )
+
+            let fetchedSnapshot = try await feedService.fetchFollowListSnapshot(
                 relayURLs: relayTargets,
                 pubkey: session.accountPubkey
             )
@@ -210,19 +217,24 @@ final class FollowStore: ObservableObject {
             guard !Task.isCancelled else { return }
             guard self.session == session else { return }
 
+            let resolvedSnapshot = preferredFollowListSnapshot(
+                current: currentSnapshot,
+                candidate: fetchedSnapshot
+            )
+
             // Preserve optimistic follow toggles while a publish is in-flight.
             // Relay sync can be stale for a short window and would otherwise make
             // the follow button bounce back to "Follow".
             if hasInFlightFollowPublish {
-                latestFollowListSnapshot = snapshot
-                scheduleProfileCacheUpdate(for: session, snapshot: snapshot)
+                latestFollowListSnapshot = resolvedSnapshot
+                scheduleProfileCacheUpdate(for: session, snapshot: resolvedSnapshot)
                 return
             }
 
-            latestFollowListSnapshot = snapshot
-            followedPubkeys = Set(snapshot?.followedPubkeys ?? [])
+            latestFollowListSnapshot = resolvedSnapshot
+            followedPubkeys = Set(resolvedSnapshot?.followedPubkeys ?? [])
             persistCurrentFollowings()
-            scheduleProfileCacheUpdate(for: session, snapshot: snapshot)
+            scheduleProfileCacheUpdate(for: session, snapshot: resolvedSnapshot)
         } catch {
             // Keep the locally persisted cache when relay sync fails.
         }
@@ -230,6 +242,7 @@ final class FollowStore: ObservableObject {
 
     private func publishFollowList(
         for session: Session,
+        intendedFollowings: Set<String>,
         targetPubkeys: [String],
         shouldFollow: Bool,
         rollbackFollowings: Set<String>
@@ -257,11 +270,13 @@ final class FollowStore: ObservableObject {
             )
             guard !Task.isCancelled else { return }
 
-            let baseSnapshot = relaySnapshot ?? latestFollowListSnapshot
-            let mergedRawTags = mergedFollowListTags(
+            let baseSnapshot = preferredFollowListSnapshot(
+                current: latestFollowListSnapshot,
+                candidate: relaySnapshot
+            )
+            let mergedRawTags = reconciledFollowListTags(
                 baseTags: baseSnapshot?.tags ?? [],
-                targetPubkeys: targetPubkeys,
-                shouldFollow: shouldFollow
+                followedPubkeys: intendedFollowings
             )
             let mergedContent = baseSnapshot?.content ?? ""
 
@@ -298,7 +313,11 @@ final class FollowStore: ObservableObject {
 
             guard !Task.isCancelled else { return }
 
-            let mergedSnapshot = FollowListSnapshot(content: mergedContent, tags: mergedRawTags)
+            let mergedSnapshot = FollowListSnapshot(
+                content: mergedContent,
+                tags: mergedRawTags,
+                createdAt: Int(event.createdAt)
+            )
             await feedService.storeFollowListSnapshotLocally(mergedSnapshot, for: session.accountPubkey)
             persistFollowings(Set(mergedSnapshot.followedPubkeys), for: session.accountPubkey)
 
@@ -371,16 +390,19 @@ final class FollowStore: ObservableObject {
         return merged
     }
 
-    private func mergedFollowListTags(
+    private func reconciledFollowListTags(
         baseTags: [[String]],
-        targetPubkeys: [String],
-        shouldFollow: Bool
+        followedPubkeys: Set<String>
     ) -> [[String]] {
-        let normalizedTargets = normalizedUniquePubkeys(targetPubkeys)
-        guard !normalizedTargets.isEmpty else { return baseTags }
+        let normalizedFollowedPubkeys = Set(normalizedUniquePubkeys(Array(followedPubkeys)))
+        guard !normalizedFollowedPubkeys.isEmpty else {
+            return baseTags.filter { tag in
+                tag.first?.lowercased() != "p"
+            }
+        }
 
         var mergedTags: [[String]] = []
-        var seenTargets = Set<String>()
+        var seenFollowedPubkeys = Set<String>()
 
         for tag in baseTags {
             guard let tagName = tag.first?.lowercased(), tagName == "p" else {
@@ -389,24 +411,61 @@ final class FollowStore: ObservableObject {
             }
 
             let value = tag.count > 1 ? normalizePubkey(tag[1]) : ""
-            guard normalizedTargets.contains(value) else {
-                mergedTags.append(tag)
+            guard normalizedFollowedPubkeys.contains(value) else {
                 continue
             }
 
-            seenTargets.insert(value)
-            if shouldFollow {
-                mergedTags.append(tag)
-            }
+            guard seenFollowedPubkeys.insert(value).inserted else { continue }
+            mergedTags.append(tag)
         }
 
-        if shouldFollow {
-            for target in normalizedTargets where !seenTargets.contains(target) {
-                mergedTags.append(["p", target])
-            }
+        for followedPubkey in normalizedFollowedPubkeys.sorted() where !seenFollowedPubkeys.contains(followedPubkey) {
+            mergedTags.append(["p", followedPubkey])
         }
 
         return mergedTags
+    }
+
+    private func preferredFollowListSnapshot(
+        current: FollowListSnapshot?,
+        candidate: FollowListSnapshot?
+    ) -> FollowListSnapshot? {
+        guard let candidate else { return current }
+        guard let current else { return candidate }
+
+        let currentFollowings = Set(current.followedPubkeys)
+        let candidateFollowings = Set(candidate.followedPubkeys)
+
+        // Older cached follow snapshots may not have createdAt yet. In that case,
+        // prefer the richer local graph over a relay snapshot that would
+        // destructively shrink the follow set.
+        if current.createdAt == nil,
+           !currentFollowings.isEmpty,
+           currentFollowings.isSuperset(of: candidateFollowings),
+           currentFollowings != candidateFollowings {
+            return current
+        }
+
+        switch (current.createdAt, candidate.createdAt) {
+        case let (currentCreatedAt?, candidateCreatedAt?) where candidateCreatedAt != currentCreatedAt:
+            return candidateCreatedAt > currentCreatedAt ? candidate : current
+        case (nil, _?):
+            return candidate
+        case (_?, nil):
+            return current
+        default:
+            break
+        }
+
+        if currentFollowings.isSuperset(of: candidateFollowings) && currentFollowings != candidateFollowings {
+            return current
+        }
+
+        if candidateFollowings.isSuperset(of: currentFollowings) && candidateFollowings != currentFollowings {
+            return candidate
+        }
+
+        return candidate
     }
 
     private func followListRelayTargets(for session: Session) -> [URL] {

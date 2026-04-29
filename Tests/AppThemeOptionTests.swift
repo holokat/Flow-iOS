@@ -107,10 +107,10 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testAirPaletteIsFreeAndUsesMinimalLightPalette() {
+    func testLightPaletteUsesFormerAirPalette() {
         XCTAssertTrue(AppThemeOption.holographicLight.isEnabled)
         XCTAssertEqual(AppThemeOption.holographicLight.preferredColorScheme, .light)
-        XCTAssertEqual(AppThemeOption.holographicLight.title, "Air")
+        XCTAssertEqual(AppThemeOption.holographicLight.title, "Light")
         XCTAssertNil(AppThemeOption.holographicLight.fixedPrimaryColor)
         XCTAssertNil(AppThemeOption.holographicLight.fixedPrimaryGradient)
         XCTAssertNil(AppThemeOption.holographicLight.qrShareBackgroundResourceName)
@@ -128,7 +128,7 @@ final class AppThemeOptionTests: XCTestCase {
         )
         assertColor(
             AppThemeOption.holographicLight.palette.linkPreviewBorder,
-            matches: UIColor(red: 0.640, green: 0.875, blue: 1.0, alpha: 0.36)
+            matches: UIColor(white: 0, alpha: 0.04)
         )
         XCTAssertNotNil(AppThemeOption.holographicLight.palette.capsuleTabStyle)
         XCTAssertNotNil(AppThemeOption.holographicLight.palette.profileActionStyle)
@@ -141,66 +141,72 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testDecorativeThemeNamesBecomeColorPalettesAndSakuraIsRemoved() {
+    func testPaletteTitlesAndVisibleOptionsReflectRenamedChoices() {
+        XCTAssertEqual(AppThemeOption.black.title, "Dark")
+        XCTAssertEqual(AppThemeOption.dark.title, "Charcoal")
         XCTAssertEqual(AppThemeOption.dracula.title, "Midnight")
         XCTAssertEqual(AppThemeOption.gamer.title, "Neon")
-        XCTAssertEqual(AppThemeOption.holographicLight.title, "Air")
+        XCTAssertEqual(AppThemeOption.holographicLight.title, "Light")
+        XCTAssertEqual(AppThemeOption.light.title, "Clean")
         XCTAssertEqual(AppThemeOption.sakura.normalizedSelection, .light)
-        XCTAssertFalse(AppThemeOption.appearanceOptions.contains(.sakura))
+        XCTAssertEqual(
+            AppThemeOption.onboardingOptions,
+            [.holographicLight, .black, .system, .dracula, .gamer, .dark]
+        )
         XCTAssertEqual(
             AppThemeOption.appearanceOptions,
-            [.light, .dark, .black, .system, .dracula, .gamer, .holographicLight]
+            [.holographicLight, .black, .system, .dracula, .gamer, .dark, .light]
         )
     }
 
     @MainActor
-    func testExpressiveAccentModeUsesGradientAndExtractedLinkColor() {
+    func testDefaultThemeUsesCurrentTimeOfDay() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
         let settings = AppSettingsStore(defaults: defaults, authStore: authStore)
 
-        settings.visualAccentMode = .expressive
-        settings.expressiveGradientOption = .aurora
-        settings.expressiveLinkColorIndex = 0
-
-        XCTAssertTrue(settings.usesPrimaryGradientForProminentButtons)
-        XCTAssertEqual(settings.visualAccentMode, .expressive)
-        XCTAssertEqual(settings.expressiveGradientOption, .aurora)
-        assertColor(settings.linkColor, matches: UIColor(red: 1.0, green: 0x6E / 255.0, blue: 0xC4 / 255.0, alpha: 1))
-
-        settings.refreshExpressiveLinkColor()
-
-        XCTAssertEqual(settings.expressiveLinkColorIndex, 1)
-        assertColor(settings.linkColor, matches: UIColor(red: 0x78 / 255.0, green: 0x73 / 255.0, blue: 0xF5 / 255.0, alpha: 1))
+        XCTAssertEqual(settings.theme, expectedDefaultThemeForCurrentTime())
     }
 
     @MainActor
-    func testMinimalAccentModeUsesPrimaryColorForButtonsAndLinks() {
-        let defaults = UserDefaults(suiteName: #function)!
-        defaults.removePersistentDomain(forName: #function)
-        let authStore = AuthStore(defaults: defaults)
-        let settings = AppSettingsStore(defaults: defaults, authStore: authStore)
-        let minimalColor = Color(red: 0.12, green: 0.34, blue: 0.78)
-
-        settings.visualAccentMode = .minimal
-        settings.primaryColor = minimalColor
-
-        XCTAssertFalse(settings.usesPrimaryGradientForProminentButtons)
-        XCTAssertEqual(settings.visualAccentMode, .minimal)
-        assertColor(settings.primaryColor, matches: UIColor(red: 0.12, green: 0.34, blue: 0.78, alpha: 1))
-        assertColor(settings.linkColor, matches: UIColor(red: 0.12, green: 0.34, blue: 0.78, alpha: 1))
-    }
-
-    @MainActor
-    func testLegacyHolographicDarkIsDisabledAndNormalizesToDark() {
+    func testLegacyHolographicDarkIsDisabledAndNormalizesToCharcoal() {
         XCTAssertFalse(AppThemeOption.holographicDark.isEnabled)
         XCTAssertEqual(AppThemeOption.holographicDark.normalizedSelection, .dark)
         XCTAssertEqual(AppThemeOption.holographicDark.preferredColorScheme, .dark)
-        XCTAssertEqual(AppThemeOption.holographicDark.title, "Dark")
+        XCTAssertEqual(AppThemeOption.holographicDark.title, "Charcoal")
         XCTAssertNil(AppThemeOption.holographicDark.fixedPrimaryColor)
         XCTAssertNil(AppThemeOption.holographicDark.fixedPrimaryGradient)
         XCTAssertNil(AppThemeOption.holographicDark.qrShareBackgroundResourceName)
+    }
+
+    @MainActor
+    func testFixedAccentPaletteMatchesProductChoices() {
+        XCTAssertEqual(
+            AppSettingsStore.availablePrimaryColorOptions.map(\.hexCode),
+            ["FF0000", "0059FF", "FF5900", "91C500", "00D4FF", "D000FF", "9000FF"]
+        )
+    }
+
+    @MainActor
+    func testFixedPrimaryColorPersistsAndProminentButtonsStaySolid() {
+        let defaults = UserDefaults(suiteName: #function)!
+        defaults.removePersistentDomain(forName: #function)
+        let authStore = AuthStore(defaults: defaults)
+        let pubkey = String(repeating: "b", count: 64)
+        let settings = AppSettingsStore(defaults: defaults, authStore: authStore)
+
+        settings.configure(accountPubkey: pubkey)
+        settings.primaryColor = AppSettingsStore.availablePrimaryColorOptions[1].color
+
+        let reloaded = AppSettingsStore(defaults: defaults, authStore: authStore)
+        reloaded.configure(accountPubkey: pubkey)
+
+        XCTAssertFalse(reloaded.usesPrimaryGradientForProminentButtons)
+        XCTAssertNil(reloaded.activeButtonGradientOption)
+        XCTAssertNil(reloaded.activeHolographicGradientOption)
+        assertColor(reloaded.primaryColor, matches: UIColor(red: 0.0, green: 0x59 / 255.0, blue: 1.0, alpha: 1))
+        assertColor(reloaded.linkColor, matches: UIColor(red: 0.0, green: 0x59 / 255.0, blue: 1.0, alpha: 1))
     }
 
     @MainActor
@@ -223,117 +229,45 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testButtonGradientOptionControlsProminentButtonsAcrossThemes() {
+    func testLightThemePaletteKeepsChromeNeutralAndRetintsAccentControls() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
+        let pubkey = String(repeating: "d", count: 64)
         let settings = AppSettingsStore(defaults: defaults, authStore: authStore)
 
-        XCTAssertFalse(settings.usesPrimaryGradientForProminentButtons)
-        XCTAssertNil(settings.activeButtonGradientOption)
-
-        settings.theme = .dark
-        settings.buttonGradientOption = .softHolographicSheen
-        XCTAssertTrue(settings.usesPrimaryGradientForProminentButtons)
-        XCTAssertEqual(settings.activeButtonGradientOption, .softHolographicSheen)
-        XCTAssertNil(settings.activeHolographicGradientOption)
-
-        settings.theme = .sakura
-        XCTAssertTrue(settings.usesPrimaryGradientForProminentButtons)
-        XCTAssertEqual(settings.activeButtonGradientOption, .softHolographicSheen)
-        XCTAssertNil(settings.activeHolographicGradientOption)
-
+        settings.configure(accountPubkey: pubkey)
         settings.theme = .holographicLight
-        XCTAssertEqual(settings.activeHolographicGradientOption, .softHolographicSheen)
+        settings.primaryColor = AppSettingsStore.availablePrimaryColorOptions[0].color
 
-        settings.buttonGradientOption = nil
-        XCTAssertFalse(settings.usesPrimaryGradientForProminentButtons)
-        XCTAssertNil(settings.activeHolographicGradientOption)
-    }
+        let palette = settings.themePalette
+        let basePalette = AppThemeOption.holographicLight.palette
 
-    @MainActor
-    func testButtonGradientSelectionPersistsAcrossStoreReload() {
-        let defaults = UserDefaults(suiteName: #function)!
-        defaults.removePersistentDomain(forName: #function)
-        let authStore = AuthStore(defaults: defaults)
-        let pubkey = String(repeating: "b", count: 64)
-        let settings = AppSettingsStore(defaults: defaults, authStore: authStore)
-
-        settings.configure(accountPubkey: pubkey)
-        settings.theme = .gamer
-        settings.primaryColor = .red
-        settings.buttonGradientOption = .radialHolographicGlow
-
-        let reloaded = AppSettingsStore(defaults: defaults, authStore: authStore)
-        reloaded.configure(accountPubkey: pubkey)
-
-        XCTAssertEqual(reloaded.theme, .gamer)
-        XCTAssertEqual(reloaded.buttonGradientOption, .radialHolographicGlow)
-        XCTAssertNil(reloaded.generatedButtonGradient)
-        XCTAssertEqual(reloaded.activeButtonGradientOption, .radialHolographicGlow)
-    }
-
-    @MainActor
-    func testGeneratedButtonGradientMigratesToCuratedExpressiveGradient() {
-        let defaults = UserDefaults(suiteName: #function)!
-        defaults.removePersistentDomain(forName: #function)
-        let authStore = AuthStore(defaults: defaults)
-        let pubkey = String(repeating: "e", count: 64)
-        let generated = GeneratedButtonGradient(colors: [
-            Color(red: 0.10, green: 0.20, blue: 0.90),
-            Color(red: 0.90, green: 0.15, blue: 0.50),
-            Color(red: 0.20, green: 0.85, blue: 0.70)
-        ])
-        let settings = AppSettingsStore(defaults: defaults, authStore: authStore)
-
-        settings.configure(accountPubkey: pubkey)
-        settings.buttonGradientOption = .softHolographicSheen
-        settings.applyGeneratedButtonGradient(generated)
-
-        let reloaded = AppSettingsStore(defaults: defaults, authStore: authStore)
-        reloaded.configure(accountPubkey: pubkey)
-
-        XCTAssertEqual(reloaded.visualAccentMode, .expressive)
-        XCTAssertEqual(reloaded.expressiveGradientOption, .aurora)
-        XCTAssertEqual(reloaded.buttonGradientOption, .softHolographicSheen)
-        XCTAssertNil(reloaded.generatedButtonGradient)
-        XCTAssertTrue(reloaded.usesPrimaryGradientForProminentButtons)
-        XCTAssertEqual(reloaded.activeButtonGradientOption, .softHolographicSheen)
-        XCTAssertNil(reloaded.activeGeneratedButtonGradient)
-    }
-
-    @MainActor
-    func testGeneratedButtonGradientFactoryUsesTwoOrThreeColors() {
-        for _ in 0..<20 {
-            let gradient = GeneratedButtonGradient.random()
-            XCTAssertTrue((2...3).contains(gradient.gradientColors.count))
-        }
-    }
-
-    @MainActor
-    func testMinimalButtonTextColorIsDerivedFromPrimaryColorAcrossReload() {
-        let defaults = UserDefaults(suiteName: #function)!
-        defaults.removePersistentDomain(forName: #function)
-        let authStore = AuthStore(defaults: defaults)
-        let pubkey = String(repeating: "f", count: 64)
-        let settings = AppSettingsStore(defaults: defaults, authStore: authStore)
-
-        settings.configure(accountPubkey: pubkey)
-        settings.primaryColor = Color(red: 0.92, green: 0.90, blue: 0.80)
-        settings.buttonTextColor = Color(red: 0.05, green: 0.10, blue: 0.15)
-
-        let reloaded = AppSettingsStore(defaults: defaults, authStore: authStore)
-        reloaded.configure(accountPubkey: pubkey)
-
-        XCTAssertEqual(reloaded.visualAccentMode, .minimal)
         assertColor(
-            reloaded.buttonTextColor,
-            matches: UIColor.black
+            palette.profileActionStyle!.primaryForeground,
+            matches: UIColor(red: 1, green: 0, blue: 0, alpha: 1)
         )
+        assertColor(
+            palette.capsuleTabStyle!.selectedForeground,
+            matches: UIColor(red: 1, green: 0, blue: 0, alpha: 1)
+        )
+        assertColor(palette.background, matches: UIColor.white)
+        assertColor(palette.chromeBackground, matches: UIColor.white)
+        assertColor(palette.navigationBackground, matches: UIColor.white)
+        assertColor(palette.sheetBackground, matches: UIColor.white)
+        assertColor(
+            palette.chromeBorder,
+            matches: UIColor(white: 0, alpha: 0.04)
+        )
+        assertColor(
+            palette.linkPreviewBorder,
+            matches: UIColor(white: 0, alpha: 0.04)
+        )
+        XCTAssertFalse(colorsMatch(palette.secondaryFill, basePalette.secondaryFill))
     }
 
     @MainActor
-    func testLegacyHolographicGradientSettingsMigrateToSingleButtonGradient() {
+    func testLegacyGradientSelectionsCollapseToAllowedAccentColors() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
@@ -342,18 +276,19 @@ final class AppThemeOptionTests: XCTestCase {
 
         settings.configure(accountPubkey: pubkey)
         settings.theme = .holographicLight
-        settings.holographicLightGradientOption = .strongRainbowFoil
-
-        XCTAssertEqual(settings.expressiveGradientOption, .prism)
-        XCTAssertEqual(settings.activeHolographicGradientOption, .neonHolographicBlend)
+        settings.buttonGradientOption = .strongRainbowFoil
 
         let reloaded = AppSettingsStore(defaults: defaults, authStore: authStore)
         reloaded.configure(accountPubkey: pubkey)
 
-        XCTAssertEqual(reloaded.visualAccentMode, .expressive)
-        XCTAssertEqual(reloaded.expressiveGradientOption, .prism)
-        XCTAssertEqual(reloaded.buttonGradientOption, .neonHolographicBlend)
-        XCTAssertEqual(reloaded.holographicDarkGradientOption, .neonHolographicBlend)
+        XCTAssertFalse(reloaded.usesPrimaryGradientForProminentButtons)
+        XCTAssertNil(reloaded.activeButtonGradientOption)
+        XCTAssertNil(reloaded.activeHolographicGradientOption)
+        XCTAssertTrue(
+            AppSettingsStore.availablePrimaryColorOptions.contains { option in
+                colorsMatch(option.color, reloaded.primaryColor)
+            }
+        )
     }
 
     @MainActor
@@ -388,26 +323,33 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     func testDarkGradientTreatmentUsesMagentaPurpleAccentColors() {
-        let colors = AppThemeBackgroundSpotlightColors(theme: .dark)
+        let accentColor = Color(
+            .sRGB,
+            red: 0x8B / 255.0,
+            green: 0x7D / 255.0,
+            blue: 0xFF / 255.0,
+            opacity: 1
+        )
+        let colors = AppThemeBackgroundSpotlightColors(theme: .dark, accentColor: accentColor)
 
         assertColor(
             colors.primaryStart,
-            matches: UIColor(red: 0x8B / 255.0, green: 0x7D / 255.0, blue: 0xFF / 255.0, alpha: 1)
+            matches: UIColor(red: 0.5723921657, green: 0.5207842588, blue: 1.0, alpha: 1)
         )
         assertColor(
             colors.secondaryEnd,
-            matches: UIColor(red: 0x8B / 255.0, green: 0x7D / 255.0, blue: 0xFF / 255.0, alpha: 1)
+            matches: UIColor(red: 0.6633725762, green: 0.6227451563, blue: 1.0, alpha: 1)
         )
     }
 
     @MainActor
-    func testAppearanceThemesExposeCurrentFreeThemeList() {
+    func testAppearanceThemesExposeUpdatedPaletteList() {
         XCTAssertTrue(AppThemeOption.light.isEnabled)
         XCTAssertTrue(AppThemeOption.dark.isEnabled)
         XCTAssertTrue(AppThemeOption.black.isEnabled)
         XCTAssertEqual(
             AppThemeOption.appearanceOptions,
-            [.light, .dark, .black, .system, .dracula, .gamer, .holographicLight]
+            [.holographicLight, .black, .system, .dracula, .gamer, .dark, .light]
         )
         XCTAssertFalse(AppThemeOption.appearanceOptions.contains(.white))
         XCTAssertFalse(AppThemeOption.appearanceOptions.contains(.holographicDark))
@@ -429,7 +371,7 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testLegacyWhiteThemeSelectionNormalizesToLight() {
+    func testLegacyWhiteThemeSelectionNormalizesToClean() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
@@ -443,7 +385,7 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testBlackThemeSelectionStaysBlack() {
+    func testDarkThemeSelectionStaysOnBlackPalette() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
@@ -457,7 +399,7 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testLegacyHolographicDarkSelectionNormalizesToDark() {
+    func testLegacyHolographicDarkSelectionNormalizesToCharcoal() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
@@ -584,7 +526,7 @@ final class AppThemeOptionTests: XCTestCase {
         assertColor(AppThemeOption.light.palette.chromeBackground, matches: .white)
         assertColor(
             AppThemeOption.light.palette.chromeBorder,
-            matches: UIColor.black.withAlphaComponent(0.10)
+            matches: UIColor.black.withAlphaComponent(0.04)
         )
         XCTAssertNotNil(AppThemeOption.light.palette.capsuleTabStyle)
         XCTAssertNotNil(AppThemeOption.light.palette.profileActionStyle)
@@ -599,7 +541,7 @@ final class AppThemeOptionTests: XCTestCase {
         )
         assertColor(
             AppThemeOption.light.palette.pollStyle!.cardBorder,
-            matches: UIColor.black.withAlphaComponent(0.08)
+            matches: UIColor.black.withAlphaComponent(0.04)
         )
         XCTAssertEqual(AppThemeOption.white.normalizedSelection, .light)
         XCTAssertFalse(AppThemeOption.white.isEnabled)
@@ -656,7 +598,7 @@ final class AppThemeOptionTests: XCTestCase {
         )
         assertColor(
             AppThemeOption.system.palette.chromeBorder,
-            matches: UIColor.black.withAlphaComponent(0.10),
+            matches: UIColor.black.withAlphaComponent(0.04),
             style: .light
         )
         assertColor(
@@ -963,6 +905,40 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(reloaded.shouldHideSpamMarkedPubkey(targetPubkey))
     }
 
+    @MainActor
+    func testNewsRelayURLsDropHTTPSValuesAndKeepWebSocketRelays() {
+        let defaults = UserDefaults(suiteName: #function)!
+        defaults.removePersistentDomain(forName: #function)
+        let authStore = AuthStore(defaults: defaults)
+        let settings = AppSettingsStore(defaults: defaults, authStore: authStore)
+
+        settings.setNewsRelayURLs([
+            URL(string: "https://relay.snort.social")!,
+            URL(string: "wss://relay.damus.io")!
+        ])
+
+        XCTAssertEqual(
+            settings.newsRelayURLs.map(\.absoluteString),
+            ["wss://relay.damus.io/"]
+        )
+    }
+
+    @MainActor
+    func testAddNewsRelayNormalizesBareHostsToSecureWebSocketURLs() throws {
+        let defaults = UserDefaults(suiteName: #function)!
+        defaults.removePersistentDomain(forName: #function)
+        let authStore = AuthStore(defaults: defaults)
+        let settings = AppSettingsStore(defaults: defaults, authStore: authStore)
+
+        settings.setNewsRelayURLs([URL(string: "wss://relay.damus.io/")!])
+        try settings.addNewsRelay("relay.snort.social")
+
+        XCTAssertEqual(
+            settings.newsRelayURLs.map(\.absoluteString),
+            ["wss://relay.damus.io/", "wss://relay.snort.social/"]
+        )
+    }
+
     private func assertColor(
         _ color: Color,
         matches expected: UIColor,
@@ -998,5 +974,42 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertEqual(actualGreen, expectedGreen, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actualBlue, expectedBlue, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actualAlpha, expectedAlpha, accuracy: 0.001, file: file, line: line)
+    }
+
+    private func colorsMatch(
+        _ lhs: Color,
+        _ rhs: Color,
+        style: UIUserInterfaceStyle = .light
+    ) -> Bool {
+        let traitCollection = UITraitCollection(userInterfaceStyle: style)
+        let lhsColor = UIColor(lhs).resolvedColor(with: traitCollection)
+        let rhsColor = UIColor(rhs).resolvedColor(with: traitCollection)
+
+        var lhsRed: CGFloat = 0
+        var lhsGreen: CGFloat = 0
+        var lhsBlue: CGFloat = 0
+        var lhsAlpha: CGFloat = 0
+        guard lhsColor.getRed(&lhsRed, green: &lhsGreen, blue: &lhsBlue, alpha: &lhsAlpha) else {
+            return false
+        }
+
+        var rhsRed: CGFloat = 0
+        var rhsGreen: CGFloat = 0
+        var rhsBlue: CGFloat = 0
+        var rhsAlpha: CGFloat = 0
+        guard rhsColor.getRed(&rhsRed, green: &rhsGreen, blue: &rhsBlue, alpha: &rhsAlpha) else {
+            return false
+        }
+
+        return abs(lhsRed - rhsRed) < 0.001
+            && abs(lhsGreen - rhsGreen) < 0.001
+            && abs(lhsBlue - rhsBlue) < 0.001
+            && abs(lhsAlpha - rhsAlpha) < 0.001
+    }
+
+    @MainActor
+    private func expectedDefaultThemeForCurrentTime() -> AppThemeOption {
+        let hour = Calendar.current.component(.hour, from: Date())
+        return (6..<18).contains(hour) ? .holographicLight : .black
     }
 }

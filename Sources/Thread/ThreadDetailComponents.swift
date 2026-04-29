@@ -244,7 +244,7 @@ struct ThreadDetailInteractionRow: View {
                 )
 
                 ShareLink(item: shareLink) {
-                    Image(systemName: "paperplane")
+                    Image(systemName: "square.and.arrow.up")
                         .frame(minWidth: 34, minHeight: 30, alignment: .leading)
                 }
                 .buttonStyle(.plain)
@@ -347,6 +347,7 @@ struct ThreadDetailContentSection: View {
 struct ThreadDetailRepliesSection: View {
         @EnvironmentObject private var appSettings: AppSettingsStore
         @ObservedObject private var reactionStats = NoteReactionStatsService.shared
+        @StateObject private var engagementViewport = FeedEngagementViewportCoordinator()
 
         let replies: [FeedItem]
         let spamReplies: [FeedItem]
@@ -394,6 +395,7 @@ struct ThreadDetailRepliesSection: View {
 
                     if !spamReplies.isEmpty {
                         ThreadDetailSpamRepliesGroup(
+                            engagementViewport: engagementViewport,
                             replies: spamReplies,
                             isExpanded: spamRepliesExpanded,
                             replyCountsByTarget: replyCountsByTarget,
@@ -455,7 +457,10 @@ struct ThreadDetailRepliesSection: View {
             .padding(.horizontal, 16)
             .onAppear {
                 if showReactions {
-                    reactionStats.prefetch(events: [reply.displayEvent], relayURLs: effectiveReadRelayURLs)
+                    engagementViewport.noteVisible(
+                        event: reply.displayEvent,
+                        relayURLs: effectiveReadRelayURLs
+                    )
                 }
             }
             .overlay(alignment: .bottom) {
@@ -470,6 +475,7 @@ struct ThreadDetailSpamRepliesGroup: View {
         @EnvironmentObject private var appSettings: AppSettingsStore
         @ObservedObject private var reactionStats = NoteReactionStatsService.shared
 
+        let engagementViewport: FeedEngagementViewportCoordinator
         let replies: [FeedItem]
         let isExpanded: Bool
         let replyCountsByTarget: [String: Int]
@@ -559,7 +565,10 @@ struct ThreadDetailSpamRepliesGroup: View {
                         .padding(.horizontal, 16)
                         .onAppear {
                             if showReactions {
-                                reactionStats.prefetch(events: [reply.displayEvent], relayURLs: effectiveReadRelayURLs)
+                                engagementViewport.noteVisible(
+                                    event: reply.displayEvent,
+                                    relayURLs: effectiveReadRelayURLs
+                                )
                             }
                         }
 
@@ -632,6 +641,7 @@ struct ThreadDetailReactionsSection: View {
 
 struct ThreadDetailArticleBody: View {
         @EnvironmentObject private var appSettings: AppSettingsStore
+        @Environment(\.dismiss) private var dismiss
 
         let item: FeedItem
         let articleMetadata: NostrLongFormArticleMetadata
@@ -652,60 +662,98 @@ struct ThreadDetailArticleBody: View {
         let onReactionTap: (Int) -> Void
 
         var body: some View {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-                    if isHiddenByNSFW {
-                        ThreadDetailNSFWHiddenCard()
-                            .padding(.horizontal, 20)
-                            .padding(.top, 18)
-                            .frame(maxWidth: 820, alignment: .leading)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    } else {
-                        LongFormArticleReaderView(
-                            item: item,
-                            article: articleMetadata,
-                            isOwnedByCurrentUser: isOwnedByCurrentUser,
-                            isFollowingAuthor: isFollowingAuthor,
-                            shareLink: shareLink,
-                            onFollowToggle: onFollowToggle,
-                            onProfileTap: onOpenProfile,
-                            onHashtagTap: onOpenHashtag
-                        )
-
-                        if showReactions {
-                            VStack(alignment: .leading, spacing: 18) {
-                                ThreadDetailSeparator()
-                                ThreadDetailInteractionRow(
-                                    replyCount: nil,
-                                    repostCount: 0,
-                                    reactionCount: reactionCount,
-                                    isLikedByCurrentUser: isLikedByCurrentUser,
-                                    isBonusReactionByCurrentUser: isBonusReactionByCurrentUser,
-                                    primaryColor: appSettings.primaryColor,
-                                    onReplyTap: onReplyTap,
-                                    onRepostTap: onRepostTap,
-                                    onReactionTap: onReactionTap,
-                                    shareLink: shareLink
-                                )
-                            }
-                            .padding(.horizontal, 20)
-                            .frame(maxWidth: 820, alignment: .leading)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                        }
-
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(.footnote)
-                                .foregroundStyle(appSettings.themePalette.secondaryForeground)
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 28) {
+                        if isHiddenByNSFW {
+                            ThreadDetailNSFWHiddenCard()
                                 .padding(.horizontal, 20)
-                                .frame(maxWidth: 820, alignment: .center)
+                                .padding(.top, 18)
+                                .frame(maxWidth: 820, alignment: .leading)
                                 .frame(maxWidth: .infinity, alignment: .center)
+                        } else {
+                            LongFormArticleReaderView(
+                                item: item,
+                                article: articleMetadata,
+                                isOwnedByCurrentUser: isOwnedByCurrentUser,
+                                isFollowingAuthor: isFollowingAuthor,
+                                shareLink: shareLink,
+                                onFollowToggle: onFollowToggle,
+                                onProfileTap: onOpenProfile,
+                                onHashtagTap: onOpenHashtag
+                            )
+                            .overlay(alignment: .topLeading) {
+                                articleBackButton(topSafeAreaInset: proxy.safeAreaInsets.top)
+                            }
+
+                            if showReactions {
+                                VStack(alignment: .leading, spacing: 18) {
+                                    ThreadDetailSeparator()
+                                    ThreadDetailInteractionRow(
+                                        replyCount: nil,
+                                        repostCount: 0,
+                                        reactionCount: reactionCount,
+                                        isLikedByCurrentUser: isLikedByCurrentUser,
+                                        isBonusReactionByCurrentUser: isBonusReactionByCurrentUser,
+                                        primaryColor: appSettings.primaryColor,
+                                        onReplyTap: onReplyTap,
+                                        onRepostTap: onRepostTap,
+                                        onReactionTap: onReactionTap,
+                                        shareLink: shareLink
+                                    )
+                                }
+                                .padding(.horizontal, 20)
+                                .frame(maxWidth: 820, alignment: .leading)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                            }
+
+                            if let errorMessage {
+                                Text(errorMessage)
+                                    .font(.footnote)
+                                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                                    .padding(.horizontal, 20)
+                                    .frame(maxWidth: 820, alignment: .center)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                            }
                         }
                     }
+                    .padding(.bottom, 24)
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
-                .padding(.bottom, 24)
-                .frame(maxWidth: .infinity, alignment: .top)
+                .ignoresSafeArea(edges: .top)
             }
+        }
+
+        private var articleBackButtonForeground: Color {
+            appSettings.themePalette.profileActionStyle?.bannerForeground ?? appSettings.themePalette.foreground
+        }
+
+        private var articleBackButtonBorder: Color {
+            appSettings.themePalette.profileActionStyle?.bannerBorder ?? appSettings.themePalette.separator.opacity(0.88)
+        }
+
+        private var articleBackButtonBackground: Color {
+            appSettings.themePalette.profileActionStyle?.bannerBackground ?? appSettings.themePalette.modalBackground
+        }
+
+        private func articleBackButton(topSafeAreaInset: CGFloat) -> some View {
+            Button {
+                dismiss()
+            } label: {
+                ProfileBannerCircleIcon(
+                    systemImage: "chevron.left",
+                    foreground: articleBackButtonForeground,
+                    border: articleBackButtonBorder,
+                    background: articleBackButtonBackground
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 16)
+            .padding(
+                .top,
+                ThreadDetailViewLayout.topControlTopPadding(safeAreaInset: topSafeAreaInset)
+            )
+            .accessibilityLabel("Back")
         }
     }
 

@@ -3,6 +3,31 @@ import NostrSDK
 @testable import Flow
 
 final class ComposeNotePublishServiceTests: XCTestCase {
+    func testMergedProfileMetadataRemovesBlankAvatarAndBannerFields() throws {
+        let content = try ProfileMetadataEditing.mergedContent(
+            fields: EditableProfileFields(
+                avatarURLString: " ",
+                bannerURLString: "\n",
+                displayName: "Halo User"
+            ),
+            baseJSON: [
+                "picture": "https://cdn.example.com/avatar.png",
+                "banner": "https://cdn.example.com/banner.png",
+                "display_name": "Old Name"
+            ]
+        )
+
+        let data = try XCTUnwrap(content.data(using: .utf8))
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+
+        XCTAssertNil(json["picture"])
+        XCTAssertNil(json["banner"])
+        XCTAssertEqual(json["display_name"] as? String, "Halo User")
+        XCTAssertEqual(json["displayName"] as? String, "Halo User")
+    }
+
     @MainActor
     func testSaveProfileStoresPublishedMetadataEventLocally() async throws {
         let keypair = try XCTUnwrap(Keypair())
@@ -26,7 +51,7 @@ final class ComposeNotePublishServiceTests: XCTestCase {
 
         XCTAssertTrue(didSave)
 
-        let coldCache = ProfileCache(snapshotStore: .shared, nostrDatabase: .shared)
+        let coldCache = ProfileCache(snapshotStore: .shared)
         let storedProfile = await coldCache.cachedProfile(pubkey: pubkey)
 
         XCTAssertEqual(storedProfile?.displayName, "Halo User")

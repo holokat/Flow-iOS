@@ -186,7 +186,11 @@ final class NoteReactionBonusTests: XCTestCase {
         )
 
         service.prefetch(events: [targetEvent], relayURLs: [relayURL])
-        try await Task.sleep(nanoseconds: 160_000_000)
+        await waitForCondition("prefetch merges reply, repost, and reaction counts") {
+            service.reactionCount(for: targetEventID) == 1 &&
+            service.replyCount(for: targetEventID) == 1 &&
+            service.repostCount(for: targetEventID) == 1
+        }
 
         XCTAssertEqual(service.reactionCount(for: targetEventID), 1)
         XCTAssertEqual(service.replyCount(for: targetEventID), 1)
@@ -195,11 +199,106 @@ final class NoteReactionBonusTests: XCTestCase {
         XCTAssertEqual(capturedFilters.first?.kinds?.sorted(), [1, 6, 7, 16, 1111, 1244])
     }
 
+    @MainActor
+    func testPrefetchPublishesEachTouchedNoteOncePerFetchBatch() async throws {
+        let targetEventID = String(repeating: "9", count: 64)
+        let targetPubkey = String(repeating: "8", count: 64)
+        let relayURL = try XCTUnwrap(URL(string: "wss://relay.example.com"))
+        let targetEvent = makeReactionTargetEvent(
+            id: targetEventID,
+            pubkey: targetPubkey
+        )
+        let firstReaction = makeReactionEvent(
+            id: String(repeating: "7", count: 64),
+            pubkey: String(repeating: "6", count: 64),
+            targetEventID: targetEventID,
+            targetPubkey: targetPubkey,
+            bonusCount: 0
+        )
+        let secondReaction = makeReactionEvent(
+            id: String(repeating: "5", count: 64),
+            pubkey: String(repeating: "4", count: 64),
+            targetEventID: targetEventID,
+            targetPubkey: targetPubkey,
+            bonusCount: 2
+        )
+        let replyEvent = makeReplyEvent(
+            id: String(repeating: "3", count: 64),
+            pubkey: String(repeating: "2", count: 64),
+            targetEventID: targetEventID,
+            targetPubkey: targetPubkey
+        )
+        let repostEvent = makeRepostEvent(
+            id: String(repeating: "1", count: 64),
+            pubkey: String(repeating: "0", count: 64),
+            targetEventID: targetEventID,
+            targetPubkey: targetPubkey
+        )
+        let relayClient = SpyReactionRelayClient(events: [firstReaction, secondReaction, replyEvent, repostEvent])
+        let service = NoteReactionStatsService(
+            relayClient: relayClient,
+            store: NoteReactionStatsStore(fileManager: ReactionTestFileManager(rootURL: temporaryRootURL()))
+        )
+
+        struct SnapshotSummary: Equatable {
+            let reactionCount: Int
+            let replyCount: Int
+            let repostCount: Int
+        }
+
+        var snapshots: [SnapshotSummary] = []
+        let cancellable = service.publisher(for: targetEventID).sink { snapshot in
+            snapshots.append(.init(
+                reactionCount: snapshot.reactionCount,
+                replyCount: snapshot.replyCount,
+                repostCount: snapshot.repostCount
+            ))
+        }
+        defer { cancellable.cancel() }
+
+        service.prefetch(events: [targetEvent], relayURLs: [relayURL])
+        await waitForCondition("prefetch publishes a single merged snapshot") {
+            snapshots == [
+                .init(reactionCount: 0, replyCount: 0, repostCount: 0),
+                .init(reactionCount: 4, replyCount: 1, repostCount: 1)
+            ]
+        }
+
+        XCTAssertEqual(
+            snapshots,
+            [
+                .init(reactionCount: 0, replyCount: 0, repostCount: 0),
+                .init(reactionCount: 4, replyCount: 1, repostCount: 1)
+            ]
+        )
+        XCTAssertEqual(service.currentSnapshot(for: targetEventID).reactionCount, 4)
+        XCTAssertEqual(service.currentSnapshot(for: targetEventID).replyCount, 1)
+        XCTAssertEqual(service.currentSnapshot(for: targetEventID).repostCount, 1)
+    }
+
     private func temporaryRootURL() -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("NoteReactionBonusTests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    @MainActor
+    private func waitForCondition(
+        _ description: String,
+        timeoutNanoseconds: UInt64 = 1_000_000_000,
+        pollIntervalNanoseconds: UInt64 = 20_000_000,
+        condition: () -> Bool
+    ) async {
+        let attempts = max(1, Int(timeoutNanoseconds / pollIntervalNanoseconds))
+        for _ in 0..<attempts {
+            if condition() {
+                return
+            }
+            try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
+        }
+
+        XCTFail("Timed out waiting for condition: \(description)")
     }
 }
 

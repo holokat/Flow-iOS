@@ -80,16 +80,15 @@ final class ProfileViewModel: ObservableObject {
         FeedKindFilters.longFormArticle
     ]
 
-    private let requestKinds = ProfileViewModel.requestedFeedKinds
-    private static let fastProfileFetchTimeout: TimeInterval = 3
-    private static let fastProfileRelayFetchMode: RelayFetchMode = .firstRelayWithEvents
+    private static let fastProfileFetchTimeout: TimeInterval = 8
+    private static let fastProfileRelayFetchMode: RelayFetchMode = .firstNonEmptyRelay
     private static let knownFollowersFetchTimeout: TimeInterval = 4
     private static let knownFollowersDisplayLimit = 5
     private static let knownFollowersCandidateLimit = 240
     private var oldestCreatedAt: Int?
     private var hasReachedEnd = false
+    private var loadedModeForCurrentItems: FeedMode?
     private var hasLoadedInitialState = false
-    private var itemHydrationTask: Task<Void, Never>?
     private var itemsRevision = 0
     private var visibleItemsCacheKey: VisibleItemsCacheKey?
     private var visibleItemsCache: [FeedItem] = []
@@ -219,10 +218,6 @@ final class ProfileViewModel: ObservableObject {
         EditableProfileFields(profile: profile)
     }
 
-    deinit {
-        itemHydrationTask?.cancel()
-    }
-
     func loadIfNeeded() async {
         guard !hasLoadedInitialState else { return }
         hasLoadedInitialState = true
@@ -235,8 +230,6 @@ final class ProfileViewModel: ObservableObject {
         errorMessage = nil
         hasReachedEnd = false
         oldestCreatedAt = nil
-        itemHydrationTask?.cancel()
-        itemHydrationTask = nil
 
         if let cachedProfile = await service.cachedProfile(pubkey: pubkey) {
             profile = cachedProfile
@@ -246,7 +239,8 @@ final class ProfileViewModel: ObservableObject {
             hasResolvedFollowingCount = true
         }
 
-        let requestHydrationMode: FeedItemHydrationMode = .cachedProfilesOnly
+        let requestHydrationMode: FeedItemHydrationMode = .full
+        let fastHydrationMode: FeedItemHydrationMode = .cachedProfilesOnly
         let requestFetchTimeout = Self.fastProfileFetchTimeout
         let requestRelayFetchMode = Self.fastProfileRelayFetchMode
 
@@ -280,21 +274,37 @@ final class ProfileViewModel: ObservableObject {
         var fetchedItems: [FeedItem] = []
         var feedError: Error?
         do {
-            let feedWindow = try await fetchModeAwareAuthorFeed(
+            let feedWindow = try await fetchModeAwareAuthorEvents(
                 until: nil,
                 minimumVisibleCount: pageSize,
-                hydrationMode: requestHydrationMode,
                 fetchTimeout: requestFetchTimeout,
                 relayFetchMode: requestRelayFetchMode,
                 moderationSnapshot: muteFilterSnapshot
             )
-            fetchedItems = feedWindow.items
+            fetchedItems = await service.buildFeedItems(
+                relayURLs: readRelayURLs,
+                events: feedWindow.events,
+                hydrationMode: fastHydrationMode,
+                moderationSnapshot: muteFilterSnapshot
+            )
             guard !Task.isCancelled else { return }
 
             items = pruneMutedItems(fetchedItems)
             oldestCreatedAt = feedWindow.oldestCreatedAt
             hasReachedEnd = feedWindow.hasReachedEnd
-            scheduleItemHydration(for: items)
+            loadedModeForCurrentItems = mode
+
+            if requestHydrationMode != fastHydrationMode {
+                fetchedItems = await service.buildFeedItems(
+                    relayURLs: readRelayURLs,
+                    events: feedWindow.events,
+                    hydrationMode: requestHydrationMode,
+                    moderationSnapshot: muteFilterSnapshot
+                )
+                guard !Task.isCancelled else { return }
+
+                items = pruneMutedItems(fetchedItems)
+            }
         } catch {
             feedError = error
         }
@@ -331,13 +341,12 @@ final class ProfileViewModel: ObservableObject {
         let until = max((oldestCreatedAt ?? Int(Date().timeIntervalSince1970)) - 1, 0)
         guard until > 0 else { return }
 
-        let requestHydrationMode: FeedItemHydrationMode = .cachedProfilesOnly
+        let requestHydrationMode: FeedItemHydrationMode = .full
+        let fastHydrationMode: FeedItemHydrationMode = .cachedProfilesOnly
         let requestFetchTimeout = Self.fastProfileFetchTimeout
         let requestRelayFetchMode = Self.fastProfileRelayFetchMode
 
         isLoadingMore = true
-        itemHydrationTask?.cancel()
-        itemHydrationTask = nil
         defer {
             isLoadingMore = false
         }
@@ -346,24 +355,42 @@ final class ProfileViewModel: ObservableObject {
             let minimumVisibleCount = mode == .postsAndReplies
                 ? min(max(pageSize / 2, 10), pageSize)
                 : 1
-            let feedWindow = try await fetchModeAwareAuthorFeed(
+            let feedWindow = try await fetchModeAwareAuthorEvents(
                 until: until,
                 minimumVisibleCount: minimumVisibleCount,
-                hydrationMode: requestHydrationMode,
                 fetchTimeout: requestFetchTimeout,
                 relayFetchMode: requestRelayFetchMode,
                 moderationSnapshot: muteFilterSnapshot
             )
 
-            if feedWindow.items.isEmpty {
+            if feedWindow.events.isEmpty {
                 hasReachedEnd = true
                 return
             }
 
             oldestCreatedAt = feedWindow.oldestCreatedAt
             hasReachedEnd = feedWindow.hasReachedEnd
-            mergeKeepingNewest(itemsToMerge: feedWindow.items)
-            scheduleItemHydration(for: items)
+            let fastItems = await service.buildFeedItems(
+                relayURLs: readRelayURLs,
+                events: feedWindow.events,
+                hydrationMode: fastHydrationMode,
+                moderationSnapshot: muteFilterSnapshot
+            )
+            guard !Task.isCancelled else { return }
+
+            mergeKeepingNewest(itemsToMerge: fastItems)
+
+            if requestHydrationMode != fastHydrationMode {
+                let upgradedItems = await service.buildFeedItems(
+                    relayURLs: readRelayURLs,
+                    events: feedWindow.events,
+                    hydrationMode: requestHydrationMode,
+                    moderationSnapshot: muteFilterSnapshot
+                )
+                guard !Task.isCancelled else { return }
+
+                mergeKeepingNewest(itemsToMerge: upgradedItems)
+            }
         } catch {
             errorMessage = loadMoreErrorMessage(for: mode)
         }
@@ -376,7 +403,10 @@ final class ProfileViewModel: ObservableObject {
 
     func prepareForSelectedModeIfNeeded() async {
         guard hasCompletedInitialLoad else { return }
-        guard mode == .postsAndReplies || mode == .articles else { return }
+        guard loadedModeForCurrentItems == mode else {
+            await refresh()
+            return
+        }
         guard !hasReachedEnd else { return }
 
         let minimumVisibleItems = min(max(pageSize / 3, 8), pageSize)
@@ -641,6 +671,17 @@ final class ProfileViewModel: ObservableObject {
         }
     }
 
+    private func filteredEvents(_ sourceEvents: [NostrEvent], for mode: FeedMode) -> [NostrEvent] {
+        let hideNSFW = AppSettingsStore.shared.hideNSFWContent
+        return sourceEvents.filter { event in
+            if hideNSFW && event.containsNSFWHashtag {
+                return false
+            }
+
+            return ProfileFeedVisibility.isVisible(event, in: mode)
+        }
+    }
+
     private func loadMoreErrorMessage(for mode: FeedMode) -> String {
         switch mode {
         case .posts:
@@ -682,39 +723,38 @@ final class ProfileViewModel: ObservableObject {
     }
 
     private struct FeedWindow {
-        let items: [FeedItem]
+        let events: [NostrEvent]
         let oldestCreatedAt: Int?
         let hasReachedEnd: Bool
     }
 
-    private func fetchModeAwareAuthorFeed(
+    private func fetchModeAwareAuthorEvents(
         until: Int?,
         minimumVisibleCount: Int,
-        hydrationMode: FeedItemHydrationMode,
         fetchTimeout: TimeInterval,
         relayFetchMode: RelayFetchMode,
         moderationSnapshot: MuteFilterSnapshot? = nil
     ) async throws -> FeedWindow {
         let targetMode = mode
-        let shouldSearchOlderPages = targetMode == .postsAndReplies || targetMode == .articles
-        let batchSize = shouldSearchOlderPages ? max(pageSize, 100) : pageSize
-        let maxBatches = shouldSearchOlderPages ? 4 : 1
+        let requestedKinds = Self.feedKinds(for: targetMode)
+        let batchSize = max(pageSize, 100)
+        let maxBatches = 4
 
-        var aggregated: [FeedItem] = []
+        var aggregated: [NostrEvent] = []
         var nextUntil = until
         var oldestFetchedCreatedAt: Int?
         var hasReachedEnd = false
 
         for _ in 0..<maxBatches {
-            let fetched = try await service.fetchAuthorFeed(
+            let fetched = try await service.fetchAuthorEvents(
                 relayURLs: readRelayURLs,
                 authorPubkey: pubkey,
-                kinds: requestKinds,
+                kinds: requestedKinds,
                 limit: batchSize,
                 until: nextUntil,
-                hydrationMode: hydrationMode,
                 fetchTimeout: fetchTimeout,
                 relayFetchMode: relayFetchMode,
+                relayOnly: true,
                 moderationSnapshot: moderationSnapshot
             )
 
@@ -723,11 +763,12 @@ final class ProfileViewModel: ObservableObject {
                 break
             }
 
-            oldestFetchedCreatedAt = fetched.last?.event.createdAt
+            let paginationCursor = feedPaginationCursor(from: fetched) ?? fetched.last?.createdAt
+            oldestFetchedCreatedAt = paginationCursor
             hasReachedEnd = FeedPaginationHeuristic.shouldStopPaging(afterFetchedCount: fetched.count)
-            aggregated = mergedItemsKeepingNewest(existing: aggregated, incoming: fetched)
+            aggregated = mergedEventsKeepingNewest(existing: aggregated, incoming: fetched)
 
-            if filteredItems(aggregated, for: targetMode).count >= minimumVisibleCount {
+            if filteredEvents(aggregated, for: targetMode).count >= minimumVisibleCount {
                 break
             }
 
@@ -744,10 +785,23 @@ final class ProfileViewModel: ObservableObject {
         }
 
         return FeedWindow(
-            items: aggregated,
+            events: aggregated,
             oldestCreatedAt: oldestFetchedCreatedAt,
             hasReachedEnd: hasReachedEnd
         )
+    }
+
+    private func mergedEventsKeepingNewest(existing: [NostrEvent], incoming: [NostrEvent]) -> [NostrEvent] {
+        var byID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id.lowercased(), $0) })
+        for event in incoming {
+            byID[event.id.lowercased()] = event
+        }
+        return byID.values.sorted {
+            if $0.createdAt == $1.createdAt {
+                return $0.id > $1.id
+            }
+            return $0.createdAt > $1.createdAt
+        }
     }
 
     private func mergedItemsKeepingNewest(existing: [FeedItem], incoming: [FeedItem]) -> [FeedItem] {
@@ -760,30 +814,6 @@ final class ProfileViewModel: ObservableObject {
                 return $0.id > $1.id
             }
             return $0.event.createdAt > $1.event.createdAt
-        }
-    }
-
-    private func scheduleItemHydration(for sourceItems: [FeedItem]) {
-        itemHydrationTask?.cancel()
-
-        let events = sourceItems.map(\.event)
-        guard !events.isEmpty else { return }
-        let relayTargets = readRelayURLs
-
-        itemHydrationTask = Task { [weak self] in
-            guard let self else { return }
-            let hydrated = await self.service.buildFeedItems(
-                relayURLs: relayTargets,
-                events: events,
-                hydrationMode: .full,
-                moderationSnapshot: self.muteFilterSnapshot
-            )
-            guard !Task.isCancelled else { return }
-            guard !hydrated.isEmpty else { return }
-
-            await MainActor.run {
-                self.mergeKeepingNewest(itemsToMerge: hydrated)
-            }
         }
     }
 
@@ -831,9 +861,35 @@ final class ProfileViewModel: ObservableObject {
 
         return ordered
     }
+
+    private static func feedKinds(for mode: FeedMode) -> [Int] {
+        switch mode {
+        case .posts, .postsAndReplies:
+            return requestedFeedKinds.filter { $0 != FeedKindFilters.longFormArticle }
+        case .articles:
+            return [FeedKindFilters.longFormArticle]
+        }
+    }
 }
 
 enum ProfileFeedVisibility {
+    private static func isVisibleArticleContent(_ event: NostrEvent) -> Bool {
+        event.kind == FeedKindFilters.longFormArticle &&
+            !event.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func isVisible(_ event: NostrEvent, in mode: FeedMode) -> Bool {
+        switch mode {
+        case .posts:
+            return event.kind != FeedKindFilters.longFormArticle &&
+                !event.isReplyNote
+        case .postsAndReplies:
+            return event.isReplyNote
+        case .articles:
+            return isVisibleArticleContent(event)
+        }
+    }
+
     static func isVisible(_ item: FeedItem, in mode: FeedMode) -> Bool {
         switch mode {
         case .posts:
@@ -842,7 +898,7 @@ enum ProfileFeedVisibility {
         case .postsAndReplies:
             return item.displayEvent.isReplyNote
         case .articles:
-            return item.event.kind == FeedKindFilters.longFormArticle
+            return isVisibleArticleContent(item.event)
         }
     }
 }

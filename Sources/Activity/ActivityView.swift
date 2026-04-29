@@ -2,12 +2,15 @@ import NostrSDK
 import SwiftUI
 
 struct ActivityView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var relaySettings: RelaySettingsStore
 
     @ObservedObject var viewModel: ActivityViewModel
     @ObservedObject private var muteStore = MuteStore.shared
+    @ObservedObject private var mutedThreadStore = MutedThreadStore.shared
     @ObservedObject private var followStore = FollowStore.shared
     @State private var isShowingAuthSheet = false
     @State private var authSheetInitialTab: AuthSheetTab = .signIn
@@ -105,10 +108,10 @@ struct ActivityView: View {
 
                 if isShowingSideMenu {
                     sideMenuOverlay
-                        .transition(.opacity)
+                        .transition(FlowTransitionMotion.sidePanelTransition(reduceMotion: accessibilityReduceMotion))
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: isShowingSideMenu)
+            .animation(FlowTransitionMotion.sidePanelAnimation(reduceMotion: accessibilityReduceMotion), value: isShowingSideMenu)
             .toolbar(.hidden, for: .navigationBar)
             .task(id: isTabActive) {
                 guard isTabActive else { return }
@@ -118,6 +121,7 @@ struct ActivityView: View {
                 )
                 configureFollowStore()
                 configureMuteStore()
+                configureMutedThreadStore()
                 viewModel.configure(
                     currentUserPubkey: auth.currentAccount?.pubkey,
                     readRelayURLs: effectiveReadRelayURLs
@@ -127,6 +131,7 @@ struct ActivityView: View {
             .onChange(of: auth.currentAccount?.pubkey) { _, newValue in
                 configureFollowStore()
                 configureMuteStore()
+                configureMutedThreadStore()
                 viewModel.configure(
                     currentUserPubkey: newValue,
                     readRelayURLs: effectiveReadRelayURLs
@@ -135,10 +140,12 @@ struct ActivityView: View {
             .onChange(of: auth.currentNsec) { _, _ in
                 configureFollowStore()
                 configureMuteStore()
+                configureMutedThreadStore()
             }
             .onChange(of: relaySettings.readRelays) { _, _ in
                 configureFollowStore()
                 configureMuteStore()
+                configureMutedThreadStore()
                 viewModel.configure(
                     currentUserPubkey: auth.currentAccount?.pubkey,
                     readRelayURLs: effectiveReadRelayURLs
@@ -147,10 +154,12 @@ struct ActivityView: View {
             .onChange(of: relaySettings.writeRelays) { _, _ in
                 configureFollowStore()
                 configureMuteStore()
+                configureMutedThreadStore()
             }
             .onChange(of: appSettings.slowConnectionMode) { _, _ in
                 configureFollowStore()
                 configureMuteStore()
+                configureMutedThreadStore()
                 viewModel.configure(
                     currentUserPubkey: auth.currentAccount?.pubkey,
                     readRelayURLs: effectiveReadRelayURLs
@@ -218,6 +227,9 @@ struct ActivityView: View {
             .onChange(of: muteStore.filterRevision) { _, _ in
                 viewModel.notificationPreferencesChanged()
             }
+            .onChange(of: mutedThreadStore.revision) { _, _ in
+                viewModel.notificationPreferencesChanged()
+            }
             .onChange(of: appSettings.spamReplyFilterSignature) { _, _ in
                 viewModel.notificationPreferencesChanged()
             }
@@ -246,7 +258,7 @@ struct ActivityView: View {
 
             HStack {
                 Button {
-                    isShowingSideMenu = true
+                    openSideMenu()
                 } label: {
                     topNavAccountIcon
                 }
@@ -281,16 +293,8 @@ struct ActivityView: View {
 
     @ViewBuilder
     private var topNavigationBackground: some View {
-        if appSettings.activeTheme == .sakura {
-            ZStack {
-                appSettings.themePalette.chromeBackground.opacity(0.78)
-                appSettings.primaryGradient.opacity(0.14)
-            }
-        } else if appSettings.activeHolographicGradientOption != nil {
-            ZStack {
-                appSettings.themePalette.chromeBackground
-                appSettings.primaryGradient.opacity(appSettings.activeTheme.usesDarkGradientTreatment ? 0.10 : 0.08)
-            }
+        if effectiveChromeColorScheme == .light {
+            Color.white
         } else if appSettings.activeTheme == .gamer {
             appSettings.themePalette.background
         } else if appSettings.activeTheme == .dracula {
@@ -301,12 +305,16 @@ struct ActivityView: View {
     }
 
     private var topNavigationControlFill: Color {
-        if appSettings.activeTheme == .sakura {
-            return Color.white.opacity(0.72)
+        if effectiveChromeColorScheme == .light {
+            return Color.black.opacity(0.045)
         } else if appSettings.activeTheme == .gamer {
             return appSettings.themePalette.chromeBackground.opacity(0.84)
         }
-        return appSettings.themePalette.secondaryBackground
+        return appSettings.themePalette.navigationControlBackground
+    }
+
+    private var effectiveChromeColorScheme: ColorScheme {
+        appSettings.preferredColorScheme ?? colorScheme
     }
 
     private var topNavAccountIcon: some View {
@@ -448,8 +456,24 @@ struct ActivityView: View {
         isShowingAuthSheet = true
     }
 
+    private func openSideMenu() {
+        if let animation = FlowTransitionMotion.sidePanelAnimation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
+                isShowingSideMenu = true
+            }
+        } else {
+            isShowingSideMenu = true
+        }
+    }
+
     private func closeSideMenu() {
-        isShowingSideMenu = false
+        if let animation = FlowTransitionMotion.sidePanelAnimation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
+                isShowingSideMenu = false
+            }
+        } else {
+            isShowingSideMenu = false
+        }
     }
 
     private var isShowingActivityRoot: Bool {
@@ -471,6 +495,10 @@ struct ActivityView: View {
             readRelayURLs: effectiveReadRelayURLs,
             writeRelayURLs: effectiveWriteRelayURLs
         )
+    }
+
+    private func configureMutedThreadStore() {
+        mutedThreadStore.configure(accountPubkey: auth.currentAccount?.pubkey)
     }
 
     private func configureFollowStore() {
@@ -760,86 +788,18 @@ struct ActivityRowCell: View {
 
     @ViewBuilder
     private var previewContent: some View {
-        if let previewText {
+        switch item.previewDisplay {
+        case .text(let previewText):
             ActivitySnippetText(text: previewText)
-        } else if showsImagePill {
-            Text("Image")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(appSettings.themePalette.tertiaryFill, in: Capsule())
-        } else {
+        case .image(let imageURL):
+            ActivityPreviewThumbnail(url: imageURL)
+        case .mediaPlaceholder, .none:
             EmptyView()
         }
     }
 
     private var avatarFallbackCharacter: String {
         String(item.actor.displayName.prefix(1)).uppercased()
-    }
-
-    private var previewText: String? {
-        let sourceSnippet = normalizedPreviewText(
-            from: item.event.activitySnippet(maxLength: 120),
-            event: item.event
-        )
-        let targetSnippet = normalizedPreviewText(
-            from: item.targetSnippet,
-            event: item.target.event
-        )
-
-        switch item.action {
-        case .mention, .reply, .quoteShare:
-            if let sourceSnippet, !sourceSnippet.isEmpty {
-                return sourceSnippet
-            }
-            return targetSnippet
-        case .reaction:
-            return targetSnippet
-        case .reshare:
-            return targetSnippet
-        }
-    }
-
-    private var showsImagePill: Bool {
-        switch item.action {
-        case .mention, .reply, .quoteShare:
-            if item.event.hasMedia {
-                return true
-            }
-            return previewText == nil && (item.target.event?.hasMedia ?? false)
-        case .reaction, .reshare:
-            return previewText == nil && (item.target.event?.hasMedia ?? false)
-        }
-    }
-
-    private func normalizedSnippet(from value: String?) -> String? {
-        let normalized = (value ?? "")
-            .replacingOccurrences(of: "\n", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? nil : normalized
-    }
-
-    private func normalizedPreviewText(from value: String?, event: NostrEvent?) -> String? {
-        guard let normalized = normalizedSnippet(from: value) else { return nil }
-        if let event, event.hasMedia, looksLikeStandaloneMediaLink(normalized) {
-            return nil
-        }
-        return normalized
-    }
-
-    private func looksLikeStandaloneMediaLink(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        let tokens = trimmed.split(whereSeparator: \.isWhitespace)
-        guard tokens.count == 1 else { return false }
-        guard let url = URL(string: String(tokens[0])), let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            return false
-        }
-
-        let path = url.path.lowercased()
-        return Self.mediaPreviewExtensions.contains { path.hasSuffix($0) }
     }
 
     @ViewBuilder
@@ -857,12 +817,37 @@ struct ActivityRowCell: View {
                 .frame(width: 20, height: 20)
         }
     }
+}
 
-    private static let mediaPreviewExtensions: Set<String> = [
-        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".svg",
-        ".mp4", ".webm", ".ogg", ".mov", ".mp3", ".wav", ".flac",
-        ".aac", ".m4a", ".opus", ".wma"
-    ]
+private struct ActivityPreviewThumbnail: View {
+    @EnvironmentObject private var appSettings: AppSettingsStore
+
+    let url: URL
+
+    var body: some View {
+        CachedAsyncImage(url: url) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFill()
+            default:
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(appSettings.themePalette.tertiaryFill)
+                    .overlay {
+                        Image(systemName: "photo")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                    }
+            }
+        }
+        .frame(width: 30, height: 30)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(appSettings.themePalette.chromeBorder, lineWidth: 0.7)
+        }
+    }
 }
 
 private struct ActivitySnippetText: View {

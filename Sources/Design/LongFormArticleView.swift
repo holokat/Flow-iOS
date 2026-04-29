@@ -116,15 +116,29 @@ struct LongFormArticlePreviewView: View {
     @ViewBuilder
     private var previewCardBackground: some View {
         if let imageURL = article.imageURL, !appSettings.textOnlyMode {
-            CachedAsyncImage(url: imageURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                default:
-                    previewFallbackBackground
+            GeometryReader { geometry in
+                CachedAsyncImage(url: imageURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .frame(
+                                width: geometry.size.width,
+                                height: geometry.size.height,
+                                alignment: .center
+                            )
+                            .clipped()
+                    default:
+                        previewFallbackBackground
+                            .frame(
+                                width: geometry.size.width,
+                                height: geometry.size.height,
+                                alignment: .center
+                            )
+                    }
                 }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .center)
             }
         } else {
             previewFallbackBackground
@@ -336,21 +350,33 @@ struct LongFormArticleReaderView: View {
     @ViewBuilder
     private var heroBackground: some View {
         if let heroBackgroundURL, !appSettings.textOnlyMode {
-            CachedAsyncImage(url: heroBackgroundURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .blur(radius: usesAuthorFallbackHero ? LongFormArticleReaderLayout.authorFallbackBlurRadius : 0)
-                        .saturation(usesAuthorFallbackHero ? 0.82 : 0.94)
-                        .opacity(LongFormArticleReaderLayout.heroImageOpacity)
-                default:
-                    heroFallbackBackground
+            GeometryReader { geometry in
+                CachedAsyncImage(url: heroBackgroundURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .frame(
+                                width: geometry.size.width,
+                                height: geometry.size.height,
+                                alignment: .center
+                            )
+                            .clipped()
+                            .blur(radius: usesAuthorFallbackHero ? LongFormArticleReaderLayout.authorFallbackBlurRadius : 0)
+                            .saturation(usesAuthorFallbackHero ? 0.82 : 0.94)
+                            .opacity(LongFormArticleReaderLayout.heroImageOpacity)
+                    default:
+                        heroFallbackBackground
+                            .frame(
+                                width: geometry.size.width,
+                                height: geometry.size.height,
+                                alignment: .center
+                            )
+                    }
                 }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .center)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped()
         } else {
             heroFallbackBackground
         }
@@ -441,7 +467,7 @@ struct LongFormArticleReaderView: View {
                 .background(appSettings.themePalette.secondaryBackground, in: Circle())
                 .overlay {
                     Circle()
-                        .stroke(appSettings.themePalette.separator.opacity(0.8), lineWidth: 0.8)
+                        .stroke(appSettings.themeSeparator(defaultOpacity: 0.8), lineWidth: 0.8)
                 }
         }
         .buttonStyle(.plain)
@@ -460,7 +486,7 @@ struct LongFormArticleReaderView: View {
     }
 
     private var authorRuleColor: Color {
-        appSettings.themePalette.separator.opacity(0.82)
+        appSettings.themeSeparator(defaultOpacity: 0.82)
     }
 
     private var authorRow: some View {
@@ -720,7 +746,7 @@ struct LongFormArticleReaderView: View {
         .background(appSettings.themePalette.secondaryBackground.opacity(0.82), in: Capsule())
         .overlay {
             Capsule()
-                .stroke(appSettings.themePalette.separator.opacity(0.8), lineWidth: 0.7)
+                .stroke(appSettings.themeSeparator(defaultOpacity: 0.8), lineWidth: 0.7)
         }
     }
 
@@ -856,6 +882,7 @@ private struct LongFormArticleRemoteImage: View {
                     .frame(maxWidth: .infinity)
                     .aspectRatio(boundedAspectRatio, contentMode: .fill)
                     .frame(maxHeight: maxHeight)
+                    .frame(maxWidth: .infinity, alignment: .center)
                     .clipped()
             } else {
                 image
