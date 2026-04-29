@@ -14,6 +14,11 @@ enum ManageAccountsGlassStyle {
     static let lightSurfaceWhiteOpacity: Double = 0.88
     static let darkBorderWhiteOpacity: Double = 0.28
     static let lightBorderBlackOpacity: Double = 0.04
+    static let signInCardDarkSurfaceWhiteOpacity = darkSurfaceWhiteOpacity
+    static let signInCardLightSurfaceWhiteOpacity = lightSurfaceWhiteOpacity
+    static let signInTabContainerDarkSurfaceWhiteOpacity = darkSurfaceWhiteOpacity
+    static let signInTabContainerLightSurfaceWhiteOpacity = lightSurfaceWhiteOpacity
+    static let signInPrivateKeyLabelUsesInkColor = true
     static let primaryTextWhiteOpacity: Double = 0.96
     static let secondaryTextWhiteOpacity: Double = 0.80
     static let textShadowOpacity: Double = 0.24
@@ -21,6 +26,10 @@ enum ManageAccountsGlassStyle {
     static let lightShadowOpacity: Double = 0.08
     static let controlWhiteTintOpacity: Double = 0.44
     static let legacyControlWhiteTintDarkOpacity: Double = 0.18
+    static let closeButtonUsesGlassSurface = true
+    static let closeButtonUsesPrimaryColorFill = false
+    static let closeButtonLightWhiteTintOpacity: Double = 0.34
+    static let closeButtonDarkWhiteTintOpacity: Double = 0.18
     static let deleteIconUsesPrimaryTextColor = true
 }
 
@@ -420,7 +429,7 @@ struct AuthSheetView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Sign in with your private key")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(Color.white.opacity(0.96))
+                .foregroundStyle(authInk)
 
             signInPrivateKeyField
 
@@ -664,7 +673,7 @@ struct AuthSheetView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Sign in with your private key")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(Color.white.opacity(0.96))
+                .foregroundStyle(authInk)
 
             signInPrivateKeyField
 
@@ -701,14 +710,25 @@ struct AuthSheetView: View {
             .fill(.ultraThinMaterial)
             .overlay {
                 shape
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.05 : 0.12))
+                    .fill(Color.white.opacity(
+                        colorScheme == .dark
+                            ? ManageAccountsGlassStyle.signInCardDarkSurfaceWhiteOpacity
+                            : ManageAccountsGlassStyle.signInCardLightSurfaceWhiteOpacity
+                    ))
             }
             .overlay {
                 shape
-                    .stroke(authBorderColor(darkOpacity: 0.16), lineWidth: 0.9)
+                    .stroke(
+                        authBorderColor(darkOpacity: ManageAccountsGlassStyle.darkBorderWhiteOpacity),
+                        lineWidth: 1.1
+                    )
             }
             .shadow(
-                color: Color.black.opacity(colorScheme == .dark ? 0.16 : 0.08),
+                color: Color.black.opacity(
+                    colorScheme == .dark
+                        ? ManageAccountsGlassStyle.darkShadowOpacity
+                        : ManageAccountsGlassStyle.lightShadowOpacity
+                ),
                 radius: colorScheme == .dark ? 20 : 16,
                 y: colorScheme == .dark ? 10 : 8
             )
@@ -750,16 +770,27 @@ struct AuthSheetView: View {
             .fill(.ultraThinMaterial)
             .overlay {
                 Capsule(style: .continuous)
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.05 : 0.10))
+                    .fill(Color.white.opacity(
+                        colorScheme == .dark
+                            ? ManageAccountsGlassStyle.signInTabContainerDarkSurfaceWhiteOpacity
+                            : ManageAccountsGlassStyle.signInTabContainerLightSurfaceWhiteOpacity
+                    ))
             }
             .overlay {
                 Capsule(style: .continuous)
-                    .stroke(authBorderColor(darkOpacity: 0.16), lineWidth: 0.9)
+                    .stroke(
+                        authBorderColor(darkOpacity: ManageAccountsGlassStyle.darkBorderWhiteOpacity),
+                        lineWidth: 1.1
+                    )
             }
             .shadow(
-                color: Color.black.opacity(colorScheme == .dark ? 0.14 : 0.06),
-                radius: colorScheme == .dark ? 18 : 14,
-                y: colorScheme == .dark ? 9 : 7
+                color: Color.black.opacity(
+                    colorScheme == .dark
+                        ? ManageAccountsGlassStyle.darkShadowOpacity
+                        : ManageAccountsGlassStyle.lightShadowOpacity
+                ),
+                radius: colorScheme == .dark ? 20 : 16,
+                y: colorScheme == .dark ? 10 : 8
             )
     }
 
@@ -884,28 +915,52 @@ struct AuthSheetView: View {
     }
 
     private var closeButtonBackground: Color {
-        appSettings.themePalette.secondaryGroupedBackground
+        Color.white.opacity(
+            colorScheme == .dark
+                ? ManageAccountsGlassStyle.closeButtonDarkWhiteTintOpacity
+                : ManageAccountsGlassStyle.closeButtonLightWhiteTintOpacity
+        )
     }
 
     private var closeButtonBorder: Color {
-        colorScheme == .dark ? appSettings.themePalette.separator.opacity(0.92) : Color.black.opacity(0.04)
+        colorScheme == .dark
+            ? Color.white.opacity(ManageAccountsGlassStyle.darkBorderWhiteOpacity)
+            : Color.black.opacity(0.08)
+    }
+
+    private var closeButtonGlassBackground: some View {
+        Circle()
+            .fill(.ultraThinMaterial)
+            .overlay {
+                Circle()
+                    .fill(closeButtonBackground)
+            }
+            .overlay {
+                Circle()
+                    .stroke(closeButtonBorder, lineWidth: 1)
+            }
+            .shadow(
+                color: Color.black.opacity(colorScheme == .dark ? 0.16 : 0.08),
+                radius: colorScheme == .dark ? 18 : 14,
+                y: colorScheme == .dark ? 8 : 6
+            )
     }
 
     private var closeToolbarButton: some View {
         Group {
-            if #available(iOS 26.0, *), AuthSheetChromeLayout.showsCustomHeader(for: selectedTab) {
+            if #available(iOS 26.0, *) {
                 Button {
                     dismiss()
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(authInk)
+                        .foregroundStyle(closeButtonForeground)
                         .frame(width: 36, height: 36)
                 }
                 .buttonStyle(.plain)
                 .glassEffect(
                     .regular
-                        .tint(Color.white.opacity(0.22))
+                        .tint(closeButtonBackground)
                         .interactive(),
                     in: Circle()
                 )
@@ -917,10 +972,8 @@ struct AuthSheetView: View {
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(closeButtonForeground)
                         .frame(width: 36, height: 36)
-                        .background(closeButtonBackground, in: Circle())
-                        .overlay {
-                            Circle()
-                                .stroke(closeButtonBorder, lineWidth: 1)
+                        .background {
+                            closeButtonGlassBackground
                         }
                 }
                 .buttonStyle(.plain)

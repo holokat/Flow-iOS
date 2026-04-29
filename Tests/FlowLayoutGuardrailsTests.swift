@@ -254,6 +254,37 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertGreaterThan(ManageAccountsGlassStyle.textShadowOpacity, 0)
     }
 
+    func testSignInSurfacesMatchAccountsGlassOpacity() {
+        XCTAssertEqual(
+            ManageAccountsGlassStyle.signInCardDarkSurfaceWhiteOpacity,
+            ManageAccountsGlassStyle.darkSurfaceWhiteOpacity,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            ManageAccountsGlassStyle.signInCardLightSurfaceWhiteOpacity,
+            ManageAccountsGlassStyle.lightSurfaceWhiteOpacity,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            ManageAccountsGlassStyle.signInTabContainerDarkSurfaceWhiteOpacity,
+            ManageAccountsGlassStyle.darkSurfaceWhiteOpacity,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            ManageAccountsGlassStyle.signInTabContainerLightSurfaceWhiteOpacity,
+            ManageAccountsGlassStyle.lightSurfaceWhiteOpacity,
+            accuracy: 0.0001
+        )
+        XCTAssertTrue(ManageAccountsGlassStyle.signInPrivateKeyLabelUsesInkColor)
+    }
+
+    func testCreateAccountCloseButtonUsesGlassInsteadOfPrimaryFill() {
+        XCTAssertTrue(ManageAccountsGlassStyle.closeButtonUsesGlassSurface)
+        XCTAssertFalse(ManageAccountsGlassStyle.closeButtonUsesPrimaryColorFill)
+        XCTAssertGreaterThan(ManageAccountsGlassStyle.closeButtonLightWhiteTintOpacity, 0.24)
+        XCTAssertLessThanOrEqual(ManageAccountsGlassStyle.closeButtonDarkWhiteTintOpacity, 0.24)
+    }
+
     func testManageAccountSwitchMotionUsesLivelyButContainedFeedback() {
         XCTAssertEqual(ManageAccountSwitchMotion.activePillTitle, "Active")
         XCTAssertEqual(ManageAccountSwitchMotion.toastText(for: "Avery"), "Switched to Avery")
