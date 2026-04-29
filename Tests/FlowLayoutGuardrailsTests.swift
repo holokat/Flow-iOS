@@ -187,6 +187,23 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertGreaterThan(ManageAccountsGlassStyle.textShadowOpacity, 0)
     }
 
+    func testAuthSheetSignInAndAccountsUseStableSharedChrome() {
+        XCTAssertEqual(AuthSheetChromeLayout.navigationTitle(for: .signIn), "Account")
+        XCTAssertEqual(AuthSheetChromeLayout.navigationTitle(for: .accounts), "Account")
+        XCTAssertTrue(AuthSheetChromeLayout.hidesSystemNavigationBar(for: .signIn))
+        XCTAssertTrue(AuthSheetChromeLayout.hidesSystemNavigationBar(for: .accounts))
+        XCTAssertEqual(
+            AuthSheetChromeLayout.contentTopSpacerHeight(for: .signIn),
+            AuthSheetChromeLayout.contentTopSpacerHeight(for: .accounts),
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            AuthSheetChromeLayout.contentHorizontalPadding(for: .signIn),
+            AuthSheetChromeLayout.contentHorizontalPadding(for: .accounts),
+            accuracy: 0.0001
+        )
+    }
+
     func testProfileFollowingCountTextDoesNotShowZeroBeforeRemoteCountResolves() {
         XCTAssertEqual(
             ProfileViewLayout.followingCountText(

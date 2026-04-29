@@ -23,6 +23,42 @@ enum ManageAccountsGlassStyle {
     static let legacyControlWhiteTintDarkOpacity: Double = 0.18
 }
 
+enum AuthSheetChromeLayout {
+    static let headerHorizontalPadding: CGFloat = 16
+    static let headerTopPadding: CGFloat = 8
+    static let headerBottomPadding: CGFloat = 14
+    static let sharedContentTopSpacerHeight: CGFloat = 24
+    static let sharedContentHorizontalPadding: CGFloat = 20
+    static let sharedContentBottomPadding: CGFloat = 48
+    static let bottomSafeAreaSpacerHeight: CGFloat = 18
+    static let tabCardHorizontalPadding: CGFloat = 10
+    static let tabCardVerticalPadding: CGFloat = 10
+
+    static func navigationTitle(for tab: AuthSheetTab) -> String {
+        tab == .signUp ? "Create Account" : "Account"
+    }
+
+    static func hidesSystemNavigationBar(for tab: AuthSheetTab) -> Bool {
+        tab != .signUp
+    }
+
+    static func showsCustomHeader(for tab: AuthSheetTab) -> Bool {
+        tab == .signIn || tab == .accounts
+    }
+
+    static func showsSystemCloseButton(for tab: AuthSheetTab) -> Bool {
+        tab == .signUp
+    }
+
+    static func contentTopSpacerHeight(for tab: AuthSheetTab) -> CGFloat {
+        showsCustomHeader(for: tab) ? sharedContentTopSpacerHeight : 0
+    }
+
+    static func contentHorizontalPadding(for tab: AuthSheetTab) -> CGFloat {
+        showsCustomHeader(for: tab) ? sharedContentHorizontalPadding : 0
+    }
+}
+
 struct AuthSheetView: View {
     private enum PostAuthDestination {
         case dismiss
@@ -87,13 +123,12 @@ struct AuthSheetView: View {
                     accountsExperience
                 }
             }
-            .navigationTitle(
-                selectedTab == .signUp
-                    ? "Create Account"
-                    : (selectedTab == .accounts ? "Manage Accounts" : "Account")
-            )
+            .navigationTitle(AuthSheetChromeLayout.navigationTitle(for: selectedTab))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar(selectedTab == .signIn ? .hidden : .visible, for: .navigationBar)
+            .toolbar(
+                AuthSheetChromeLayout.hidesSystemNavigationBar(for: selectedTab) ? .hidden : .visible,
+                for: .navigationBar
+            )
             .onChange(of: selectedTab) { _, newValue in
                 onSelectedTabChange(newValue)
                 switch newValue {
@@ -112,7 +147,7 @@ struct AuthSheetView: View {
                 }
             }
             .toolbar {
-                if selectedTab != .signIn {
+                if AuthSheetChromeLayout.showsSystemCloseButton(for: selectedTab) {
                     ToolbarItem(placement: .topBarTrailing) {
                         closeToolbarButton
                     }
@@ -157,7 +192,7 @@ struct AuthSheetView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 18) {
-                    Color.clear.frame(height: 24)
+                    Color.clear.frame(height: AuthSheetChromeLayout.contentTopSpacerHeight(for: .signIn))
 
                     if availableTabs.count > 1 {
                         authTabBarCard
@@ -176,22 +211,22 @@ struct AuthSheetView: View {
                     }
 
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 48)
+                .padding(.horizontal, AuthSheetChromeLayout.contentHorizontalPadding(for: .signIn))
+                .padding(.bottom, AuthSheetChromeLayout.sharedContentBottomPadding)
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                signInHeader
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 14)
+                authSheetHeader
+                    .padding(.horizontal, AuthSheetChromeLayout.headerHorizontalPadding)
+                    .padding(.top, AuthSheetChromeLayout.headerTopPadding)
+                    .padding(.bottom, AuthSheetChromeLayout.headerBottomPadding)
             }
             .safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: 18)
+                Color.clear.frame(height: AuthSheetChromeLayout.bottomSafeAreaSpacerHeight)
             }
         }
     }
 
-    private var signInHeader: some View {
+    private var authSheetHeader: some View {
         ZStack {
             Text("Account")
                 .font(.headline.weight(.semibold))
@@ -322,8 +357,8 @@ struct AuthSheetView: View {
                     selectedStroke: Color.white.opacity(0.72),
                     title: { $0.rawValue }
                 )
-                .padding(.horizontal, 10)
-                .padding(.vertical, 10)
+                .padding(.horizontal, AuthSheetChromeLayout.tabCardHorizontalPadding)
+                .padding(.vertical, AuthSheetChromeLayout.tabCardVerticalPadding)
                 .background(authBlurCapsuleBackground)
             } else {
                 FlowCapsuleTabBar(
@@ -334,8 +369,8 @@ struct AuthSheetView: View {
                     selectedStroke: Color.white.opacity(0.72),
                     title: { $0.rawValue }
                 )
-                .padding(.horizontal, 10)
-                .padding(.vertical, 10)
+                .padding(.horizontal, AuthSheetChromeLayout.tabCardHorizontalPadding)
+                .padding(.vertical, AuthSheetChromeLayout.tabCardVerticalPadding)
                 .background(.ultraThinMaterial, in: Capsule(style: .continuous))
             }
         }
@@ -348,7 +383,9 @@ struct AuthSheetView: View {
                 .ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(spacing: 18) {
+                    Color.clear.frame(height: AuthSheetChromeLayout.contentTopSpacerHeight(for: .accounts))
+
                     if availableTabs.count > 1 {
                         authTabBarCard
                     }
@@ -359,11 +396,18 @@ struct AuthSheetView: View {
                         accountsLogoutCard
                     }
                 }
-                .frame(maxWidth: 520, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 18)
-                .padding(.top, availableTabs.count > 1 ? 76 : 24)
-                .padding(.bottom, 40)
+                .padding(.horizontal, AuthSheetChromeLayout.contentHorizontalPadding(for: .accounts))
+                .padding(.bottom, AuthSheetChromeLayout.sharedContentBottomPadding)
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                authSheetHeader
+                    .padding(.horizontal, AuthSheetChromeLayout.headerHorizontalPadding)
+                    .padding(.top, AuthSheetChromeLayout.headerTopPadding)
+                    .padding(.bottom, AuthSheetChromeLayout.headerBottomPadding)
+            }
+            .safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: AuthSheetChromeLayout.bottomSafeAreaSpacerHeight)
             }
         }
     }
@@ -373,7 +417,7 @@ struct AuthSheetView: View {
     }
 
     private var accountsBackdrop: some View {
-        authBackdrop(using: accountsBackdropArtwork)
+        authBackdrop(using: accountsBackdropArtwork, showsBottomFade: false)
     }
 
     private func authBackdrop<Artwork: View>(
@@ -712,7 +756,7 @@ struct AuthSheetView: View {
 
     private var closeToolbarButton: some View {
         Group {
-            if #available(iOS 26.0, *), selectedTab == .signIn {
+            if #available(iOS 26.0, *), AuthSheetChromeLayout.showsCustomHeader(for: selectedTab) {
                 Button {
                     dismiss()
                 } label: {
@@ -800,12 +844,7 @@ struct AuthSheetView: View {
             if auth.accounts.isEmpty {
                 Text("Your saved accounts will show up here.")
                     .font(.footnote)
-                    .foregroundStyle(accountsSecondaryTextColor)
-                    .shadow(
-                        color: accountsTextShadowColor,
-                        radius: accountsTextShadowRadius,
-                        y: accountsTextShadowYOffset
-                    )
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 18)
             } else {
@@ -821,7 +860,7 @@ struct AuthSheetView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(accountsSurfaceBackground(cornerRadius: 28))
+        .background(authBlurCardBackground(cornerRadius: 28))
     }
 
     private func accountRow(for account: AuthAccount) -> some View {
@@ -835,35 +874,30 @@ struct AuthSheetView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(accountDisplayName(for: account))
                             .font(.body.weight(.semibold))
-                            .foregroundStyle(accountsPrimaryTextColor)
+                            .foregroundStyle(.primary)
                             .lineLimit(1)
 
                         if let handle = accountHandle(for: account) {
                             Text(handle)
                                 .font(.caption)
-                                .foregroundStyle(accountsSecondaryTextColor)
+                                .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
 
                         Text(accountBackupLabel(for: account))
                             .font(.caption2)
-                            .foregroundStyle(accountsSecondaryTextColor)
+                            .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .shadow(
-                        color: accountsTextShadowColor,
-                        radius: accountsTextShadowRadius,
-                        y: accountsTextShadowYOffset
-                    )
 
                     Spacer(minLength: 0)
 
                     if auth.currentAccount?.id == account.id {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.title3.weight(.semibold))
-                            .foregroundStyle(accountsPrimaryTextColor)
+                            .foregroundStyle(.primary)
                             .shadow(
                                 color: accountsTextShadowColor,
                                 radius: 8,
@@ -950,7 +984,7 @@ struct AuthSheetView: View {
         .font(.headline.weight(.semibold))
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .background(accountsSurfaceBackground(cornerRadius: 24))
+        .background(authBlurCardBackground(cornerRadius: 24))
         .buttonStyle(.plain)
     }
 
