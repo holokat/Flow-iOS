@@ -263,13 +263,16 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
     }
 
     func testWelcomeScratchRevealCompletionUsesCoverageThreshold() {
-        XCTAssertEqual(WelcomeScratchRevealLayout.completionThreshold, 1, accuracy: 0.0001)
+        XCTAssertEqual(WelcomeScratchRevealLayout.completionThreshold, 0.99, accuracy: 0.0001)
         XCTAssertFalse(
-            WelcomeScratchRevealLayout.shouldAdvance(coverage: WelcomeScratchRevealLayout.completionThreshold - 0.01)
+            WelcomeScratchRevealLayout.shouldAdvance(
+                coverage: 0.989,
+                phase: .scratchEnded
+            )
         )
         XCTAssertTrue(
             WelcomeScratchRevealLayout.shouldAdvance(
-                coverage: WelcomeScratchRevealLayout.completionThreshold,
+                coverage: 0.99,
                 phase: .scratchEnded
             )
         )

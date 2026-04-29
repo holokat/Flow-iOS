@@ -34,7 +34,7 @@ enum WelcomeScratchRevealLayout {
         case scratchEnded
     }
 
-    static let completionThreshold: Double = 1
+    static let completionThreshold: Double = 0.99
     static let brushLineWidth: CGFloat = 82
     static let normalizedBrushRadius: CGFloat = 0.075
     static let coverageGridColumns = 18
