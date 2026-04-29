@@ -29,7 +29,12 @@ struct WelcomeArtworkSelection: Hashable, Sendable {
 }
 
 enum WelcomeScratchRevealLayout {
-    static let completionThreshold: Double = 0.62
+    enum ScratchPhase {
+        case activeScratch
+        case scratchEnded
+    }
+
+    static let completionThreshold: Double = 1
     static let brushLineWidth: CGFloat = 82
     static let normalizedBrushRadius: CGFloat = 0.075
     static let coverageGridColumns = 18
@@ -47,8 +52,8 @@ enum WelcomeScratchRevealLayout {
         return sequence[(currentIndex + 1) % sequence.count]
     }
 
-    static func shouldAdvance(coverage: Double) -> Bool {
-        coverage >= completionThreshold
+    static func shouldAdvance(coverage: Double, phase: ScratchPhase = .scratchEnded) -> Bool {
+        phase == .scratchEnded && coverage >= completionThreshold
     }
 
     static func normalizedLocation(_ location: CGPoint, in size: CGSize) -> CGPoint {
@@ -138,7 +143,6 @@ struct WelcomeScratchRevealBackgroundView: View {
     @State private var activeStroke: [CGPoint] = []
     @State private var progressGrid = WelcomeScratchProgressGrid()
     @State private var isAdvancingLayer = false
-    @State private var shouldIgnoreGestureUntilRelease = false
 
     init(initialArtwork: WelcomeArtwork, overlayOpacity: Double = 0.22) {
         self.initialArtwork = initialArtwork
@@ -194,22 +198,15 @@ struct WelcomeScratchRevealBackgroundView: View {
     }
 
     private func scratch(at location: CGPoint, in size: CGSize) {
-        guard !isAdvancingLayer, !shouldIgnoreGestureUntilRelease else { return }
+        guard !isAdvancingLayer else { return }
 
         let normalizedPoint = WelcomeScratchRevealLayout.normalizedLocation(location, in: size)
         appendScratchPoint(normalizedPoint)
         progressGrid.scratch(at: normalizedPoint)
-
-        guard WelcomeScratchRevealLayout.shouldAdvance(coverage: progressGrid.coverage) else { return }
-        advanceLayer()
     }
 
     private func finishScratch(at location: CGPoint, in size: CGSize) {
         guard !isAdvancingLayer else { return }
-        guard !shouldIgnoreGestureUntilRelease else {
-            shouldIgnoreGestureUntilRelease = false
-            return
-        }
 
         if activeStroke.isEmpty {
             let normalizedPoint = WelcomeScratchRevealLayout.normalizedLocation(location, in: size)
@@ -221,6 +218,12 @@ struct WelcomeScratchRevealBackgroundView: View {
             completedStrokeBatches.append(activeStroke)
             activeStroke = []
         }
+
+        guard WelcomeScratchRevealLayout.shouldAdvance(
+            coverage: progressGrid.coverage,
+            phase: .scratchEnded
+        ) else { return }
+        advanceLayer()
     }
 
     private func appendScratchPoint(_ point: CGPoint) {
@@ -232,7 +235,6 @@ struct WelcomeScratchRevealBackgroundView: View {
 
     private func advanceLayer() {
         isAdvancingLayer = true
-        shouldIgnoreGestureUntilRelease = true
 
         let applyAdvance = {
             currentArtwork = nextArtwork
