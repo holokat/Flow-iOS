@@ -163,6 +163,15 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertLessThanOrEqual(ComposeToolbarLayout.draftButtonBackgroundOpacity, 1)
     }
 
+    func testBreakReminderChoiceLayoutUsesManageAccountsArtworkAndCopy() {
+        XCTAssertEqual(BreakReminderChoiceLayout.artworkImageName, "manage-accounts-background")
+        XCTAssertEqual(BreakReminderChoiceLayout.promptText, "Take a break or continue?")
+        XCTAssertEqual(BreakReminderChoiceLayout.takeBreakButtonTitle, "Take a break")
+        XCTAssertEqual(BreakReminderChoiceLayout.continueButtonTitle, "Continue")
+        XCTAssertEqual(BreakReminderChoiceLayout.successText, "Wise choice! Enjoy!")
+        XCTAssertEqual(BreakReminderChoiceLayout.takeBreakCloseDelay, 4, accuracy: 0.0001)
+    }
+
     func testProfileFollowingCountTextDoesNotShowZeroBeforeRemoteCountResolves() {
         XCTAssertEqual(
             ProfileViewLayout.followingCountText(

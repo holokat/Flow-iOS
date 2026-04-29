@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct BreakReminderQuote: Identifiable, Equatable, Sendable {
     let id: String
@@ -87,6 +88,17 @@ final class BreakReminderCoordinator: ObservableObject {
         restartTimer()
     }
 
+    func completeTakeBreak() {
+        timerTask?.cancel()
+        timerTask = nil
+
+        withAnimation(Self.presentationAnimation) {
+            presentedQuote = nil
+        }
+
+        BreakReminderAppCloser.closeApp()
+    }
+
     func presentPreviewReminder() {
         timerTask?.cancel()
         timerTask = nil
@@ -155,7 +167,8 @@ struct BreakReminderOverlayHost: View {
             if let quote = coordinator.presentedQuote {
                 BreakReminderOverlayPresentation(
                     quote: quote,
-                    onDismiss: { coordinator.dismissReminder() }
+                    onContinue: { coordinator.dismissReminder() },
+                    onTakeBreakCompleted: { coordinator.completeTakeBreak() }
                 )
             } else {
                 Color.clear
@@ -171,7 +184,27 @@ struct BreakReminderOverlayPresentation: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let quote: BreakReminderQuote
-    let onDismiss: () -> Void
+    let onContinue: () -> Void
+    let onTakeBreakCompleted: () -> Void
+
+    init(
+        quote: BreakReminderQuote,
+        onContinue: @escaping () -> Void,
+        onTakeBreakCompleted: @escaping () -> Void
+    ) {
+        self.quote = quote
+        self.onContinue = onContinue
+        self.onTakeBreakCompleted = onTakeBreakCompleted
+    }
+
+    init(
+        quote: BreakReminderQuote,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.quote = quote
+        self.onContinue = onDismiss
+        self.onTakeBreakCompleted = onDismiss
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -184,7 +217,8 @@ struct BreakReminderOverlayPresentation: View {
 
                 BreakReminderSheet(
                     quote: quote,
-                    onDismiss: onDismiss
+                    onContinue: onContinue,
+                    onTakeBreakCompleted: onTakeBreakCompleted
                 )
                 .padding(.horizontal, 12)
                 .padding(.bottom, max(proxy.safeAreaInsets.bottom, 12))
@@ -198,29 +232,23 @@ struct BreakReminderOverlayPresentation: View {
 
 struct BreakReminderSheet: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @State private var choiceState: BreakReminderChoiceState = .choice
+    @State private var takeBreakTask: Task<Void, Never>?
 
     let quote: BreakReminderQuote
-    let onDismiss: () -> Void
+    let onContinue: () -> Void
+    let onTakeBreakCompleted: () -> Void
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             RoundedRectangle(cornerRadius: 30, style: .continuous)
                 .fill(reminderBackgroundColor)
 
-            UnicornStudioBackgroundView(
-                source: .bundledJSON("aura.json"),
-                backgroundStyle: reminderBackgroundStyle
-            )
-            .scaleEffect(2, anchor: .center)
-            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            reminderArtwork
 
-            Text("How about a short break?")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(reminderTextColor)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 28)
-                .padding(.bottom, 24)
-                .shadow(color: reminderTextShadowColor, radius: 8, x: 0, y: 3)
+            centeredContent
+                .padding(.horizontal, 26)
         }
         .frame(maxWidth: 540, alignment: .center)
         .frame(height: 340)
@@ -229,25 +257,135 @@ struct BreakReminderSheet: View {
             RoundedRectangle(cornerRadius: 30, style: .continuous)
                 .stroke(reminderBorderColor, lineWidth: 0.9)
         }
-        .overlay(alignment: .topTrailing) {
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(dismissButtonForegroundColor)
-                    .frame(width: 34, height: 34)
-                    .background(dismissButtonBackgroundColor, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss break reminder")
-            .padding(.top, 16)
-            .padding(.trailing, 16)
+        .onDisappear {
+            takeBreakTask?.cancel()
+            takeBreakTask = nil
         }
         .shadow(color: .black.opacity(colorScheme == .dark ? 0.34 : 0.12), radius: 22, x: 0, y: 10)
         .accessibilityElement(children: .contain)
     }
 
-    private var reminderBackgroundStyle: UnicornStudioBackgroundView.BackgroundStyle {
-        .clear
+    private var reminderArtwork: some View {
+        Image(BreakReminderChoiceLayout.artworkImageName)
+            .resizable()
+            .scaledToFill()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .overlay {
+                LinearGradient(
+                    colors: [
+                        Color.black.opacity(colorScheme == .dark ? 0.10 : 0.02),
+                        Color.black.opacity(colorScheme == .dark ? 0.28 : 0.15),
+                        Color.black.opacity(colorScheme == .dark ? 0.18 : 0.08)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .clipped()
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var centeredContent: some View {
+        ZStack {
+            if choiceState == .choice {
+                choiceContent
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.97)),
+                            removal: .opacity.combined(with: .move(edge: .top))
+                        )
+                    )
+            } else {
+                successContent
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+        }
+        .animation(contentAnimation, value: choiceState)
+    }
+
+    private var choiceContent: some View {
+        VStack(spacing: 18) {
+            Text(BreakReminderChoiceLayout.promptText)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(reminderTextColor)
+                .multilineTextAlignment(.center)
+                .shadow(color: reminderTextShadowColor, radius: 8, x: 0, y: 3)
+
+            HStack(spacing: 10) {
+                reminderButton(
+                    title: BreakReminderChoiceLayout.takeBreakButtonTitle,
+                    role: .primary,
+                    action: handleTakeBreak
+                )
+
+                reminderButton(
+                    title: BreakReminderChoiceLayout.continueButtonTitle,
+                    role: .secondary,
+                    action: onContinue
+                )
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .allowsHitTesting(choiceState == .choice)
+    }
+
+    private var successContent: some View {
+        Text(BreakReminderChoiceLayout.successText)
+            .font(.title2.weight(.semibold))
+            .foregroundStyle(reminderTextColor)
+            .multilineTextAlignment(.center)
+            .shadow(color: reminderTextShadowColor, radius: 8, x: 0, y: 3)
+            .frame(maxWidth: .infinity)
+            .accessibilityAddTraits(.updatesFrequently)
+    }
+
+    private func reminderButton(
+        title: String,
+        role: BreakReminderButtonRole,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.84)
+                .foregroundStyle(role.foregroundColor(colorScheme: colorScheme))
+                .frame(minWidth: 112)
+                .frame(height: 38)
+                .padding(.horizontal, 8)
+                .background(role.backgroundColor(colorScheme: colorScheme), in: Capsule(style: .continuous))
+                .overlay {
+                    Capsule(style: .continuous)
+                        .stroke(role.borderColor(colorScheme: colorScheme), lineWidth: 0.8)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+
+    private func handleTakeBreak() {
+        guard choiceState == .choice else { return }
+
+        withAnimation(contentAnimation) {
+            choiceState = .success
+        }
+
+        takeBreakTask?.cancel()
+        takeBreakTask = Task {
+            try? await Task.sleep(nanoseconds: BreakReminderChoiceLayout.takeBreakCloseDelayNanoseconds)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                onTakeBreakCompleted()
+            }
+        }
+    }
+
+    private var contentAnimation: Animation {
+        accessibilityReduceMotion
+            ? .linear(duration: 0)
+            : .easeInOut(duration: 0.24)
     }
 
     private var reminderBackgroundColor: Color {
@@ -260,27 +398,72 @@ struct BreakReminderSheet: View {
             : Color.black.opacity(0.08)
     }
 
-    private var dismissButtonForegroundColor: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.82)
-            : Color.black.opacity(0.68)
-    }
-
-    private var dismissButtonBackgroundColor: Color {
-        colorScheme == .dark
-            ? Color.black.opacity(0.26)
-            : Color.white.opacity(0.76)
-    }
-
     private var reminderTextColor: Color {
         colorScheme == .dark
-            ? Color.white.opacity(0.76)
-            : Color.black.opacity(0.62)
+            ? Color.white.opacity(0.92)
+            : Color.white.opacity(0.96)
     }
 
     private var reminderTextShadowColor: Color {
         colorScheme == .dark
             ? Color.black.opacity(0.28)
-            : Color.white.opacity(0.6)
+            : Color.black.opacity(0.18)
+    }
+}
+
+enum BreakReminderChoiceState: Equatable {
+    case choice
+    case success
+}
+
+enum BreakReminderChoiceLayout {
+    static let artworkImageName = "manage-accounts-background"
+    static let promptText = "Take a break or continue?"
+    static let takeBreakButtonTitle = "Take a break"
+    static let continueButtonTitle = "Continue"
+    static let successText = "Wise choice! Enjoy!"
+    static let takeBreakCloseDelay: TimeInterval = 4
+
+    static var takeBreakCloseDelayNanoseconds: UInt64 {
+        UInt64(takeBreakCloseDelay * 1_000_000_000)
+    }
+}
+
+enum BreakReminderButtonRole {
+    case primary
+    case secondary
+
+    func foregroundColor(colorScheme: ColorScheme) -> Color {
+        switch self {
+        case .primary:
+            return colorScheme == .dark ? .black.opacity(0.86) : .black.opacity(0.82)
+        case .secondary:
+            return .white.opacity(colorScheme == .dark ? 0.88 : 0.92)
+        }
+    }
+
+    func backgroundColor(colorScheme: ColorScheme) -> Color {
+        switch self {
+        case .primary:
+            return .white.opacity(colorScheme == .dark ? 0.84 : 0.88)
+        case .secondary:
+            return .black.opacity(colorScheme == .dark ? 0.22 : 0.24)
+        }
+    }
+
+    func borderColor(colorScheme: ColorScheme) -> Color {
+        switch self {
+        case .primary:
+            return .white.opacity(colorScheme == .dark ? 0.52 : 0.64)
+        case .secondary:
+            return .white.opacity(colorScheme == .dark ? 0.22 : 0.38)
+        }
+    }
+}
+
+enum BreakReminderAppCloser {
+    @MainActor
+    static func closeApp() {
+        _ = UIApplication.shared.perform(NSSelectorFromString("suspend"))
     }
 }
