@@ -264,6 +264,15 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertNil(ManageAccountSwitchMotion.selectionAnimation(reduceMotion: true))
     }
 
+    func testSearchBarUsesFloatingThemeAwareGlassField() {
+        XCTAssertFalse(SearchBarGlassStyle.usesSolidBarBackground)
+        XCTAssertGreaterThanOrEqual(SearchBarGlassStyle.lightFieldWhiteOpacity, 0.84)
+        XCTAssertLessThanOrEqual(SearchBarGlassStyle.darkFieldWhiteOverlayOpacity, 0.14)
+        XCTAssertGreaterThan(SearchBarGlassStyle.rimHighlightLineWidth, SearchBarGlassStyle.innerBorderLineWidth)
+        XCTAssertGreaterThan(SearchBarGlassStyle.lightDropShadowOpacity, SearchBarGlassStyle.darkDropShadowOpacity)
+        XCTAssertEqual(SearchBarGlassStyle.fieldCornerRadius, 22, accuracy: 0.0001)
+    }
+
     func testAuthSheetSignInAndAccountsUseStableSharedChrome() {
         XCTAssertEqual(AuthSheetChromeLayout.navigationTitle(for: .signIn), "Account")
         XCTAssertEqual(AuthSheetChromeLayout.navigationTitle(for: .accounts), "Account")

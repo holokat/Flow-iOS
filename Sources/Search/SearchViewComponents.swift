@@ -1,5 +1,23 @@
 import SwiftUI
 
+enum SearchBarGlassStyle {
+    static let usesSolidBarBackground = false
+    static let fieldCornerRadius: CGFloat = 22
+    static let lightFieldWhiteOpacity: Double = 0.86
+    static let darkFieldThemeOpacity: Double = 0.78
+    static let darkFieldWhiteOverlayOpacity: Double = 0.10
+    static let rimHighlightLineWidth: CGFloat = 1.2
+    static let innerBorderLineWidth: CGFloat = 0.75
+    static let lightRimHighlightOpacity: Double = 0.88
+    static let darkRimHighlightOpacity: Double = 0.24
+    static let lightInnerBorderOpacity: Double = 0.20
+    static let darkInnerBorderOpacity: Double = 0.34
+    static let lightDropShadowOpacity: Double = 0.16
+    static let darkDropShadowOpacity: Double = 0.10
+    static let fieldShadowRadius: CGFloat = 18
+    static let fieldShadowYOffset: CGFloat = 8
+}
+
 private struct SearchListRowStyle: ViewModifier {
     let horizontalInset: CGFloat
     let verticalInset: CGFloat
@@ -217,6 +235,8 @@ struct SearchBarSection: View {
 
                 TextField(placeholder, text: $searchText)
                     .font(appSettings.appFont(.body))
+                    .foregroundStyle(appSettings.themePalette.foreground)
+                    .tint(appSettings.primaryColor)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .submitLabel(.search)
@@ -234,40 +254,113 @@ struct SearchBarSection: View {
                     .accessibilityLabel("Clear search")
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(searchFieldFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.horizontal, 15)
+            .padding(.vertical, 13)
+            .background {
+                searchFieldGlassBackground
+            }
+            .overlay {
+                searchFieldGlassRim
+            }
+            .shadow(
+                color: Color.white.opacity(searchFieldTopGlowOpacity),
+                radius: 1.2,
+                x: 0,
+                y: -0.7
+            )
+            .shadow(
+                color: Color.black.opacity(searchFieldDropShadowOpacity),
+                radius: SearchBarGlassStyle.fieldShadowRadius,
+                x: 0,
+                y: SearchBarGlassStyle.fieldShadowYOffset
+            )
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .padding(.bottom, 10)
-
-            Rectangle()
-                .fill(appSettings.themePalette.chromeBorder)
-                .frame(height: 0.7)
-        }
-        .background(searchBarBackground)
-    }
-
-    @ViewBuilder
-    private var searchBarBackground: some View {
-        if effectiveSearchColorScheme == .light {
-            Color.white
-        } else if appSettings.activeTheme == .gamer {
-            appSettings.themePalette.background
-        } else if appSettings.activeTheme == .dracula {
-            appSettings.themePalette.background
-        } else {
-            appSettings.themePalette.chromeBackground
         }
     }
 
-    private var searchFieldFill: Color {
+    private var searchFieldGlassBackground: some View {
+        RoundedRectangle(cornerRadius: SearchBarGlassStyle.fieldCornerRadius, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .overlay {
+                RoundedRectangle(cornerRadius: SearchBarGlassStyle.fieldCornerRadius, style: .continuous)
+                    .fill(searchFieldGlassTint)
+            }
+            .overlay {
+                if effectiveSearchColorScheme == .dark {
+                    RoundedRectangle(cornerRadius: SearchBarGlassStyle.fieldCornerRadius, style: .continuous)
+                        .fill(Color.white.opacity(SearchBarGlassStyle.darkFieldWhiteOverlayOpacity))
+                }
+            }
+    }
+
+    private var searchFieldGlassRim: some View {
+        let shape = RoundedRectangle(cornerRadius: SearchBarGlassStyle.fieldCornerRadius, style: .continuous)
+
+        return shape
+            .strokeBorder(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(searchFieldRimHighlightOpacity),
+                        Color.white.opacity(searchFieldRimHighlightOpacity * 0.44),
+                        appSettings.themePalette.chromeBorder.opacity(searchFieldInnerBorderOpacity)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: SearchBarGlassStyle.rimHighlightLineWidth
+            )
+            .overlay {
+                shape
+                    .inset(by: 1.3)
+                    .strokeBorder(
+                        appSettings.themePalette.chromeBorder.opacity(searchFieldInnerBorderOpacity),
+                        lineWidth: SearchBarGlassStyle.innerBorderLineWidth
+                    )
+            }
+            .overlay {
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(searchFieldRimHighlightOpacity * 0.32),
+                        .clear
+                    ],
+                    startPoint: .top,
+                    endPoint: .center
+                )
+                .clipShape(shape)
+                .allowsHitTesting(false)
+            }
+    }
+
+    private var searchFieldGlassTint: Color {
         if effectiveSearchColorScheme == .light {
-            return .white
-        } else if appSettings.activeTheme == .gamer {
-            return appSettings.themePalette.chromeBackground.opacity(0.84)
+            return Color.white.opacity(SearchBarGlassStyle.lightFieldWhiteOpacity)
         }
-        return appSettings.themePalette.secondaryBackground
+
+        return appSettings.themePalette.chromeBackground.opacity(SearchBarGlassStyle.darkFieldThemeOpacity)
+    }
+
+    private var searchFieldRimHighlightOpacity: Double {
+        effectiveSearchColorScheme == .light
+            ? SearchBarGlassStyle.lightRimHighlightOpacity
+            : SearchBarGlassStyle.darkRimHighlightOpacity
+    }
+
+    private var searchFieldInnerBorderOpacity: Double {
+        effectiveSearchColorScheme == .light
+            ? SearchBarGlassStyle.lightInnerBorderOpacity
+            : SearchBarGlassStyle.darkInnerBorderOpacity
+    }
+
+    private var searchFieldDropShadowOpacity: Double {
+        effectiveSearchColorScheme == .light
+            ? SearchBarGlassStyle.lightDropShadowOpacity
+            : SearchBarGlassStyle.darkDropShadowOpacity
+    }
+
+    private var searchFieldTopGlowOpacity: Double {
+        effectiveSearchColorScheme == .light ? 0.78 : 0.08
     }
 
     private var effectiveSearchColorScheme: ColorScheme {
