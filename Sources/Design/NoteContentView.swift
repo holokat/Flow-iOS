@@ -123,6 +123,21 @@ enum NoteContentLinkResolver {
     }
 }
 
+enum AttributedLinkStyler {
+    static func applyingLinkColor(_ color: Color, to attributedString: AttributedString) -> AttributedString {
+        var styled = attributedString
+        let linkedRanges = styled.runs.compactMap { run in
+            run.link == nil ? nil : run.range
+        }
+
+        for range in linkedRanges {
+            styled[range].foregroundColor = color
+        }
+
+        return styled
+    }
+}
+
 struct NoteContentView: View {
     private enum RenderPart {
         case inlineTokens([NoteContentToken])
@@ -722,9 +737,10 @@ struct NoteContentView: View {
     }
 
     private func attributedInlineString(from tokens: [NoteContentToken]) -> AttributedString {
-        tokens.reduce(into: AttributedString()) { partial, token in
+        let unstyled = tokens.reduce(into: AttributedString()) { partial, token in
             partial += attributedSegment(for: token)
         }
+        return AttributedLinkStyler.applyingLinkColor(appSettings.linkColor, to: unstyled)
     }
 
     private func textSegment(for token: NoteContentToken) -> Text {
@@ -745,7 +761,6 @@ struct NoteContentView: View {
                 allowsInAppProfileRouting: onProfileTap != nil
             ) {
                 segment.link = url
-                segment.foregroundColor = .accentColor
             }
         case .nostrMention:
             if let url = NoteContentLinkResolver.linkURL(
@@ -753,7 +768,6 @@ struct NoteContentView: View {
                 allowsInAppProfileRouting: onProfileTap != nil
             ) {
                 segment.link = url
-                segment.foregroundColor = .accentColor
             }
         case .hashtag:
             if let url = NoteContentLinkResolver.linkURL(
@@ -761,7 +775,6 @@ struct NoteContentView: View {
                 allowsInAppProfileRouting: onProfileTap != nil
             ) {
                 segment.link = url
-                segment.foregroundColor = .accentColor
             }
         case .websocketURL:
             if onRelayTap != nil,
@@ -770,7 +783,6 @@ struct NoteContentView: View {
                 allowsInAppProfileRouting: onProfileTap != nil
             ) {
                 segment.link = url
-                segment.foregroundColor = .accentColor
             } else {
                 segment.foregroundColor = .secondary
             }

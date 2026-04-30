@@ -15,11 +15,11 @@ enum ThreadReplyPublishError: LocalizedError {
         case .missingPrivateKey:
             return "Sign in with a private key to reply."
         case .missingWriteRelays:
-            return "No publish sources are configured."
+            return "No connected sources are configured."
         case .malformedEvent:
             return "Couldn't build reply event."
         case .publishFailed:
-            return "Couldn't publish reply right now."
+            return "Couldn't publish to connected sources right now."
         }
     }
 }

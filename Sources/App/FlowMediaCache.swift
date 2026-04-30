@@ -83,7 +83,6 @@ enum FlowImageCacheRequestKind: Hashable, Sendable {
     case fullscreen
 
     static let profileImageByteLimit = 2 * 1_024 * 1_024
-    static let profileImageWiFiByteLimit = 4 * 1_024 * 1_024
     static let feedImageByteLimit = 3 * 1_024 * 1_024
     static let largeGIFAutoplayByteLimit = 2 * 1_024 * 1_024
 
@@ -102,14 +101,14 @@ enum FlowImageCacheRequestKind: Hashable, Sendable {
         }
     }
 
-    func maxByteCount(enforcingNetworkLimit: Bool, usingWiFi: Bool = false) -> Int? {
+    func maxByteCount(enforcingNetworkLimit: Bool) -> Int? {
         guard enforcingNetworkLimit else { return nil }
 
         switch self {
         case .standard:
             return nil
         case .profileImage, .avatar, .profileImageFullscreen:
-            return usingWiFi ? Self.profileImageWiFiByteLimit : Self.profileImageByteLimit
+            return Self.profileImageByteLimit
         case .profileBanner, .feedThumbnail:
             return Self.feedImageByteLimit
         case .fullscreen:
@@ -647,8 +646,7 @@ actor FlowImageCache {
                 kind: kind,
                 requested: enforceNetworkByteLimit,
                 usingWiFi: usingWiFi
-            ),
-            usingWiFi: usingWiFi
+            )
         )
         guard canAttemptSizeLimitedRequest(for: url, maxByteCount: maxByteCount) else {
             return nil
@@ -680,8 +678,14 @@ actor FlowImageCache {
         usingWiFi: Bool
     ) -> Bool {
         guard requested else { return false }
-        guard kind == .feedThumbnail else { return true }
-        return !usingWiFi
+        guard usingWiFi else { return true }
+
+        switch kind {
+        case .profileImage, .avatar, .profileImageFullscreen, .feedThumbnail:
+            return false
+        case .standard, .profileBanner, .fullscreen:
+            return true
+        }
     }
 
     func prefetch(urls: [URL]) async {

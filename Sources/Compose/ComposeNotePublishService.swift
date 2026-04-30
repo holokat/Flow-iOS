@@ -18,11 +18,11 @@ enum ComposeNotePublishError: LocalizedError {
         case .missingPrivateKey:
             return "This account can read posts, but it needs an nsec to publish."
         case .missingWriteRelays:
-            return "No publish sources are configured."
+            return "No connected sources are configured."
         case .malformedEvent:
             return "Couldn't build the note to publish."
         case .publishFailed:
-            return "Couldn't publish the note right now."
+            return "Couldn't publish to connected sources right now."
         }
     }
 }

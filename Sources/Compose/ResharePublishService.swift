@@ -23,13 +23,13 @@ enum ResharePublishError: LocalizedError {
         case .missingPrivateKey:
             return "Sign in with a private key to repost."
         case .missingWriteRelays:
-            return "No publish sources are configured."
+            return "No connected sources are configured."
         case .malformedTargetEvent:
             return "Couldn't prepare this event for reposting."
         case .malformedRepost:
             return "Couldn't build repost event."
         case .publishFailed:
-            return "Couldn't publish repost right now."
+            return "Couldn't publish repost to connected sources right now."
         }
     }
 }

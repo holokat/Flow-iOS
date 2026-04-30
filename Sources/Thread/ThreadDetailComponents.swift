@@ -88,7 +88,7 @@ struct ThreadDetailRootNoteCard: View {
 
                                         Image(systemName: rootFollowStatusIconName)
                                             .font(.system(size: 16, weight: .bold))
-                                            .foregroundStyle(Color.accentColor)
+                                            .foregroundStyle(appSettings.primaryColor)
                                     }
                                     .offset(x: 3, y: 3)
                                     .accessibilityHidden(true)
@@ -345,6 +345,7 @@ struct ThreadDetailContentSection: View {
     }
 
 struct ThreadDetailRepliesSection: View {
+        @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
         @EnvironmentObject private var appSettings: AppSettingsStore
         @ObservedObject private var reactionStats = NoteReactionStatsService.shared
         @StateObject private var engagementViewport = FeedEngagementViewportCoordinator()
@@ -381,7 +382,7 @@ struct ThreadDetailRepliesSection: View {
                     VStack(spacing: 6) {
                         Text("No replies yet")
                             .font(.headline)
-                        Text("Tap below to post the first reply.")
+                        Text("Replies will appear here.")
                             .font(.subheadline)
                             .foregroundStyle(appSettings.themePalette.secondaryForeground)
                     }
@@ -391,6 +392,7 @@ struct ThreadDetailRepliesSection: View {
                 } else {
                     ForEach(replies) { reply in
                         replyRow(reply)
+                            .transition(FlowTransitionMotion.feedItemInsertionTransition(reduceMotion: accessibilityReduceMotion))
                     }
 
                     if !spamReplies.isEmpty {
@@ -416,6 +418,10 @@ struct ThreadDetailRepliesSection: View {
                     }
                 }
             }
+            .animation(
+                FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion),
+                value: replies.map(\.id)
+            )
         }
 
         private func replyRow(_ reply: FeedItem) -> some View {
@@ -472,6 +478,7 @@ struct ThreadDetailRepliesSection: View {
     }
 
 struct ThreadDetailSpamRepliesGroup: View {
+        @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
         @EnvironmentObject private var appSettings: AppSettingsStore
         @ObservedObject private var reactionStats = NoteReactionStatsService.shared
 
@@ -513,7 +520,7 @@ struct ThreadDetailSpamRepliesGroup: View {
                     .padding(.vertical, 11)
                     .background(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(appSettings.themePalette.secondaryBackground)
+                            .fill(appSettings.themePalette.background)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -562,6 +569,7 @@ struct ThreadDetailSpamRepliesGroup: View {
                             suppressReplyContextForDirectReplyTargetEventID: rootEventID
                         )
                         .id("thread-detail-spam-reply-\(reply.id.lowercased())")
+                        .transition(FlowTransitionMotion.feedItemInsertionTransition(reduceMotion: accessibilityReduceMotion))
                         .padding(.horizontal, 16)
                         .onAppear {
                             if showReactions {
@@ -579,7 +587,7 @@ struct ThreadDetailSpamRepliesGroup: View {
                             }
                             .buttonStyle(.borderless)
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(appSettings.primaryColor)
+                            .foregroundStyle(appSettings.themePalette.secondaryForeground)
                         }
                         .padding(.horizontal, 16)
                         .padding(.bottom, 8)
@@ -590,6 +598,10 @@ struct ThreadDetailSpamRepliesGroup: View {
                     }
                 }
             }
+            .animation(
+                FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion),
+                value: replies.map(\.id)
+            )
         }
     }
 
@@ -754,48 +766,6 @@ struct ThreadDetailArticleBody: View {
                 ThreadDetailViewLayout.topControlTopPadding(safeAreaInset: topSafeAreaInset)
             )
             .accessibilityLabel("Back")
-        }
-    }
-
-struct ThreadDetailReplyDockBar: View {
-        @EnvironmentObject private var appSettings: AppSettingsStore
-
-        let primaryColor: Color
-        let colorSchemeOverride: ColorScheme
-        let onTap: () -> Void
-
-        var body: some View {
-            Button(action: onTap) {
-                HStack(spacing: 10) {
-                    ZStack {
-                        Circle()
-                            .fill(primaryColor.opacity(colorSchemeOverride == .dark ? 0.2 : 0.12))
-                            .frame(width: 28, height: 28)
-
-                        Image(systemName: "bubble.right.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(primaryColor)
-                    }
-
-                    Text("Post your reply")
-                        .font(.subheadline)
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay {
-                    Capsule()
-                        .stroke(appSettings.themePalette.chromeBorder, lineWidth: 0.9)
-                }
-                .shadow(color: Color.black.opacity(colorSchemeOverride == .dark ? 0.2 : 0.08), radius: 14, x: 0, y: 6)
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
         }
     }
 

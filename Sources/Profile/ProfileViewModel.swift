@@ -289,7 +289,7 @@ final class ProfileViewModel: ObservableObject {
             )
             guard !Task.isCancelled else { return }
 
-            items = pruneMutedItems(fetchedItems)
+            items = mergeWithLocalPublicationItems(fetchedItems)
             oldestCreatedAt = feedWindow.oldestCreatedAt
             hasReachedEnd = feedWindow.hasReachedEnd
             loadedModeForCurrentItems = mode
@@ -303,7 +303,7 @@ final class ProfileViewModel: ObservableObject {
                 )
                 guard !Task.isCancelled else { return }
 
-                items = pruneMutedItems(fetchedItems)
+                items = mergeWithLocalPublicationItems(fetchedItems)
             }
         } catch {
             feedError = error
@@ -645,6 +645,7 @@ final class ProfileViewModel: ObservableObject {
     }
 
     private func mergeKeepingNewest(itemsToMerge: [FeedItem]) {
+        LocalPublicationStore.shared.mergeFetchedItems(itemsToMerge)
         var byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
         for item in itemsToMerge {
             byID[item.id] = item
@@ -655,6 +656,24 @@ final class ProfileViewModel: ObservableObject {
             }
             return $0.event.createdAt > $1.event.createdAt
         })
+    }
+
+    private func mergeWithLocalPublicationItems(_ fetchedItems: [FeedItem]) -> [FeedItem] {
+        LocalPublicationStore.shared.mergeFetchedItems(fetchedItems)
+        return pruneMutedItems(
+            HomeFeedPageFetcher.mergeItemArrays(
+                primary: fetchedItems,
+                secondary: localPublicationItems()
+            )
+        )
+    }
+
+    private func localPublicationItems() -> [FeedItem] {
+        let normalizedProfilePubkey = pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return LocalPublicationStore.shared.records(matching: { item in
+            item.displayAuthorPubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedProfilePubkey
+        })
+        .map(\.item)
     }
 
     private func filteredItems(_ sourceItems: [FeedItem], for mode: FeedMode) -> [FeedItem] {

@@ -59,6 +59,33 @@ final class EventArchiveStoreTests: XCTestCase {
         )
     }
 
+    func testRecentEventsPreferLaterSeenAtOverNewerCreatedAt() async throws {
+        let rootURL = try makeRootURL(prefix: "EventArchiveSeenPriority")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = EventArchiveTestFileManager(rootURL: rootURL)
+        let store = EventArchiveStore(fileManager: fileManager)
+
+        let newerCreatedEarlierSeen = makeEvent(
+            id: hex("6"),
+            content: "newer-created",
+            createdAt: 1_700_000_200
+        )
+        let olderCreatedLaterSeen = makeEvent(
+            id: hex("7"),
+            content: "later-seen",
+            createdAt: 1_700_000_100
+        )
+
+        await store.store(events: [newerCreatedEarlierSeen])
+        try await Task.sleep(nanoseconds: 20_000_000)
+        await store.store(events: [olderCreatedLaterSeen])
+
+        let retained = await store.recentEvents(limit: 1, pinnedIDs: [])
+
+        XCTAssertEqual(retained.map { $0.id.lowercased() }, [olderCreatedLaterSeen.id.lowercased()])
+    }
+
     func testArchiveStoreEnforcesHardBudgetEvenWhenOnlyPinnedRowsRemain() async throws {
         let rootURL = try makeRootURL(prefix: "EventArchivePinnedBudget")
         defer { try? FileManager.default.removeItem(at: rootURL) }

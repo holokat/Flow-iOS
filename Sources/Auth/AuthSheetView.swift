@@ -1093,11 +1093,6 @@ struct AuthSheetView: View {
                                 .lineLimit(1)
                         }
 
-                        Text(accountBackupLabel(for: account))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1432,15 +1427,6 @@ struct AuthSheetView: View {
 
     private func avatarURL(for account: AuthAccount) -> URL? {
         profile(for: account)?.resolvedAvatarURL
-    }
-
-    private func accountBackupLabel(for account: AuthAccount) -> String {
-        guard account.signerType == .nsec else {
-            return "Read-only account"
-        }
-        return account.privateKeyBackupEnabled
-            ? "Private key account • iCloud backup on"
-            : "Private key account • stored on this device"
     }
 
     private func normalized(_ value: String?) -> String? {

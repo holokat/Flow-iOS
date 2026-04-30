@@ -10,6 +10,7 @@ struct HomeSlideoutMenuView: View {
     @State private var accountHeaderName: String?
     @State private var accountHeaderHandle: String?
     @State private var accountHeaderAvatarURL: URL?
+    @State private var accountHeaderBannerURL: URL?
     @State private var isShowingProfileQR = false
 
     let onViewProfile: () -> Void
@@ -21,96 +22,22 @@ struct HomeSlideoutMenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Menu")
-                    .font(appSettings.appFont(.headline, weight: .semibold))
-                Spacer()
-                Button {
-                    onClose()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(appSettings.themePalette.foreground)
-                        .frame(width: 32, height: 32)
-                        .background(appSettings.themePalette.sheetCardBackground.opacity(0.82), in: Circle())
-                        .overlay {
-                            Circle()
-                                .stroke(appSettings.themePalette.separator.opacity(0.22), lineWidth: 0.8)
-                        }
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close menu")
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 18)
-            .padding(.bottom, 14)
-
-            Divider()
-                .overlay(appSettings.themeSeparator(defaultOpacity: 0.18))
-
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 0) {
                     if let currentAccount = auth.currentAccount {
                         revealedMenuRow(index: 0) {
-                            accountHeader(currentAccount)
-                                .padding(14)
-                                .background(
-                                    appSettings.primaryColor.opacity(
-                                        SideMenuTransitionLayout.profileHeaderPrimaryFillOpacity
-                                    ),
-                                    in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                )
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                        .stroke(appSettings.primaryColor.opacity(0.1), lineWidth: 0.8)
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 14)
+                            accountProfileHeader(currentAccount)
                         }
-
-                        Divider()
-                            .overlay(appSettings.themeSeparator(defaultOpacity: 0.18))
+                    } else {
+                        closeOnlyHeader
                     }
 
-                    revealedMenuRow(index: 1) {
-                        menuButton(
-                            title: "View Profile",
-                            icon: "person",
-                            action: onViewProfile
-                        )
-                    }
-
-                    revealedMenuRow(index: 2) {
-                        menuButton(
-                            title: "Settings",
-                            icon: "gearshape",
-                            action: onManageSettings
-                        )
-                    }
-
-                    revealedMenuRow(index: 3) {
-                        menuButton(
-                            title: "Manage Accounts",
-                            icon: "arrow.left.arrow.right.circle",
-                            action: onManageAccounts
-                        )
-                    }
-
-                    if auth.isLoggedIn {
-                        revealedMenuRow(index: 4) {
-                            menuButton(
-                                title: "Log Out",
-                                icon: "rectangle.portrait.and.arrow.right",
-                                tint: .red,
-                                action: onLogout
-                            )
-                        }
-                    }
+                    menuLinks
+                        .padding(.top, SideMenuTransitionLayout.profileHeaderLinksTopSpacing)
 
                     Spacer(minLength: 24)
                 }
-                .padding(.top, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -152,54 +79,167 @@ struct HomeSlideoutMenuView: View {
         appSettings.preferredColorScheme ?? colorScheme
     }
 
-    private func accountHeader(_ account: AuthAccount) -> some View {
-        let resolvedName = resolvedAccountName(for: account)
+    private var menuLinks: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                revealedMenuRow(index: 1) {
+                    menuButton(
+                        title: "Profile",
+                        icon: "person",
+                        action: onViewProfile
+                    )
+                }
 
-        return HStack(spacing: 12) {
-            Button {
-                onViewProfile()
-            } label: {
-                accountHeaderAvatar(fallbackName: resolvedName)
+                revealedMenuRow(index: 2) {
+                    menuButton(
+                        title: "Settings",
+                        icon: "gearshape",
+                        action: onManageSettings
+                    )
+                }
+
+                revealedMenuRow(index: 3) {
+                    menuButton(
+                        title: "Accounts",
+                        icon: "arrow.left.arrow.right.circle",
+                        action: onManageAccounts
+                    )
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("View profile")
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(resolvedName)
-                    .font(appSettings.appFont(.subheadline, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text("Active")
-                    .font(appSettings.appFont(.caption1))
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+            if auth.isLoggedIn {
+                revealedMenuRow(index: 4) {
+                    menuButton(
+                        title: "Log Out",
+                        icon: "rectangle.portrait.and.arrow.right",
+                        tint: .red,
+                        action: onLogout
+                    )
+                }
+                .padding(.top, SideMenuTransitionLayout.logoutTopSpacing)
             }
-
-            Spacer(minLength: 0)
-
-            Button {
-                isShowingProfileQR = true
-            } label: {
-                Image(systemName: "qrcode")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(appSettings.themePalette.foreground)
-                    .frame(width: 36, height: 36)
-                    .background(appSettings.themePalette.sheetCardBackground.opacity(0.86), in: Circle())
-                    .overlay {
-                        Circle()
-                            .stroke(appSettings.themePalette.separator.opacity(0.2), lineWidth: 0.8)
-                    }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Show profile QR")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func accountProfileHeader(_ account: AuthAccount) -> some View {
+        let resolvedName = resolvedAccountName(for: account)
+        let accountHandle = resolvedAccountHandle ?? fallbackAccountHandle(for: account)
+
+        return VStack(alignment: .leading, spacing: 0) {
+            SideMenuProfileBannerArtwork(
+                bannerURL: accountHeaderBannerURL,
+                menuBackground: menuBackground
+            )
+            .overlay(alignment: .topTrailing) {
+                closeMenuButton
+                    .padding(.top, 18)
+                    .padding(.trailing, 16)
+            }
+
+            HStack(alignment: .center, spacing: 12) {
+                Button {
+                    onViewProfile()
+                } label: {
+                    accountHeaderAvatar(fallbackName: resolvedName)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View profile")
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(resolvedName)
+                        .font(appSettings.appFont(.headline, weight: .semibold))
+                        .foregroundStyle(appSettings.themePalette.foreground)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    Text(accountHandle)
+                        .font(appSettings.appFont(.caption1))
+                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .padding(.top, SideMenuTransitionLayout.profileHeaderAvatarSize / 2)
+
+                Spacer(minLength: 0)
+
+                profileQRButton
+                    .padding(.top, SideMenuTransitionLayout.profileHeaderAvatarSize / 2)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, -(SideMenuTransitionLayout.profileHeaderAvatarSize / 2))
+            .padding(.bottom, SideMenuTransitionLayout.profileHeaderContentBottomPadding)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var closeOnlyHeader: some View {
+        HStack {
+            Spacer()
+            closeMenuButton
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
+    }
+
+    private var closeMenuButton: some View {
+        Button {
+            onClose()
+        } label: {
+            glassMenuControl(systemName: "xmark", size: 16)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Close menu")
+    }
+
+    private var profileQRButton: some View {
+        Button {
+            isShowingProfileQR = true
+        } label: {
+            glassMenuControl(systemName: "qrcode", size: 17)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show profile QR")
+    }
+
+    private func glassMenuControl(systemName: String, size: CGFloat) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(appSettings.themePalette.foreground.opacity(0.86))
+            .frame(width: 36, height: 36)
+            .background {
+                Circle()
+                    .fill(menuCircleBackgroundFill())
+            }
+            .overlay {
+                Circle()
+                    .stroke(menuCircleStroke(), lineWidth: 0.8)
+            }
+            .shadow(
+                color: Color.black.opacity(effectiveMenuColorScheme == .dark ? 0.22 : 0.06),
+                radius: 10,
+                x: 0,
+                y: 4
+            )
+            .clipShape(Circle())
+    }
+
+    private func menuCircleBackgroundFill(tint: Color? = nil) -> Color {
+        let baseTint = tint ?? appSettings.themePalette.foreground
+        return baseTint.opacity(effectiveMenuColorScheme == .light ? 0.08 : 0.16)
+    }
+
+    private func menuCircleStroke(tint: Color? = nil) -> Color {
+        let baseTint = tint ?? appSettings.themePalette.foreground
+        return baseTint.opacity(effectiveMenuColorScheme == .light ? 0.12 : 0.22)
     }
 
     private func accountHeaderAvatar(fallbackName: String) -> some View {
         AvatarView(
             url: accountHeaderAvatarURL,
             fallback: fallbackName,
-            size: 60,
+            size: SideMenuTransitionLayout.profileHeaderAvatarSize,
             fallbackGradient: appSettings.avatarFallbackGradient(forAccountPubkey: auth.currentAccount?.pubkey),
             fallbackForeground: appSettings.avatarFallbackForeground(forAccountPubkey: auth.currentAccount?.pubkey)
         )
@@ -221,13 +261,111 @@ struct HomeSlideoutMenuView: View {
         }
     }
 
+    private struct SideMenuProfileBannerArtwork: View {
+        let bannerURL: URL?
+        let menuBackground: Color
+
+        @EnvironmentObject private var appSettings: AppSettingsStore
+
+        var body: some View {
+            GeometryReader { proxy in
+                let width = max(0, proxy.size.width)
+
+                Rectangle()
+                    .fill(menuBackground)
+                    .frame(width: width, height: SideMenuTransitionLayout.profileBannerHeight)
+                    .overlay(alignment: .topLeading) {
+                        bannerContent
+                            .frame(width: width, height: SideMenuTransitionLayout.profileBannerHeight)
+                            .clipped()
+                    }
+                    .overlay(alignment: .topLeading) {
+                        LinearGradient(
+                            colors: [
+                                Color.black.opacity(0.1),
+                                Color.clear
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(width: width, height: SideMenuTransitionLayout.profileBannerHeight)
+                    }
+                    .overlay(alignment: .bottomLeading) {
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.clear, location: 0),
+                                .init(color: menuBackground.opacity(0.32), location: 0.34),
+                                .init(color: menuBackground.opacity(0.8), location: 0.72),
+                                .init(color: menuBackground, location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(width: width, height: SideMenuTransitionLayout.profileBannerFadeHeight)
+                    }
+                    .clipped()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: SideMenuTransitionLayout.profileBannerHeight)
+            .background(menuBackground)
+            .clipped()
+        }
+
+        @ViewBuilder
+        private var bannerContent: some View {
+            if appSettings.textOnlyMode {
+                bannerFallback
+            } else if let bannerURL {
+                CachedAsyncImage(url: bannerURL, kind: .profileBanner) { phase in
+                    switch phase {
+                    case .success(let image):
+                        loadedBannerImage(image)
+                    case .empty, .failure:
+                        bannerFallback
+                    }
+                }
+            } else {
+                bannerFallback
+            }
+        }
+
+        private func loadedBannerImage(_ image: Image) -> some View {
+            image
+                .resizable()
+                .scaledToFill()
+                .saturation(SideMenuTransitionLayout.profileBannerLoadedImageSaturation)
+                .opacity(SideMenuTransitionLayout.profileBannerLoadedImageOpacity)
+        }
+
+        private var bannerFallback: some View {
+            ZStack {
+                Rectangle()
+                    .fill(appSettings.primaryGradient)
+                    .opacity(appSettings.usesPrimaryGradientForProminentButtons ? 0.9 : 0.34)
+                    .background(appSettings.themePalette.secondaryBackground)
+
+                Circle()
+                    .fill(Color.white.opacity(appSettings.usesPrimaryGradientForProminentButtons ? 0.34 : 0.4))
+                    .frame(width: 128, height: 128)
+                    .blur(radius: 18)
+                    .offset(x: 90, y: -34)
+
+                Circle()
+                    .fill(appSettings.primaryColor.opacity(0.16))
+                    .frame(width: 156, height: 156)
+                    .blur(radius: 28)
+                    .offset(x: -106, y: 46)
+            }
+        }
+    }
+
     private func menuButton(
         title: String,
         icon: String,
         tint: Color? = nil,
         action: @escaping () -> Void
     ) -> some View {
-        let iconTint = tint ?? appSettings.themeIconAccentColor
+        let iconTint = tint ?? appSettings.themePalette.foreground.opacity(0.86)
         let textTint = tint ?? appSettings.themePalette.foreground
 
         return Button {
@@ -238,10 +376,14 @@ struct HomeSlideoutMenuView: View {
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(iconTint)
                     .frame(width: 34, height: 34)
-                    .background(
-                        iconTint.opacity(SideMenuTransitionLayout.menuIconBackgroundOpacity),
-                        in: Circle()
-                    )
+                    .background {
+                        Circle()
+                            .fill(menuCircleBackgroundFill(tint: tint))
+                    }
+                    .overlay {
+                        Circle()
+                            .stroke(menuCircleStroke(tint: tint), lineWidth: 0.8)
+                    }
 
                 Text(title)
                     .font(appSettings.appFont(.body))
@@ -250,7 +392,7 @@ struct HomeSlideoutMenuView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.vertical, 7)
         }
         .buttonStyle(.plain)
     }
@@ -300,12 +442,14 @@ struct HomeSlideoutMenuView: View {
             accountHeaderName = nil
             accountHeaderHandle = nil
             accountHeaderAvatarURL = nil
+            accountHeaderBannerURL = nil
             return
         }
 
         accountHeaderName = nil
         accountHeaderHandle = nil
         accountHeaderAvatarURL = nil
+        accountHeaderBannerURL = nil
 
         let normalizedPubkey = account.pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let cacheResult = await ProfileCache.shared.resolve(pubkeys: [account.pubkey, normalizedPubkey])
@@ -313,6 +457,7 @@ struct HomeSlideoutMenuView: View {
             accountHeaderName = preferredDisplayName(from: cachedProfile)
             accountHeaderHandle = preferredHandle(from: cachedProfile)
             accountHeaderAvatarURL = preferredAvatarURL(from: cachedProfile)
+            accountHeaderBannerURL = preferredBannerURL(from: cachedProfile)
         }
 
         let readRelayURLs = relaySettings.readRelayURLs
@@ -325,6 +470,7 @@ struct HomeSlideoutMenuView: View {
             accountHeaderName = preferredDisplayName(from: fetchedProfile)
             accountHeaderHandle = preferredHandle(from: fetchedProfile)
             accountHeaderAvatarURL = preferredAvatarURL(from: fetchedProfile)
+            accountHeaderBannerURL = preferredBannerURL(from: fetchedProfile)
         }
     }
 
@@ -339,6 +485,15 @@ struct HomeSlideoutMenuView: View {
         profile.resolvedAvatarURL
     }
 
+    private func preferredBannerURL(from profile: NostrProfile) -> URL? {
+        guard let banner = trimmedNonEmpty(profile.banner),
+              let url = URL(string: banner),
+              url.scheme != nil else {
+            return nil
+        }
+        return url
+    }
+
     private func preferredHandle(from profile: NostrProfile) -> String? {
         if let name = trimmedNonEmpty(profile.name) {
             return "@\(normalizedHandleComponent(from: name))"
@@ -351,6 +506,14 @@ struct HomeSlideoutMenuView: View {
 
     private var resolvedAccountHandle: String? {
         trimmedNonEmpty(accountHeaderHandle)
+    }
+
+    private func fallbackAccountHandle(for account: AuthAccount) -> String {
+        let compactLabel = account.shortLabel
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let fallback = compactLabel.isEmpty ? account.npub.lowercased() : compactLabel
+        return "@\(fallback)"
     }
 
     private func normalizedHandleComponent(from value: String) -> String {

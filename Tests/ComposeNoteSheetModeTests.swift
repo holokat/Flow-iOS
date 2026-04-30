@@ -38,6 +38,30 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         XCTAssertEqual(mode, .quote)
     }
 
+    @MainActor
+    func testComposeTextIsLimitedToTwoHundredFortyCharacters() {
+        let viewModel = ComposeNoteViewModel()
+        let overLimitText = String(repeating: "a", count: 241)
+
+        viewModel.text = overLimitText
+
+        XCTAssertEqual(viewModel.text.count, 240)
+        XCTAssertEqual(viewModel.characterCount, 240)
+    }
+
+    func testComposeTextLimitTruncatesInsertedTextToAvailableSpace() {
+        let currentText = String(repeating: "a", count: 238)
+        let insertionRange = NSRange(location: (currentText as NSString).length, length: 0)
+
+        let replacement = ComposeNoteTextLimit.allowedReplacement(
+            in: currentText,
+            range: insertionRange,
+            replacementText: "bcde"
+        )
+
+        XCTAssertEqual(replacement, "bc")
+    }
+
     func testActiveMentionQuerySupportsFreeformLocalSearchWithSpaces() {
         let text = "gm @fiat jaf"
         let selection = NSRange(location: (text as NSString).length, length: 0)

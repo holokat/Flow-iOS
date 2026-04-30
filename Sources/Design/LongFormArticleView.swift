@@ -819,6 +819,8 @@ struct LongFormArticleReaderView: View {
 }
 
 private struct ArticleMarkdownText: View {
+    @EnvironmentObject private var appSettings: AppSettingsStore
+
     let markdown: String
     let font: Font
 
@@ -830,10 +832,8 @@ private struct ArticleMarkdownText: View {
     }
 
     private var attributedString: AttributedString {
-        if let parsed = try? AttributedString(markdown: markdown) {
-            return parsed
-        }
-        return AttributedString(markdown)
+        let parsed = (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
+        return AttributedLinkStyler.applyingLinkColor(appSettings.linkColor, to: parsed)
     }
 }
 

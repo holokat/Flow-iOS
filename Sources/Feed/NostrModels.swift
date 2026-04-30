@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import NostrSDK
 
@@ -853,5 +854,150 @@ private enum NSFWHashtagDetection {
             .lowercased()
             .replacingOccurrences(of: "#", with: "")
             .replacingOccurrences(of: "[^\\p{L}\\p{N}_+\\-]", with: "", options: .regularExpression)
+    }
+}
+
+enum LocalPublicationState: Equatable, Sendable {
+    case publishing
+    case posted
+    case failed(message: String?)
+
+    var failureMessage: String? {
+        guard case .failed(let message) = self else { return nil }
+        return message
+    }
+}
+
+struct LocalPublicationRecord: Identifiable, Equatable, Sendable {
+    let item: FeedItem
+    let state: LocalPublicationState
+    let updatedAt: Date
+
+    var id: String {
+        item.id
+    }
+
+    func merged(with incomingItem: FeedItem) -> LocalPublicationRecord {
+        LocalPublicationRecord(
+            item: item.merged(with: incomingItem),
+            state: state,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+@MainActor
+final class LocalPublicationStore: ObservableObject {
+    static let shared = LocalPublicationStore()
+
+    @Published private(set) var recordsByID: [String: LocalPublicationRecord] = [:]
+
+    var items: [FeedItem] {
+        records.sorted { lhs, rhs in
+            Self.isOrderedBefore(lhs.item, rhs.item)
+        }
+        .map(\.item)
+    }
+
+    var records: [LocalPublicationRecord] {
+        Array(recordsByID.values)
+    }
+
+    func record(for eventID: String) -> LocalPublicationRecord? {
+        recordsByID[normalizeEventID(eventID)]
+    }
+
+    func records(matching predicate: (FeedItem) -> Bool) -> [LocalPublicationRecord] {
+        records
+            .filter { predicate($0.item) }
+            .sorted { lhs, rhs in
+                Self.isOrderedBefore(lhs.item, rhs.item)
+            }
+    }
+
+    func registerPublishing(item: FeedItem) {
+        upsert(item: item, state: .publishing)
+    }
+
+    func markPosted(eventID: String) {
+        update(eventID: eventID) { record in
+            LocalPublicationRecord(
+                item: record.item,
+                state: .posted,
+                updatedAt: Date()
+            )
+        }
+    }
+
+    func markFailed(eventID: String, message: String?) {
+        update(eventID: eventID) { record in
+            LocalPublicationRecord(
+                item: record.item,
+                state: .failed(message: message),
+                updatedAt: Date()
+            )
+        }
+    }
+
+    func mergeFetchedItems(_ items: [FeedItem]) {
+        guard !items.isEmpty else { return }
+
+        var nextRecordsByID = recordsByID
+        var didChange = false
+        for item in items {
+            let normalizedID = normalizeEventID(item.id)
+            guard let existing = nextRecordsByID[normalizedID] else { continue }
+            nextRecordsByID[normalizedID] = existing.merged(with: item)
+            didChange = true
+        }
+
+        if didChange {
+            recordsByID = nextRecordsByID
+        }
+    }
+
+    func clearForTesting() {
+        recordsByID = [:]
+    }
+
+    private func upsert(item: FeedItem, state: LocalPublicationState) {
+        let normalizedID = normalizeEventID(item.id)
+        var nextRecordsByID = recordsByID
+        if let existing = nextRecordsByID[normalizedID] {
+            nextRecordsByID[normalizedID] = LocalPublicationRecord(
+                item: existing.item.merged(with: item),
+                state: state,
+                updatedAt: Date()
+            )
+        } else {
+            nextRecordsByID[normalizedID] = LocalPublicationRecord(
+                item: item,
+                state: state,
+                updatedAt: Date()
+            )
+        }
+        recordsByID = nextRecordsByID
+    }
+
+    private func update(
+        eventID: String,
+        transform: (LocalPublicationRecord) -> LocalPublicationRecord
+    ) {
+        let normalizedID = normalizeEventID(eventID)
+        guard let existing = recordsByID[normalizedID] else { return }
+        var nextRecordsByID = recordsByID
+        nextRecordsByID[normalizedID] = transform(existing)
+        recordsByID = nextRecordsByID
+    }
+
+    private func normalizeEventID(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func isOrderedBefore(_ lhs: FeedItem, _ rhs: FeedItem) -> Bool {
+        if lhs.event.createdAt == rhs.event.createdAt {
+            return lhs.id > rhs.id
+        }
+        return lhs.event.createdAt > rhs.event.createdAt
     }
 }

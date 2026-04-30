@@ -14,6 +14,7 @@ struct ActivityView: View {
     @ObservedObject private var followStore = FollowStore.shared
     @State private var isShowingAuthSheet = false
     @State private var authSheetInitialTab: AuthSheetTab = .signIn
+    @State private var authSheetPresentationID = UUID()
     @State private var isShowingSideMenu = false
     @State private var isShowingSettings = false
     @State private var isShowingNotificationSettings = false
@@ -179,6 +180,7 @@ struct ActivityView: View {
                     initialTab: authSheetInitialTab,
                     onSelectedTabChange: { authSheetInitialTab = $0 }
                 )
+                    .id(authSheetPresentationID)
                     .environmentObject(auth)
                     .environmentObject(appSettings)
                     .environmentObject(relaySettings)
@@ -437,6 +439,7 @@ struct ActivityView: View {
 
     private func openAuthSheet(tab: AuthSheetTab) {
         authSheetInitialTab = tab
+        authSheetPresentationID = UUID()
         isShowingAuthSheet = true
     }
 

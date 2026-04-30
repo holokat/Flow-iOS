@@ -177,6 +177,7 @@ struct BreakReminderOverlayHost: View {
         }
         .allowsHitTesting(coordinator.presentedQuote != nil)
         .animation(.spring(response: 0.42, dampingFraction: 0.88), value: coordinator.presentedQuote?.id)
+        .ignoresSafeArea()
     }
 }
 
@@ -205,21 +206,20 @@ struct BreakReminderOverlayPresentation: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                BreakReminderSheet(
-                    quote: quote,
-                    onContinue: onContinue,
-                    onTakeBreakCompleted: onTakeBreakCompleted
-                )
-                .padding(.horizontal, BreakReminderChoiceLayout.surfaceHorizontalInset)
-                .padding(.bottom, BreakReminderChoiceLayout.surfaceBottomInset)
-                .frame(width: proxy.size.width, height: proxy.size.height)
-                .ignoresSafeArea()
-                .transition(.opacity)
-            }
+        ZStack {
+            BreakReminderSheet(
+                quote: quote,
+                onContinue: onContinue,
+                onTakeBreakCompleted: onTakeBreakCompleted
+            )
+            .padding(.horizontal, BreakReminderChoiceLayout.surfaceHorizontalInset)
+            .padding(.bottom, BreakReminderChoiceLayout.surfaceBottomInset)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+            .transition(.opacity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
     }
 }
 
@@ -407,6 +407,7 @@ enum BreakReminderChoiceLayout {
     static let successText = "Wise choice! Enjoy!"
     static let takeBreakCloseDelay: TimeInterval = 4
     static let usesFullScreenSurface = true
+    static let hostIgnoresSafeArea = true
     static let surfaceCornerRadius: CGFloat = 0
     static let surfaceHorizontalInset: CGFloat = 0
     static let surfaceBottomInset: CGFloat = 0

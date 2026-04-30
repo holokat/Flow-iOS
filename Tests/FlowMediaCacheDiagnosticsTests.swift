@@ -301,7 +301,7 @@ final class FlowMediaCacheDiagnosticsTests: XCTestCase {
         XCTAssertNil(maxByteCount)
     }
 
-    func testProfileImageLimitUsesRelaxedCapOnWiFi() async {
+    func testProfileImageLimitIsIgnoredOnWiFi() async {
         let rootDirectoryURL = makeTemporaryDirectory()
         let urlCache = makeURLCache()
         let url = URL(string: "https://example.com/huge-wifi-avatar.png")!
@@ -322,7 +322,7 @@ final class FlowMediaCacheDiagnosticsTests: XCTestCase {
         let maxByteCount = await observedMaxByteCount.value()
 
         XCTAssertEqual(load, oversizedData)
-        XCTAssertEqual(maxByteCount, FlowImageCacheRequestKind.profileImageWiFiByteLimit)
+        XCTAssertNil(maxByteCount)
     }
 
     func testProfileImageLimitStillAppliesOffWiFi() async {

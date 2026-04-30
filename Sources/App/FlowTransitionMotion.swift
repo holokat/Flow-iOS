@@ -7,6 +7,8 @@ enum FlowTransitionMotion {
         case sidePanelOpen
         case numberPop
         case iconSwap
+        case feedRevealScroll
+        case feedInsertion
     }
 
     static func duration(_ timing: Timing, reduceMotion: Bool) -> TimeInterval {
@@ -23,6 +25,10 @@ enum FlowTransitionMotion {
             return 0.5
         case .iconSwap:
             return 0.2
+        case .feedRevealScroll:
+            return 0.24
+        case .feedInsertion:
+            return 0.34
         }
     }
 
@@ -48,6 +54,16 @@ enum FlowTransitionMotion {
     static func iconSwapAnimation(reduceMotion: Bool) -> Animation? {
         guard !reduceMotion else { return nil }
         return .easeInOut(duration: duration(.iconSwap, reduceMotion: false))
+    }
+
+    static func feedRevealScrollAnimation(reduceMotion: Bool) -> Animation? {
+        guard !reduceMotion else { return nil }
+        return .easeInOut(duration: duration(.feedRevealScroll, reduceMotion: false))
+    }
+
+    static func feedInsertionAnimation(reduceMotion: Bool) -> Animation? {
+        guard !reduceMotion else { return nil }
+        return .easeOut(duration: duration(.feedInsertion, reduceMotion: false))
     }
 
     static func notificationBadgeTransition(reduceMotion: Bool) -> AnyTransition {
@@ -119,6 +135,18 @@ enum FlowTransitionMotion {
                 active: FlowTransitionState(opacity: 0, scale: 0.25, x: 0, y: 0, blur: 2),
                 identity: .identity
             )
+        )
+    }
+
+    static func feedItemInsertionTransition(reduceMotion: Bool) -> AnyTransition {
+        guard !reduceMotion else { return .identity }
+
+        return .asymmetric(
+            insertion: .modifier(
+                active: FlowTransitionState(opacity: 0, scale: 1, x: 0, y: -10, blur: 1),
+                identity: .identity
+            ),
+            removal: .opacity
         )
     }
 }

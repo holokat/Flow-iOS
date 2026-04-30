@@ -2,7 +2,10 @@ import SwiftUI
 
 enum ProfileHeaderBannerMetrics {
     static let height: CGFloat = LongFormArticleReaderLayout.heroMinHeight
-    static let fadeHeight: CGFloat = LongFormArticleReaderLayout.heroMinHeight * 0.5
+    static let fadeHeight: CGFloat = LongFormArticleReaderLayout.heroMinHeight * 0.34
+    static let topScrimOpacity: Double = 0.04
+    static let bottomFadeMidOpacity: Double = 0.2
+    static let bottomFadeStrongOpacity: Double = 0.68
     static let loadedImageOpacity: Double = 0.7
     static let loadedImageSaturation: Double = 0.92
 }
@@ -569,7 +572,7 @@ private struct ProfileBannerArtwork: View {
                 .overlay(alignment: .topLeading) {
                     LinearGradient(
                         colors: [
-                            Color.black.opacity(0.08),
+                            Color.black.opacity(ProfileHeaderBannerMetrics.topScrimOpacity),
                             Color.clear
                         ],
                         startPoint: .top,
@@ -581,8 +584,8 @@ private struct ProfileBannerArtwork: View {
                     LinearGradient(
                         stops: [
                             .init(color: Color.clear, location: 0),
-                            .init(color: appSettings.themePalette.background.opacity(0.3), location: 0.34),
-                            .init(color: appSettings.themePalette.background.opacity(0.78), location: 0.72),
+                            .init(color: appSettings.themePalette.background.opacity(ProfileHeaderBannerMetrics.bottomFadeMidOpacity), location: 0.42),
+                            .init(color: appSettings.themePalette.background.opacity(ProfileHeaderBannerMetrics.bottomFadeStrongOpacity), location: 0.78),
                             .init(color: appSettings.themePalette.background, location: 1)
                         ],
                         startPoint: .top,
@@ -736,34 +739,45 @@ private struct ProfileIdentityBlock: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(FlowLayoutGuardrails.softWrapped(displayName, maxNonBreakingRunLength: 14, minimumLength: 14))
-                .font(appSettings.appFont(size: 30, weight: .heavy))
-                .foregroundStyle(appSettings.themePalette.foreground)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 8) {
+            displayNameText
+            ViewThatFits(in: .vertical) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    handleRow
+                    Spacer(minLength: 12)
+                    followMetadataRow
+                }
 
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(FlowLayoutGuardrails.softWrapped(handle, maxNonBreakingRunLength: 18, minimumLength: 18))
-                    .font(appSettings.appFont(.subheadline))
-                    .foregroundStyle(appSettings.themePalette.mutedForeground)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                if let followStatusIconName {
-                    Image(systemName: followStatusIconName)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color.accentColor)
-                        .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 8) {
+                    handleRow
+                    followMetadataRow
                 }
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .layoutPriority(1)
+    }
 
-            if followsCurrentUser {
-                Text("Follows you")
-                    .font(appSettings.appFont(.footnote, weight: .medium))
-                    .foregroundStyle(appSettings.themePalette.mutedForeground)
+    private var handleRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(FlowLayoutGuardrails.softWrapped(handle, maxNonBreakingRunLength: 18, minimumLength: 18))
+                .font(appSettings.appFont(.subheadline))
+                .foregroundStyle(appSettings.themePalette.mutedForeground)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            if let followStatusIconName {
+                Image(systemName: followStatusIconName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(appSettings.primaryColor)
+                    .accessibilityHidden(true)
             }
+        }
+        .layoutPriority(1)
+    }
 
+    private var followMetadataRow: some View {
+        HStack(alignment: .center, spacing: 8) {
             Button(action: onFollowingTap) {
                 HStack(spacing: 4) {
                     Text(followingCountText)
@@ -772,12 +786,54 @@ private struct ProfileIdentityBlock: View {
                 }
                 .font(appSettings.appFont(.footnote, weight: .semibold))
                 .foregroundStyle(appSettings.themePalette.mutedForeground)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(appSettings.themePalette.secondaryFill.opacity(0.5))
+                )
+                .overlay {
+                    Capsule(style: .continuous)
+                        .stroke(appSettings.themePalette.separator.opacity(0.45), lineWidth: 0.8)
+                }
             }
             .buttonStyle(.plain)
             .accessibilityLabel("View following list")
+
+            if followsCurrentUser {
+                ProfileFollowsYouBadge()
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .layoutPriority(1)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var displayNameText: some View {
+        Text(FlowLayoutGuardrails.softWrapped(displayName, maxNonBreakingRunLength: 14, minimumLength: 14))
+            .font(appSettings.appFont(size: 30, weight: .heavy))
+            .foregroundStyle(appSettings.themePalette.foreground)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct ProfileFollowsYouBadge: View {
+    @EnvironmentObject private var appSettings: AppSettingsStore
+
+    var body: some View {
+        Text("Follows you")
+            .font(appSettings.appFont(.caption2, weight: .semibold))
+            .foregroundStyle(appSettings.primaryColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(appSettings.primaryColor.opacity(0.14))
+            )
+            .overlay {
+                Capsule(style: .continuous)
+                    .stroke(appSettings.primaryColor.opacity(0.22), lineWidth: 0.8)
+            }
+            .accessibilityLabel("Follows you")
     }
 }
 

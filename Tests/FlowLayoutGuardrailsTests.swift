@@ -1,5 +1,6 @@
 import XCTest
 import SwiftUI
+import Foundation
 @testable import Flow
 
 final class FlowLayoutGuardrailsTests: XCTestCase {
@@ -127,9 +128,13 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertEqual(ProfileHeaderBannerMetrics.height, LongFormArticleReaderLayout.heroMinHeight)
         XCTAssertEqual(
             ProfileHeaderBannerMetrics.fadeHeight,
-            ProfileHeaderBannerMetrics.height * 0.5,
+            ProfileHeaderBannerMetrics.height * 0.34,
             accuracy: 0.0001
         )
+        XCTAssertLessThan(ProfileHeaderBannerMetrics.fadeHeight, ProfileHeaderBannerMetrics.height * 0.4)
+        XCTAssertLessThan(ProfileHeaderBannerMetrics.topScrimOpacity, 0.06)
+        XCTAssertLessThanOrEqual(ProfileHeaderBannerMetrics.bottomFadeMidOpacity, 0.22)
+        XCTAssertGreaterThanOrEqual(ProfileHeaderBannerMetrics.bottomFadeStrongOpacity, 0.66)
     }
 
     func testLoadedProfileBannerImagesAreMutedIntoChrome() {
@@ -238,6 +243,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
 
     func testBreakReminderChoiceUsesFullScreenSurface() {
         XCTAssertTrue(BreakReminderChoiceLayout.usesFullScreenSurface)
+        XCTAssertTrue(BreakReminderChoiceLayout.hostIgnoresSafeArea)
         XCTAssertEqual(BreakReminderChoiceLayout.surfaceCornerRadius, 0, accuracy: 0.0001)
         XCTAssertEqual(BreakReminderChoiceLayout.surfaceHorizontalInset, 0, accuracy: 0.0001)
         XCTAssertEqual(BreakReminderChoiceLayout.surfaceBottomInset, 0, accuracy: 0.0001)
@@ -308,6 +314,37 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertEqual(SideMenuTransitionLayout.menuWidthFraction, 0.78, accuracy: 0.0001)
         XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.menuWidthFraction, 0.75)
         XCTAssertLessThanOrEqual(SideMenuTransitionLayout.menuWidthFraction, 0.80)
+        XCTAssertEqual(
+            SideMenuTransitionLayout.menuTopOffset(topSafeAreaInset: 59),
+            59,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SideMenuTransitionLayout.resolvedTopSafeArea(
+                explicitTopSafeAreaInset: 59,
+                geometryTopSafeAreaInset: 92
+            ),
+            59,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SideMenuTransitionLayout.resolvedTopSafeArea(
+                explicitTopSafeAreaInset: 0,
+                geometryTopSafeAreaInset: 47
+            ),
+            47,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SideMenuTransitionLayout.menuHeight(for: 852, topSafeAreaInset: 59),
+            793,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SideMenuTransitionLayout.menuTopOffset(topSafeAreaInset: -8),
+            0,
+            accuracy: 0.0001
+        )
         XCTAssertLessThan(SideMenuTransitionLayout.primaryContentOpenScale, 1)
         XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.primaryContentOpenCornerRadius, 24)
         XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.menuTrailingCornerRadius, 28)
@@ -329,10 +366,35 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertLessThan(SideMenuTransitionLayout.rowClosedXOffset, 0)
         XCTAssertEqual(SideMenuTransitionLayout.rowClosedYOffset, 0, accuracy: 0.0001)
         XCTAssertLessThan(SideMenuTransitionLayout.rowClosedOpacity, 1)
-        XCTAssertGreaterThan(SideMenuTransitionLayout.profileHeaderPrimaryFillOpacity, 0)
-        XCTAssertGreaterThan(SideMenuTransitionLayout.menuIconBackgroundOpacity, 0)
+        XCTAssertEqual(SideMenuTransitionLayout.menuButtonBackgroundOpacity, 0, accuracy: 0.0001)
+        XCTAssertEqual(SideMenuTransitionLayout.menuIconBackgroundOpacity, 0, accuracy: 0.0001)
         XCTAssertNil(SideMenuTransitionLayout.animation(reduceMotion: true))
         XCTAssertNotNil(SideMenuTransitionLayout.animation(reduceMotion: false))
+    }
+
+    func testSideMenuProfileBannerFadesIntoMenuContent() {
+        XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.profileBannerHeight, 200)
+        XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.profileBannerFadeHeight, 110)
+        XCTAssertLessThanOrEqual(
+            SideMenuTransitionLayout.profileBannerFadeHeight,
+            SideMenuTransitionLayout.profileBannerHeight
+        )
+        XCTAssertGreaterThan(SideMenuTransitionLayout.profileHeaderAvatarSize, 60)
+        XCTAssertGreaterThan(SideMenuTransitionLayout.profileHeaderLinksTopSpacing, 20)
+        XCTAssertGreaterThan(SideMenuTransitionLayout.logoutTopSpacing, 12)
+    }
+
+    func testHomeSlideoutMenuUsesCompactAccountFocusedCopy() throws {
+        let source = try Self.sourceText(at: "Sources/Home/HomeSlideoutMenuView.swift")
+
+        XCTAssertFalse(source.contains("Text(\"Menu\")"))
+        XCTAssertFalse(source.contains("title: \"View Profile\""))
+        XCTAssertFalse(source.contains("title: \"Manage Accounts\""))
+        XCTAssertFalse(source.contains("Text(\"Active\")"))
+        XCTAssertFalse(source.contains("Divider()"))
+        XCTAssertTrue(source.contains("title: \"Profile\""))
+        XCTAssertTrue(source.contains("title: \"Accounts\""))
+        XCTAssertTrue(source.contains("Text(accountHandle)"))
     }
 
     func testAuthSheetSignInAndAccountsUseStableSharedChrome() {
@@ -350,6 +412,39 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
             AuthSheetChromeLayout.contentHorizontalPadding(for: .accounts),
             accuracy: 0.0001
         )
+    }
+
+    func testAuthSheetPresentationsUseFreshIdentityForRequestedInitialTab() throws {
+        let sourceFiles = [
+            "Sources/Home/HomeFeedView.swift",
+            "Sources/Activity/ActivityView.swift",
+            "Sources/App/MainTabShellView.swift"
+        ]
+
+        for sourceFile in sourceFiles {
+            let source = try Self.sourceText(at: sourceFile)
+            let identityAssignmentCount = source.components(
+                separatedBy: "authSheetPresentationID = UUID()"
+            ).count - 1
+
+            XCTAssertTrue(source.contains("@State private var authSheetPresentationID = UUID()"), sourceFile)
+            XCTAssertGreaterThanOrEqual(identityAssignmentCount, 2, sourceFile)
+            XCTAssertTrue(source.contains(".id(authSheetPresentationID)"), sourceFile)
+        }
+    }
+
+    func testAccountsTabRowsOnlyShowAvatarNameAndHandle() throws {
+        let source = try Self.sourceText(at: "Sources/Auth/AuthSheetView.swift")
+        let rowStart = try XCTUnwrap(source.range(of: "private func accountRow(for account: AuthAccount) -> some View {"))
+        let rowEnd = try XCTUnwrap(source.range(of: "private var activeAccountPill: some View"))
+        let rowSource = source[rowStart.lowerBound..<rowEnd.lowerBound]
+
+        XCTAssertTrue(rowSource.contains("accountAvatar(for: account"))
+        XCTAssertTrue(rowSource.contains("Text(accountDisplayName(for: account))"))
+        XCTAssertTrue(rowSource.contains("accountHandle(for: account)"))
+        XCTAssertFalse(rowSource.contains("accountBackupLabel"))
+        XCTAssertFalse(source.contains("Private key account"))
+        XCTAssertFalse(source.contains("iCloud backup"))
     }
 
     func testWelcomeScratchRevealAdvancesThroughArtworkSequence() {
@@ -453,6 +548,93 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         )
     }
 
+    func testProfileIdentityPlacesFollowingCountBeforeFollowsYouBadgeOnMetadataRow() throws {
+        let source = try Self.sourceText(at: "Sources/Profile/ProfileHeaderSection.swift")
+        let blockStart = try XCTUnwrap(source.range(of: "private struct ProfileIdentityBlock: View {"))
+        let blockEnd = try XCTUnwrap(
+            source.range(of: "private struct ProfileFollowsYouBadge: View {") ??
+                source.range(of: "private struct ProfileInfoRows: View {")
+        )
+        let blockSource = source[blockStart.lowerBound..<blockEnd.lowerBound]
+
+        XCTAssertFalse(blockSource.contains("identityTitleSection"))
+        XCTAssertTrue(blockSource.contains("ProfileFollowsYouBadge()"))
+        XCTAssertTrue(blockSource.contains("Spacer(minLength: 12)"))
+        XCTAssertFalse(blockSource.contains("Text(\"Follows you\")"))
+        XCTAssertTrue(blockSource.contains("if followsCurrentUser {"))
+
+        let badgeRange = try XCTUnwrap(blockSource.range(of: "ProfileFollowsYouBadge()"))
+        let followingButtonRange = try XCTUnwrap(blockSource.range(of: "Button(action: onFollowingTap)"))
+        XCTAssertGreaterThan(badgeRange.lowerBound, followingButtonRange.lowerBound)
+    }
+
+    func testProfileViewStartsFollowRelationshipRefreshAlongsideProfileLoad() throws {
+        let source = try Self.sourceText(at: "Sources/Profile/ProfileView.swift")
+
+        XCTAssertTrue(source.contains("async let loadIfNeeded: Void = viewModel.loadIfNeeded()"))
+        XCTAssertTrue(
+            source.contains(
+                "async let refreshFollowRelationship: Void = viewModel.refreshFollowRelationship("
+            )
+        )
+        XCTAssertTrue(source.contains("_ = await (loadIfNeeded, refreshFollowRelationship, refreshKnownFollowers)"))
+        XCTAssertFalse(source.contains("await viewModel.loadIfNeeded()\n            await viewModel.refreshFollowRelationship"))
+    }
+
+    func testProfileAvatarFullscreenViewerUsesThemeAwareBackdropAndToolbarChrome() throws {
+        let source = try Self.sourceText(at: "Sources/Profile/ProfileMediaSupport.swift")
+        let viewerStart = try XCTUnwrap(source.range(of: "struct ProfileAvatarFullscreenViewer: View {"))
+        let viewerEnd = try XCTUnwrap(source.range(of: "struct ProfileLoopingVideoView: UIViewRepresentable {"))
+        let viewerSource = source[viewerStart.lowerBound..<viewerEnd.lowerBound]
+
+        XCTAssertTrue(viewerSource.contains("@EnvironmentObject private var appSettings: AppSettingsStore"))
+        XCTAssertTrue(viewerSource.contains("@Environment(\\.colorScheme) private var colorScheme"))
+        XCTAssertTrue(viewerSource.contains("viewerBackgroundColor"))
+        XCTAssertTrue(viewerSource.contains("viewerNavigationBarColor"))
+        XCTAssertTrue(viewerSource.contains(".toolbarBackground(viewerNavigationBarColor, for: .navigationBar)"))
+        XCTAssertTrue(viewerSource.contains(".toolbarColorScheme(effectiveColorScheme == .dark ? .dark : .light, for: .navigationBar)"))
+        XCTAssertFalse(viewerSource.contains("Color.black"))
+    }
+
+    func testProfileScreenDoesNotUseMidPageSpotlightGlow() throws {
+        let source = try Self.sourceText(at: "Sources/Profile/ProfileView.swift")
+
+        XCTAssertTrue(source.contains("AppThemeBackgroundView()"))
+        XCTAssertFalse(source.contains("AppThemeBackgroundView(holographicSpotlight: .profile)"))
+    }
+
+    func testComposePublicationRegistersLocalStateAndUsesConnectedSourcesCopy() throws {
+        let composeSource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheet.swift")
+        let notePublishSource = try Self.sourceText(at: "Sources/Compose/ComposeNotePublishService.swift")
+        let replyPublishSource = try Self.sourceText(at: "Sources/Thread/ThreadReplyPublishService.swift")
+
+        XCTAssertTrue(composeSource.contains("LocalPublicationStore.shared.registerPublishing(item: preparedPublication.item)"))
+        XCTAssertTrue(composeSource.contains("LocalPublicationStore.shared.markPosted(eventID: preparedPublication.item.id)"))
+        XCTAssertTrue(composeSource.contains("LocalPublicationStore.shared.markFailed("))
+        XCTAssertTrue(composeSource.contains("No connected sources are configured."))
+        XCTAssertFalse(composeSource.contains("No publish sources are configured."))
+        XCTAssertTrue(notePublishSource.contains("Couldn't publish to connected sources right now."))
+        XCTAssertTrue(replyPublishSource.contains("Couldn't publish to connected sources right now."))
+    }
+
+    func testThreadReplyRefreshMergesLocalPublicationReplies() throws {
+        let source = try Self.sourceText(at: "Sources/Thread/ThreadDetailViewModel.swift")
+
+        XCTAssertTrue(source.contains("rawReplies = mergeWithLocalPublicationReplies("))
+        XCTAssertTrue(source.contains("let visibleReplies = self.mergeWithLocalPublicationReplies("))
+        XCTAssertTrue(source.contains("private func localPublicationReplies(rootEventID: String? = nil) -> [FeedItem]"))
+    }
+
+    func testFeedRowShowsPublicationProgressAndFailureDetails() throws {
+        let source = try Self.sourceText(at: "Sources/Design/FeedRowView.swift")
+
+        XCTAssertTrue(source.contains("@ObservedObject private var localPublicationStore = LocalPublicationStore.shared"))
+        XCTAssertTrue(source.contains("ProgressView()"))
+        XCTAssertTrue(source.contains("Image(systemName: \"exclamationmark.circle.fill\")"))
+        XCTAssertTrue(source.contains("This item is still visible here, but it couldn't publish to connected sources."))
+        XCTAssertTrue(source.contains("Alert("))
+    }
+
     func testThreadDetailArticleHeroUsesTransparentNavigationChrome() {
         XCTAssertEqual(
             ThreadDetailViewLayout.navigationTitle(hasArticleHero: true),
@@ -493,4 +675,35 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         )
     }
 
+    func testThreadDetailNoteDoesNotInstallBottomReplyDock() throws {
+        let viewSource = try Self.sourceText(at: "Sources/Thread/ThreadDetailView.swift")
+        let componentsSource = try Self.sourceText(at: "Sources/Thread/ThreadDetailComponents.swift")
+
+        XCTAssertFalse(viewSource.contains("ThreadDetailReplyDockBar("))
+        XCTAssertFalse(componentsSource.contains("struct ThreadDetailReplyDockBar"))
+        XCTAssertFalse(componentsSource.contains("Text(\"Post your reply\")"))
+        XCTAssertFalse(componentsSource.contains("Tap below to post the first reply."))
+        XCTAssertTrue(componentsSource.contains("Text(\"Replies will appear here.\")"))
+    }
+
+    func testThreadDetailSpamNoticeUsesThemeBackgroundInsteadOfPrimaryChrome() throws {
+        let source = try Self.sourceText(at: "Sources/Thread/ThreadDetailComponents.swift")
+        let groupStart = try XCTUnwrap(source.range(of: "struct ThreadDetailSpamRepliesGroup"))
+        let groupEnd = try XCTUnwrap(source.range(of: "struct ThreadDetailReactionsSection"))
+        let groupSource = String(source[groupStart.lowerBound..<groupEnd.lowerBound])
+
+        XCTAssertTrue(groupSource.contains(".fill(appSettings.themePalette.background)"))
+        XCTAssertFalse(groupSource.contains(".fill(appSettings.themePalette.secondaryBackground)"))
+        XCTAssertFalse(groupSource.contains("appSettings.primaryColor"))
+    }
+
+}
+
+private extension FlowLayoutGuardrailsTests {
+    static func sourceText(at relativePath: String) throws -> String {
+        let testFileURL = URL(fileURLWithPath: #filePath)
+        let repositoryRootURL = testFileURL.deletingLastPathComponent().deletingLastPathComponent()
+        let sourceURL = repositoryRootURL.appendingPathComponent(relativePath)
+        return try String(contentsOf: sourceURL, encoding: .utf8)
+    }
 }

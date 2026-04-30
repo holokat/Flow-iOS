@@ -16,6 +16,8 @@ struct ProfileAvatarFullscreenViewer: View {
     let url: URL
     let title: String
 
+    @EnvironmentObject private var appSettings: AppSettingsStore
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var toastCenter: AppToastCenter
 
@@ -26,7 +28,7 @@ struct ProfileAvatarFullscreenViewer: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.black
+                viewerBackgroundColor
                     .ignoresSafeArea()
 
                 if isProfileLoopingVideoURL(url) {
@@ -49,10 +51,10 @@ struct ProfileAvatarFullscreenViewer: View {
                         case .failure:
                             Image(systemName: "person.crop.circle.badge.exclamationmark")
                                 .font(.largeTitle)
-                                .foregroundStyle(.white.opacity(0.8))
+                                .foregroundStyle(chromeForegroundColor.opacity(0.8))
                         case .empty:
                             ProgressView()
-                                .tint(.white)
+                                .tint(chromeForegroundColor)
                         @unknown default:
                             EmptyView()
                         }
@@ -70,8 +72,25 @@ struct ProfileAvatarFullscreenViewer: View {
                 }
             }
             .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(viewerNavigationBarColor, for: .navigationBar)
+            .toolbarColorScheme(effectiveColorScheme == .dark ? .dark : .light, for: .navigationBar)
         }
+    }
+
+    private var effectiveColorScheme: ColorScheme {
+        appSettings.preferredColorScheme ?? colorScheme
+    }
+
+    private var viewerBackgroundColor: Color {
+        appSettings.themePalette.background
+    }
+
+    private var viewerNavigationBarColor: Color {
+        appSettings.themePalette.navigationBackground
+    }
+
+    private var chromeForegroundColor: Color {
+        appSettings.themePalette.foreground
     }
 }
 

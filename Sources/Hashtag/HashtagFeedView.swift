@@ -3,6 +3,7 @@ import SwiftUI
 struct HashtagFeedView: View {
     private static let feedHorizontalInset: CGFloat = 14
     private static let bottomScrollClearance: CGFloat = 110
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var relaySettings: RelaySettingsStore
@@ -118,9 +119,12 @@ struct HashtagFeedView: View {
                             openRelayFeed(relayURL: relayURL)
                         },
                         onOptimisticPublished: { publishedItem in
-                            viewModel.insertOptimisticPublishedItem(publishedItem)
+                            animateFeedInsertion {
+                                viewModel.insertOptimisticPublishedItem(publishedItem)
+                            }
                         }
                     )
+                    .transition(FlowTransitionMotion.feedItemInsertionTransition(reduceMotion: accessibilityReduceMotion))
                     .listRowInsets(
                         EdgeInsets(
                             top: 0,
@@ -171,6 +175,10 @@ struct HashtagFeedView: View {
             }
         }
         .listStyle(.plain)
+        .animation(
+            FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion),
+            value: visibleItems.map(\.id)
+        )
         .navigationTitle("#\(viewModel.normalizedHashtag)")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -293,12 +301,23 @@ struct HashtagFeedView: View {
     private var isCurrentHashtagFavorite: Bool {
         hashtagFavoritesStore.isFavorite(viewModel.normalizedHashtag)
     }
+
+    private func animateFeedInsertion(_ updates: () -> Void) {
+        if let animation = FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
+                updates()
+            }
+        } else {
+            updates()
+        }
+    }
 }
 
 struct RelayFeedView: View {
     private static let feedHorizontalInset: CGFloat = 14
     private static let bottomScrollClearance: CGFloat = 110
 
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var relaySettings: RelaySettingsStore
@@ -410,9 +429,12 @@ struct RelayFeedView: View {
                             openRelayFeed(relayURL: relayURL)
                         },
                         onOptimisticPublished: { publishedItem in
-                            viewModel.insertOptimisticPublishedItem(publishedItem)
+                            animateFeedInsertion {
+                                viewModel.insertOptimisticPublishedItem(publishedItem)
+                            }
                         }
                     )
+                    .transition(FlowTransitionMotion.feedItemInsertionTransition(reduceMotion: accessibilityReduceMotion))
                     .listRowInsets(
                         EdgeInsets(
                             top: 0,
@@ -468,6 +490,10 @@ struct RelayFeedView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(appSettings.themePalette.background)
+        .animation(
+            FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion),
+            value: visibleItems.map(\.id)
+        )
         .navigationTitle(viewModel.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -625,5 +651,15 @@ struct RelayFeedView: View {
 
     private var isCurrentRelayFavorite: Bool {
         relayFavoritesStore.isFavorite(viewModel.relayURL)
+    }
+
+    private func animateFeedInsertion(_ updates: () -> Void) {
+        if let animation = FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
+                updates()
+            }
+        } else {
+            updates()
+        }
     }
 }

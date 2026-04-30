@@ -42,10 +42,15 @@ struct MainTabShellView: View {
     @State private var activityRootResetID = UUID()
     @State private var isShowingAuthSheet = false
     @State private var authSheetInitialTab: AuthSheetTab = .signIn
+    @State private var authSheetPresentationID = UUID()
     @State private var isActivityRootVisible = true
     @State private var isDMRootVisible = true
     @State private var isHomeSideMenuPresented = false
     @State private var bottomTabBarHeight: CGFloat = FloatingComposeButtonLayout.defaultBottomTabBarHeight
+    @State private var homeScrollChrome = ScrollChromeOffsets()
+
+    private static let bottomTabBarIconBottomPadding: CGFloat = 14
+    private static let bottomTabBarIconTopPadding: CGFloat = 4
 
     @StateObject private var homeViewModel = HomeFeedViewModel(
         relayURL: URL(string: RelaySettingsStore.defaultReadRelayURLs.first ?? "wss://relay.damus.io/")!
@@ -65,8 +70,12 @@ struct MainTabShellView: View {
             TabView(selection: $selectedTab) {
                 HomeFeedView(
                     viewModel: homeViewModel,
-                    isShowingSideMenu: $isHomeSideMenuPresented
+                    isShowingSideMenu: $isHomeSideMenuPresented,
+                    scrollChromeOffsets: $homeScrollChrome,
+                    bottomTabBarHeight: bottomTabBarHeight
                 )
+                    .environment(\.flowScrollChromeOffsets, $homeScrollChrome)
+                    .environment(\.flowBottomTabBarHeight, bottomTabBarHeight)
                     .id(homeRootResetID)
                     .tag(Tab.home)
                     .toolbar(.hidden, for: .tabBar)
@@ -95,9 +104,14 @@ struct MainTabShellView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if shouldReserveBottomTabBarInsetSpace {
-                bottomTabBar
+                Color.clear
+                    .frame(height: bottomTabBarHeight)
+                    .accessibilityHidden(true)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+        }
+        .overlay(alignment: .bottom) {
+            overlayBottomTabBar
         }
         .overlay(alignment: .bottomTrailing) {
             if appSettings.floatingComposeButtonEnabled {
@@ -128,6 +142,7 @@ struct MainTabShellView: View {
                 initialTab: authSheetInitialTab,
                 onSelectedTabChange: { authSheetInitialTab = $0 }
             )
+                .id(authSheetPresentationID)
                 .environmentObject(auth)
                 .environmentObject(appSettings)
                 .environmentObject(relaySettings)
@@ -211,6 +226,23 @@ struct MainTabShellView: View {
         .statusBarHidden(false)
     }
 
+    @ViewBuilder
+    private var overlayBottomTabBar: some View {
+        if isBottomTabBarVisible {
+            GeometryReader { proxy in
+                let safeAreaBottom = max(0, proxy.safeAreaInsets.bottom)
+
+                bottomTabBar
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .offset(y: bottomTabBarOffset(safeAreaBottom: safeAreaBottom))
+                    .opacity(bottomTabBarVisibleFraction(safeAreaBottom: safeAreaBottom))
+                    .allowsHitTesting(bottomTabBarHitTestingEnabled(safeAreaBottom: safeAreaBottom))
+                    .accessibilityHidden(!bottomTabBarHitTestingEnabled(safeAreaBottom: safeAreaBottom))
+            }
+            .ignoresSafeArea(edges: .bottom)
+        }
+    }
+
     private var bottomTabBar: some View {
         VStack(spacing: 0) {
             Rectangle()
@@ -227,12 +259,11 @@ struct MainTabShellView: View {
                 tabBarButton(for: .activity)
             }
             .padding(.horizontal, 10)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
+            .padding(.top, Self.bottomTabBarIconTopPadding)
+            .padding(.bottom, Self.bottomTabBarIconBottomPadding)
         }
         .background {
             bottomTabBarBackground
-                .ignoresSafeArea(edges: .bottom)
         }
         .overlay {
             GeometryReader { proxy in
@@ -337,7 +368,7 @@ struct MainTabShellView: View {
         FloatingComposeButtonLayout.bottomPadding(
             safeAreaBottom: safeAreaBottom,
             bottomTabBarHeight: bottomTabBarHeight,
-            isBottomTabBarVisible: isBottomTabBarVisible
+            visibleFraction: bottomTabBarVisibleFraction(safeAreaBottom: safeAreaBottom)
         )
     }
 
@@ -374,6 +405,37 @@ struct MainTabShellView: View {
         )
     }
 
+    private func bottomTabBarOffset(safeAreaBottom: CGFloat) -> CGFloat {
+        guard selectedTab == .home else { return 0 }
+
+        let hiddenOffset = ScrollChromeLayout.bottomHiddenOffset(
+            bottomBarHeight: bottomTabBarHeight,
+            safeAreaBottom: safeAreaBottom
+        )
+        return min(max(0, homeScrollChrome.bottomBarOffset), hiddenOffset)
+    }
+
+    private func bottomTabBarHitTestingEnabled(safeAreaBottom: CGFloat) -> Bool {
+        let hiddenOffset = ScrollChromeLayout.bottomHiddenOffset(
+            bottomBarHeight: bottomTabBarHeight,
+            safeAreaBottom: safeAreaBottom
+        )
+        return ScrollChromeLayout.chromeHitTestingEnabled(
+            offset: bottomTabBarOffset(safeAreaBottom: safeAreaBottom),
+            hiddenOffset: hiddenOffset
+        )
+    }
+
+    private func bottomTabBarVisibleFraction(safeAreaBottom: CGFloat) -> CGFloat {
+        guard isBottomTabBarVisible else { return 0 }
+        guard shouldOverlayBottomTabBar else { return 1 }
+
+        return ScrollChromeLayout.bottomContentVisibleFraction(
+            offset: bottomTabBarOffset(safeAreaBottom: safeAreaBottom),
+            bottomBarHeight: bottomTabBarHeight
+        )
+    }
+
     private var composeSheetDraftBinding: Binding<AppComposeSheetDraft?> {
         Binding(
             get: { composeSheetCoordinator.draft },
@@ -405,7 +467,9 @@ struct MainTabShellView: View {
             onOptimisticPublished: { item in
                 switch selectedTab {
                 case .home:
-                    homeViewModel.insertOptimisticPublishedItem(item)
+                    animateFeedInsertion {
+                        homeViewModel.insertOptimisticPublishedItem(item)
+                    }
                 case .search:
                     Task {
                         await searchViewModel.refresh()
@@ -429,9 +493,20 @@ struct MainTabShellView: View {
         )
     }
 
+    private func animateFeedInsertion(_ updates: () -> Void) {
+        if let animation = FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
+                updates()
+            }
+        } else {
+            updates()
+        }
+    }
+
     private func handleComposeTap() {
         guard auth.currentAccount != nil else {
             authSheetInitialTab = .signIn
+            authSheetPresentationID = UUID()
             isShowingAuthSheet = true
             return
         }
@@ -574,18 +649,106 @@ struct FloatingComposeButtonLayout {
         bottomTabBarHeight: CGFloat,
         isBottomTabBarVisible: Bool
     ) -> CGFloat {
+        bottomPadding(
+            safeAreaBottom: safeAreaBottom,
+            bottomTabBarHeight: bottomTabBarHeight,
+            visibleFraction: isBottomTabBarVisible ? 1 : 0
+        )
+    }
+
+    static func bottomPadding(
+        safeAreaBottom: CGFloat,
+        bottomTabBarHeight: CGFloat,
+        visibleFraction: CGFloat
+    ) -> CGFloat {
         let safeAreaBottom = max(0, safeAreaBottom)
+        let visibleFraction = clamp(visibleFraction, min: 0, max: 1)
+        let hiddenPadding = max(0, safeAreaBottom + hiddenBottomGap - requestedVerticalDrop)
+        let visibleBottomBarHeight = max(bottomTabBarHeight, defaultBottomTabBarHeight)
+        let visiblePadding = max(0, safeAreaBottom + visibleBottomBarHeight + visibleBottomBarGap - requestedVerticalDrop)
 
-        guard isBottomTabBarVisible else {
-            return max(0, safeAreaBottom + hiddenBottomGap - requestedVerticalDrop)
-        }
+        return hiddenPadding + ((visiblePadding - hiddenPadding) * visibleFraction)
+    }
 
-        let bottomTabBarHeight = max(bottomTabBarHeight, defaultBottomTabBarHeight)
-        return max(0, safeAreaBottom + bottomTabBarHeight + visibleBottomBarGap - requestedVerticalDrop)
+    private static func clamp(_ value: CGFloat, min minimum: CGFloat, max maximum: CGFloat) -> CGFloat {
+        Swift.min(Swift.max(value, minimum), maximum)
     }
 }
 
+struct ScrollChromeOffsets: Equatable {
+    var previousScrollY: CGFloat = 0
+    var topBarOffset: CGFloat = 0
+    var bottomBarOffset: CGFloat = 0
+    var hasMeasuredScrollY = false
+}
+
+final class ScrollChromeTracker {
+    private var state = ScrollChromeOffsets()
+
+    func offsetsByApplyingScroll(
+        currentScrollY: CGFloat,
+        currentVisualOffsets: ScrollChromeOffsets,
+        topBarHeight: CGFloat,
+        bottomBarHeight: CGFloat,
+        safeAreaBottom: CGFloat
+    ) -> ScrollChromeOffsets {
+        if !state.hasMeasuredScrollY {
+            state = ScrollChromeOffsets(
+                previousScrollY: max(0, currentScrollY),
+                topBarOffset: currentVisualOffsets.topBarOffset,
+                bottomBarOffset: currentVisualOffsets.bottomBarOffset,
+                hasMeasuredScrollY: true
+            )
+            return state
+        }
+
+        if ScrollChromeLayout.shouldPublishVisualOffsets(currentVisualOffsets, over: state) {
+            state.topBarOffset = currentVisualOffsets.topBarOffset
+            state.bottomBarOffset = currentVisualOffsets.bottomBarOffset
+        }
+
+        let updated = ScrollChromeLayout.offsetsByApplyingScroll(
+            currentScrollY: currentScrollY,
+            state: state,
+            topBarHeight: topBarHeight,
+            bottomBarHeight: bottomBarHeight,
+            safeAreaBottom: safeAreaBottom
+        )
+        state = updated
+        return updated
+    }
+}
+
+private struct FlowScrollChromeOffsetsEnvironmentKey: EnvironmentKey {
+    static let defaultValue: Binding<ScrollChromeOffsets>? = nil
+}
+
+private struct FlowBottomTabBarHeightEnvironmentKey: EnvironmentKey {
+    static let defaultValue = FloatingComposeButtonLayout.defaultBottomTabBarHeight
+}
+
+extension EnvironmentValues {
+    var flowScrollChromeOffsets: Binding<ScrollChromeOffsets>? {
+        get { self[FlowScrollChromeOffsetsEnvironmentKey.self] }
+        set { self[FlowScrollChromeOffsetsEnvironmentKey.self] = newValue }
+    }
+
+    var flowBottomTabBarHeight: CGFloat {
+        get { self[FlowBottomTabBarHeightEnvironmentKey.self] }
+        set { self[FlowBottomTabBarHeightEnvironmentKey.self] = newValue }
+    }
+}
+
+struct ScrollChromeContentPadding: Equatable {
+    let top: CGFloat
+    let bottom: CGFloat
+}
+
 struct ScrollChromeLayout {
+    static let defaultTopBarHeight: CGFloat = 55
+    static let topOfFeedRestoreThreshold: CGFloat = 8
+    static let visualOffsetPublishThreshold: CGFloat = 0.5
+
     static func isBottomTabBarVisible(
         isHomeSideMenuPresented: Bool,
         selectedTabIsDirectMessages: Bool,
@@ -598,7 +761,7 @@ struct ScrollChromeLayout {
         selectedTabIsHome: Bool,
         isHomeSideMenuPresented: Bool
     ) -> Bool {
-        false
+        selectedTabIsHome && !isHomeSideMenuPresented
     }
 
     static func reservesBottomTabBarInsetSpace(
@@ -606,6 +769,180 @@ struct ScrollChromeLayout {
         usesOverlayBottomTabBar: Bool
     ) -> Bool {
         isBottomTabBarVisible && !usesOverlayBottomTabBar
+    }
+
+    static func offsetsByApplyingScroll(
+        currentScrollY: CGFloat,
+        state: ScrollChromeOffsets,
+        topBarHeight: CGFloat,
+        bottomBarHeight: CGFloat,
+        safeAreaBottom: CGFloat
+    ) -> ScrollChromeOffsets {
+        let currentScrollY = max(0, currentScrollY)
+        let topBarHeight = max(0, topBarHeight)
+        let bottomHiddenOffset = bottomHiddenOffset(
+            bottomBarHeight: bottomBarHeight,
+            safeAreaBottom: safeAreaBottom
+        )
+        let hasScrollBaseline = state.hasMeasuredScrollY
+            || state.previousScrollY != 0
+            || state.topBarOffset != 0
+            || state.bottomBarOffset != 0
+
+        guard hasScrollBaseline else {
+            return ScrollChromeOffsets(
+                previousScrollY: currentScrollY,
+                topBarOffset: state.topBarOffset,
+                bottomBarOffset: state.bottomBarOffset,
+                hasMeasuredScrollY: true
+            )
+        }
+
+        guard currentScrollY > topOfFeedRestoreThreshold else {
+            return ScrollChromeOffsets(
+                previousScrollY: currentScrollY,
+                topBarOffset: 0,
+                bottomBarOffset: 0,
+                hasMeasuredScrollY: true
+            )
+        }
+
+        let delta = currentScrollY - state.previousScrollY
+        let bottomDelta = delta * bottomScrollMultiplier(
+            topBarHeight: topBarHeight,
+            bottomHiddenOffset: bottomHiddenOffset
+        )
+
+        return ScrollChromeOffsets(
+            previousScrollY: currentScrollY,
+            topBarOffset: clamp(
+                state.topBarOffset - delta,
+                min: -topBarHeight,
+                max: 0
+            ),
+            bottomBarOffset: clamp(
+                state.bottomBarOffset + bottomDelta,
+                min: 0,
+                max: bottomHiddenOffset
+            ),
+            hasMeasuredScrollY: true
+        )
+    }
+
+    static func settledOffsets(
+        topBarOffset: CGFloat,
+        bottomBarOffset: CGFloat,
+        topBarHeight: CGFloat,
+        bottomHiddenOffset: CGFloat
+    ) -> (topBarOffset: CGFloat, bottomBarOffset: CGFloat) {
+        let topBarHeight = max(0, topBarHeight)
+        let bottomHiddenOffset = max(0, bottomHiddenOffset)
+
+        return (
+            topBarOffset: clamp(topBarOffset, min: -topBarHeight, max: 0),
+            bottomBarOffset: clamp(bottomBarOffset, min: 0, max: bottomHiddenOffset)
+        )
+    }
+
+    static func topHiddenOffset(
+        topBarHeight: CGFloat,
+        safeAreaTop: CGFloat
+    ) -> CGFloat {
+        max(0, topBarHeight) + max(0, safeAreaTop)
+    }
+
+    static func bottomHiddenOffset(
+        bottomBarHeight: CGFloat,
+        safeAreaBottom: CGFloat
+    ) -> CGFloat {
+        max(0, bottomBarHeight) + max(0, safeAreaBottom)
+    }
+
+    static func bottomContentVisibleFraction(
+        offset: CGFloat,
+        bottomBarHeight: CGFloat
+    ) -> CGFloat {
+        visibleFraction(
+            offset: offset,
+            hiddenOffset: bottomBarHeight
+        )
+    }
+
+    static func feedContentPadding(
+        topBarHeight: CGFloat,
+        topBarOffset: CGFloat = 0,
+        bottomBarHeight: CGFloat,
+        safeAreaBottom: CGFloat,
+        bottomBarVisibleFraction: CGFloat = 1
+    ) -> ScrollChromeContentPadding {
+        let visibleTopBarHeight = max(0, topBarHeight)
+        let visibleBottomClearance = max(0, bottomBarHeight) + max(0, safeAreaBottom)
+        _ = topBarOffset
+        _ = bottomBarVisibleFraction
+
+        return ScrollChromeContentPadding(
+            top: visibleTopBarHeight,
+            bottom: visibleBottomClearance
+        )
+    }
+
+    static func publishedVisualOffsets(from offsets: ScrollChromeOffsets) -> ScrollChromeOffsets {
+        ScrollChromeOffsets(
+            topBarOffset: offsets.topBarOffset,
+            bottomBarOffset: offsets.bottomBarOffset,
+            hasMeasuredScrollY: offsets.hasMeasuredScrollY
+        )
+    }
+
+    static func shouldPublishVisualOffsets(
+        _ candidate: ScrollChromeOffsets,
+        over current: ScrollChromeOffsets,
+        threshold: CGFloat = visualOffsetPublishThreshold
+    ) -> Bool {
+        abs(candidate.topBarOffset - current.topBarOffset) >= threshold
+            || abs(candidate.bottomBarOffset - current.bottomBarOffset) >= threshold
+    }
+
+    static func chromeHitTestingEnabled(
+        offset: CGFloat,
+        hiddenOffset: CGFloat
+    ) -> Bool {
+        let hiddenOffset = max(0, hiddenOffset)
+        guard hiddenOffset > 0 else { return true }
+        return abs(offset) < hiddenOffset * 0.5
+    }
+
+    static func visibleFraction(
+        offset: CGFloat,
+        hiddenOffset: CGFloat
+    ) -> CGFloat {
+        let hiddenOffset = max(0, hiddenOffset)
+        guard hiddenOffset > 0 else { return 1 }
+
+        return 1 - clamp(offset / hiddenOffset, min: 0, max: 1)
+    }
+
+    static func newNotesIslandTopPadding(
+        topBarHeight: CGFloat,
+        topBarOffset: CGFloat
+    ) -> CGFloat {
+        let visibleTopBarHeight = max(0, topBarHeight + topBarOffset)
+        return max(8, visibleTopBarHeight + 8)
+    }
+
+    private static func clamp(_ value: CGFloat, min minimum: CGFloat, max maximum: CGFloat) -> CGFloat {
+        Swift.min(Swift.max(value, minimum), maximum)
+    }
+
+    private static func bottomScrollMultiplier(
+        topBarHeight: CGFloat,
+        bottomHiddenOffset: CGFloat
+    ) -> CGFloat {
+        let topBarHeight = max(0, topBarHeight)
+        let bottomHiddenOffset = max(0, bottomHiddenOffset)
+        guard topBarHeight > 0, bottomHiddenOffset > 0 else { return 1 }
+
+        return bottomHiddenOffset / topBarHeight
     }
 }
 

@@ -146,6 +146,46 @@ final class NostrFeedServiceTests: XCTestCase {
         XCTAssertLessThan(elapsed, 0.35)
     }
 
+    func testTrendingFetchDoesNotReuseCachedEmptyTimeline() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FlowTrendingEmptyCache-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = TestFileManager(rootURL: rootURL)
+        let nostrDatabase = FlowNostrDB(fileManager: fileManager)
+        let trendingNote = makeEvent(
+            id: hex("a"),
+            pubkey: hex("b"),
+            kind: 1,
+            tags: [],
+            content: "Trending recovered after empty response",
+            createdAt: 1_700_000_500
+        )
+        let relayClient = SequencedRelayClient(responses: [[], [trendingNote]])
+        let service = makeFeedService(
+            relayClient: relayClient,
+            fileManager: fileManager,
+            nostrDatabase: nostrDatabase
+        )
+
+        let emptyItems = try await service.fetchTrendingNotes(
+            limit: 10,
+            hydrationMode: .cachedProfilesOnly,
+            fetchTimeout: 0.1
+        )
+        let recoveredItems = try await service.fetchTrendingNotes(
+            limit: 10,
+            hydrationMode: .cachedProfilesOnly,
+            fetchTimeout: 0.1
+        )
+
+        XCTAssertTrue(emptyItems.isEmpty)
+        XCTAssertEqual(recoveredItems.map(\.id), [trendingNote.id])
+        let fetchCount = await relayClient.fetchCount()
+        XCTAssertEqual(fetchCount, 2)
+    }
+
     func testProfileEventServicePersistsFetchedMetadataSnapshotsLocally() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FlowProfileEventService-\(UUID().uuidString)", isDirectory: true)
@@ -502,6 +542,72 @@ final class NostrFeedServiceTests: XCTestCase {
         XCTAssertNil(resolved[reference])
         XCTAssertEqual(requestedRelayURLStrings, ["wss://relay.example.com"])
         XCTAssertNil(storedEvent[referencedEvent.id.lowercased()])
+    }
+
+    func testFetchReferencedFeedItemUsesAuthorRelayDirectoryWhenReferenceIncludesAuthor() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FlowSingleReferenceOutbox-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = TestFileManager(rootURL: rootURL)
+        let nostrDatabase = FlowNostrDB(fileManager: fileManager)
+        let relayHintCache = ProfileRelayHintCache()
+        let authorPubkey = hex("6")
+        let authorWriteRelayURL = URL(string: "wss://author-reference-write.example")!
+        let referencedEvent = makeEvent(
+            id: hex("7"),
+            pubkey: authorPubkey,
+            kind: 1,
+            tags: [],
+            content: "referenced event from author write relay",
+            createdAt: 1_700_000_600
+        )
+        let relayListEvent = makeEvent(
+            id: hex("8"),
+            pubkey: authorPubkey,
+            kind: 10_002,
+            tags: [
+                ["r", authorWriteRelayURL.absoluteString, "write"]
+            ],
+            content: "",
+            createdAt: 1_700_000_550
+        )
+
+        let relayClient = RecordingOutboxRelayClient(eventsByRelay: [
+            relayURL: [relayListEvent],
+            authorWriteRelayURL: [referencedEvent]
+        ])
+        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let service = NostrFeedService(
+            relayClient: relayClient,
+            timelineCache: TimelineEventCache(),
+            profileCache: ProfileCache(snapshotStore: ProfileSnapshotStore(fileManager: fileManager)),
+            relayHintCache: relayHintCache,
+            followListCache: FollowListSnapshotCache(fileManager: fileManager),
+            seenEventStore: seenEventStore,
+            nostrDatabase: nostrDatabase,
+            presentationCache: FeedPresentationCache()
+        )
+        let reference = NostrEventReferencePointer(
+            normalizedIdentifier: referencedEvent.id.lowercased(),
+            target: .eventID(referencedEvent.id.lowercased()),
+            relayHints: [],
+            authorPubkey: authorPubkey
+        )
+
+        let item = await service.fetchReferencedFeedItem(
+            reference: reference,
+            relayURLs: [relayURL],
+            hydrationMode: .cachedProfilesOnly,
+            fetchTimeout: 0.4
+        )
+        let requestedRelayURLStrings = canonicalRelayStrings(await relayClient.requestedRelayURLs())
+        let storedEvent = await seenEventStore.events(ids: [referencedEvent.id])
+
+        XCTAssertEqual(item?.id, referencedEvent.id)
+        XCTAssertTrue(requestedRelayURLStrings.contains("wss://author-reference-write.example"))
+        XCTAssertEqual(storedEvent[referencedEvent.id.lowercased()]?.content, referencedEvent.content)
     }
 
     func testFastFollowingFeedHonorsTimeoutForSlowEmptyAuthorBatch() async throws {
@@ -2387,6 +2493,46 @@ private actor DelayedRelayClient: NostrRelayEventFetching {
             (authors.isEmpty || authors.contains(event.pubkey)) &&
                 (kinds.isEmpty || kinds.contains(event.kind))
         }
+    }
+
+    func fetchCount() -> Int {
+        fetchCallCount
+    }
+}
+
+private actor SequencedRelayClient: NostrRelayEventFetching {
+    private var responses: [[Flow.NostrEvent]]
+    private var fetchCallCount = 0
+
+    init(responses: [[Flow.NostrEvent]]) {
+        self.responses = responses
+    }
+
+    func fetchEvents(
+        relayURL: URL,
+        filter: NostrFilter,
+        timeout: TimeInterval
+    ) async throws -> [Flow.NostrEvent] {
+        let _ = relayURL
+        let _ = timeout
+        fetchCallCount += 1
+        let response = responses.isEmpty ? [] : responses.removeFirst()
+        let kinds = Set(filter.kinds ?? [])
+        let limit = filter.limit ?? Int.max
+
+        return Array(
+            response
+                .filter { event in
+                    kinds.isEmpty || kinds.contains(event.kind)
+                }
+                .sorted(by: { lhs, rhs in
+                    if lhs.createdAt == rhs.createdAt {
+                        return lhs.id > rhs.id
+                    }
+                    return lhs.createdAt > rhs.createdAt
+                })
+                .prefix(limit)
+        )
     }
 
     func fetchCount() -> Int {

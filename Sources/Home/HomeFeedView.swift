@@ -6,6 +6,9 @@ struct HomeFeedView: View {
     private static let feedScrollCoordinateSpace = "home-feed-scroll"
     private static let feedHorizontalInset: CGFloat = 14
     private static let autoMergeTopThreshold: CGFloat = 56
+    private static let bufferedRevealDelayNanoseconds: UInt64 = 260_000_000
+    private static let pullToRefreshIndicatorVisibleDistance: CGFloat = 10
+    private static let pullToRefreshIndicatorMaxDistance: CGFloat = 72
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -14,6 +17,8 @@ struct HomeFeedView: View {
     @EnvironmentObject private var relaySettings: RelaySettingsStore
     @ObservedObject var viewModel: HomeFeedViewModel
     @Binding var isShowingSideMenu: Bool
+    @Binding var scrollChromeOffsets: ScrollChromeOffsets
+    let bottomTabBarHeight: CGFloat
     private let reactionStats = NoteReactionStatsService.shared
     @StateObject private var engagementViewport = FeedEngagementViewportCoordinator()
     @ObservedObject private var followStore = FollowStore.shared
@@ -24,6 +29,7 @@ struct HomeFeedView: View {
 
     @State private var isShowingAuthSheet = false
     @State private var authSheetInitialTab: AuthSheetTab = .signIn
+    @State private var authSheetPresentationID = UUID()
     @State private var isShowingFeedSourcePicker = false
     @State private var isShowingFilterSheet = false
     @State private var isShowingSettings = false
@@ -37,6 +43,10 @@ struct HomeFeedView: View {
     @State private var topNavAvatarImage: UIImage?
     @State private var shouldAutoFocusReplyInThread = false
     @State private var isNearFeedTop = true
+    @State private var isRevealingBufferedItems = false
+    @State private var pullToRefreshDistance: CGFloat = 0
+    @State private var isManualRefreshActive = false
+    @State private var scrollChromeTracker = ScrollChromeTracker()
 
     var body: some View {
         let _ = muteStore.filterRevision
@@ -206,18 +216,38 @@ struct HomeFeedView: View {
     }
 
     private var navigationRoot: some View {
-        NavigationStack {
-            HomeFeedRootContent(
-                isShowingSideMenu: $isShowingSideMenu,
-                topNavigationBar: { AnyView(topNavigationBar) },
-                feedContent: { AnyView(feedContent) },
-                sideMenuContent: { AnyView(sideMenuContent) }
-            )
-            .modifier(navigationDestinationsModifier)
+        GeometryReader { navigationGeometry in
+            NavigationStack {
+                HomeFeedRootContent(
+                    isShowingSideMenu: $isShowingSideMenu,
+                    scrollChromeOffsets: $scrollChromeOffsets,
+                    bottomTabBarHeight: bottomTabBarHeight,
+                    topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top),
+                    bottomSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.bottom),
+                    topNavigationBar: { AnyView(topNavigationBar) },
+                    feedContent: { topPadding, bottomPadding, topBarHeight, safeAreaBottom in
+                        AnyView(
+                            feedContent(
+                                topContentPadding: topPadding,
+                                bottomContentPadding: bottomPadding,
+                                topBarHeight: topBarHeight,
+                                safeAreaBottom: safeAreaBottom
+                            )
+                        )
+                    },
+                    sideMenuContent: { AnyView(sideMenuContent) }
+                )
+                .modifier(navigationDestinationsModifier)
+            }
         }
     }
 
-    private var feedContent: some View {
+    private func feedContent(
+        topContentPadding: CGFloat,
+        bottomContentPadding: CGFloat,
+        topBarHeight: CGFloat,
+        safeAreaBottom: CGFloat
+    ) -> some View {
         let visibleItems = viewModel.visibleItems
         let visibleReplyCounts = ReplyCountEstimator.counts(for: visibleItems)
 
@@ -225,35 +255,46 @@ struct HomeFeedView: View {
             feedList(
                 scrollProxy: scrollProxy,
                 visibleItems: visibleItems,
-                visibleReplyCounts: visibleReplyCounts
+                visibleReplyCounts: visibleReplyCounts,
+                topContentPadding: topContentPadding,
+                bottomContentPadding: bottomContentPadding,
+                topBarHeight: topBarHeight,
+                safeAreaBottom: safeAreaBottom
             )
         }
     }
 
+    @ViewBuilder
     private func feedList(
         scrollProxy: ScrollViewProxy,
         visibleItems: [FeedItem],
-        visibleReplyCounts: [String: Int]
+        visibleReplyCounts: [String: Int],
+        topContentPadding: CGFloat,
+        bottomContentPadding: CGFloat,
+        topBarHeight: CGFloat,
+        safeAreaBottom: CGFloat
     ) -> some View {
-        List {
-            feedModeHeaderRow
-            feedRows(visibleItems, visibleReplyCounts: visibleReplyCounts)
-            loadingMoreRow
+        let scrollView = ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 0) {
+                feedTopPadding(height: topContentPadding)
+
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    feedModeHeaderRow
+                    feedRows(visibleItems, visibleReplyCounts: visibleReplyCounts)
+                    loadingMoreRow
+                }
+
+                feedBottomPadding(height: bottomContentPadding)
+            }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
         .background(Color.clear)
+        .ignoresSafeArea(edges: [.top, .bottom])
         .coordinateSpace(name: Self.feedScrollCoordinateSpace)
         .overlay(alignment: .top) {
-            newNotesOverlay(scrollProxy: scrollProxy)
-        }
-        .onPreferenceChange(HomeFeedTopOffsetPreferenceKey.self) { newValue in
-            let nearTop = newValue >= -Self.autoMergeTopThreshold
-            guard isNearFeedTop != nearTop else { return }
-            isNearFeedTop = nearTop
-            if nearTop {
-                autoShowBufferedItemsIfNeeded()
-            }
+            newNotesOverlay(
+                scrollProxy: scrollProxy,
+                topBarHeight: topBarHeight
+            )
         }
         .onChange(of: viewModel.visibleBufferedNewItemsCount) { _, _ in
             autoShowBufferedItemsIfNeeded()
@@ -264,41 +305,79 @@ struct HomeFeedView: View {
         .task {
             await configureFeedDependenciesAndLoad()
         }
+
+        if #available(iOS 18.0, *) {
+            scrollView
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    max(0, -(geometry.contentOffset.y + geometry.contentInsets.top))
+                } action: { _, pullDistance in
+                    updatePullToRefreshDistance(pullDistance)
+                }
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    max(0, geometry.contentOffset.y + geometry.contentInsets.top)
+                } action: { _, scrollY in
+                    handleScroll(currentScrollY: scrollY, topBarHeight: topBarHeight, safeAreaBottom: safeAreaBottom)
+                    handleNearTopChange(currentScrollY: scrollY)
+                }
+        } else {
+            scrollView
+                .onPreferenceChange(HomeFeedTopOffsetPreferenceKey.self) { newValue in
+                    let currentScrollY = max(0, -newValue)
+                    updatePullToRefreshDistance(max(0, newValue))
+                    handleScroll(currentScrollY: currentScrollY, topBarHeight: topBarHeight, safeAreaBottom: safeAreaBottom)
+                    handleNearTopChange(currentScrollY: currentScrollY)
+                }
+        }
     }
 
+    private func feedTopPadding(height: CGFloat) -> some View {
+        Color.clear
+            .frame(height: max(0, height))
+            .id(Self.feedTopAnchorID)
+            .background(feedTopOffsetReader)
+    }
+
+    private func feedBottomPadding(height: CGFloat) -> some View {
+        Color.clear
+            .frame(height: max(0, height))
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
     private var feedModeHeaderRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if viewModel.feedSource == .articles {
-                Label("Articles from people you follow", systemImage: "doc.text")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
-            } else if viewModel.feedSource != .polls {
-                FlowCapsuleTabBar(
-                    selection: $viewModel.mode,
-                    items: HomeFeedMode.allCases,
-                    selectedBackground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedBackground,
-                    selectedForeground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedForeground,
-                    selectedStroke: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedStroke,
-                    title: { $0.title }
-                )
+        if viewModel.supportsModeTabsForCurrentSource ||
+            viewModel.mediaOnly ||
+            viewModel.feedSource == .articles ||
+            viewModel.feedSource == .polls {
+            VStack(alignment: .leading, spacing: 8) {
+                if viewModel.feedSource == .articles {
+                    Label("Articles from people you follow", systemImage: "doc.text")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                } else if viewModel.feedSource == .polls {
+                    Label("Polls from people you follow", systemImage: "chart.bar.xaxis")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                } else if viewModel.supportsModeTabsForCurrentSource {
+                    FlowCapsuleTabBar(
+                        selection: $viewModel.mode,
+                        items: HomeFeedMode.allCases,
+                        selectedBackground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedBackground,
+                        selectedForeground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedForeground,
+                        selectedStroke: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedStroke,
+                        title: { $0.title }
+                    )
+                }
 
                 if viewModel.mediaOnly {
                     Label("Media-only filter enabled", systemImage: "line.3.horizontal.decrease.circle.fill")
                         .font(.footnote)
                         .foregroundStyle(appSettings.themePalette.secondaryForeground)
                 }
-            } else {
-                Label("Polls from people you follow", systemImage: "chart.bar.xaxis")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
             }
+            .padding(.vertical, 0)
+            .padding(.horizontal, Self.feedHorizontalInset)
         }
-        .padding(.vertical, 0)
-        .listRowInsets(feedListRowInsets)
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-        .id(Self.feedTopAnchorID)
-        .background(feedTopOffsetReader)
     }
 
     @ViewBuilder
@@ -309,15 +388,14 @@ struct HomeFeedView: View {
         if viewModel.isShowingLoadingPlaceholder {
             ForEach(0..<6, id: \.self) { _ in
                 loadingRow
-                    .listRowInsets(feedListRowInsets)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+                    .padding(.horizontal, Self.feedHorizontalInset)
             }
         } else if visibleItems.isEmpty {
             emptyOrFilteredFeedRow
         } else {
             ForEach(visibleItems) { item in
                 feedRow(item, visibleReplyCounts: visibleReplyCounts)
+                    .transition(FlowTransitionMotion.feedItemInsertionTransition(reduceMotion: accessibilityReduceMotion))
             }
         }
     }
@@ -326,14 +404,10 @@ struct HomeFeedView: View {
     private var emptyOrFilteredFeedRow: some View {
         if viewModel.shouldShowFilteredOutState {
             filteredOutState
-                .listRowInsets(feedListRowInsets)
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+                .padding(.horizontal, Self.feedHorizontalInset)
         } else {
             emptyState
-                .listRowInsets(feedListRowInsets)
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+                .padding(.horizontal, Self.feedHorizontalInset)
         }
     }
 
@@ -346,43 +420,111 @@ struct HomeFeedView: View {
                 Spacer()
             }
             .padding(.vertical, 8)
-            .listRowInsets(feedListRowInsets)
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
+            .padding(.horizontal, Self.feedHorizontalInset)
         }
     }
 
     @ViewBuilder
-    private func newNotesOverlay(scrollProxy: ScrollViewProxy) -> some View {
-        if viewModel.visibleBufferedNewItemsCount > 0, !isNearFeedTop, !isShowingSideMenu {
+    private func newNotesOverlay(
+        scrollProxy: ScrollViewProxy,
+        topBarHeight: CGFloat
+    ) -> some View {
+        if viewModel.visibleBufferedNewItemsCount > 0, !isNearFeedTop, !isShowingSideMenu, !isRevealingBufferedItems {
             newNotesPill {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    viewModel.showBufferedNewItems()
-                    scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)
-                }
+                self.revealBufferedNewItems(scrollProxy: scrollProxy)
             }
-            .padding(.top, 8)
+            .padding(
+                .top,
+                ScrollChromeLayout.newNotesIslandTopPadding(
+                    topBarHeight: topBarHeight,
+                    topBarOffset: scrollChromeOffsets.topBarOffset
+                )
+            )
             .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 
-    private var feedListRowInsets: EdgeInsets {
-        EdgeInsets(
-            top: 0,
-            leading: Self.feedHorizontalInset,
-            bottom: 0,
-            trailing: Self.feedHorizontalInset
+    private func handleScroll(
+        currentScrollY: CGFloat,
+        topBarHeight: CGFloat,
+        safeAreaBottom: CGFloat
+    ) {
+        let updated = scrollChromeTracker.offsetsByApplyingScroll(
+            currentScrollY: currentScrollY,
+            currentVisualOffsets: scrollChromeOffsets,
+            topBarHeight: topBarHeight,
+            bottomBarHeight: bottomTabBarHeight,
+            safeAreaBottom: safeAreaBottom
         )
+
+        publishScrollChromeOffsetsIfNeeded(updated)
+    }
+
+    private func publishScrollChromeOffsetsIfNeeded(_ updated: ScrollChromeOffsets) {
+        guard ScrollChromeLayout.shouldPublishVisualOffsets(updated, over: scrollChromeOffsets) else { return }
+        scrollChromeOffsets = ScrollChromeLayout.publishedVisualOffsets(from: updated)
+    }
+
+    private func handleNearTopChange(currentScrollY: CGFloat) {
+        let nearTop = currentScrollY <= Self.autoMergeTopThreshold
+        guard isNearFeedTop != nearTop else { return }
+        isNearFeedTop = nearTop
+        if nearTop {
+            autoShowBufferedItemsIfNeeded()
+        }
     }
 
     private func refreshFeed(scrollProxy: ScrollViewProxy) async {
+        isManualRefreshActive = true
+        defer {
+            isManualRefreshActive = false
+            pullToRefreshDistance = 0
+        }
+
         if viewModel.visibleBufferedNewItemsCount > 0 {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                viewModel.showBufferedNewItems()
+            self.revealBufferedNewItems(scrollProxy: scrollProxy)
+        } else {
+            await viewModel.refresh()
+        }
+    }
+
+    private func updatePullToRefreshDistance(_ distance: CGFloat) {
+        let clampedDistance = min(max(0, distance), Self.pullToRefreshIndicatorMaxDistance)
+        guard abs(pullToRefreshDistance - clampedDistance) >= 0.5 else { return }
+        pullToRefreshDistance = clampedDistance
+    }
+
+    private func revealBufferedNewItems(scrollProxy: ScrollViewProxy) {
+        guard viewModel.visibleBufferedNewItemsCount > 0 else { return }
+        guard !isRevealingBufferedItems else { return }
+
+        isRevealingBufferedItems = true
+        if let animation = FlowTransitionMotion.feedRevealScrollAnimation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
                 scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)
             }
         } else {
-            await viewModel.refresh()
+            scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)
+        }
+
+        Task { @MainActor in
+            if !accessibilityReduceMotion {
+                try? await Task.sleep(nanoseconds: Self.bufferedRevealDelayNanoseconds)
+            }
+
+            guard viewModel.visibleBufferedNewItemsCount > 0 else {
+                isRevealingBufferedItems = false
+                return
+            }
+
+            if let animation = FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion) {
+                withAnimation(animation) {
+                    viewModel.showBufferedNewItems()
+                }
+            } else {
+                viewModel.showBufferedNewItems()
+            }
+            isRevealingBufferedItems = false
         }
     }
 
@@ -443,12 +585,52 @@ struct HomeFeedView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(topNavigationBackground)
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(appSettings.themePalette.chromeBorder)
-                .frame(height: 0.7)
+            pullToRefreshIndicator
+                .offset(y: 16)
         }
+    }
+
+    @ViewBuilder
+    private var pullToRefreshIndicator: some View {
+        let opacity = pullToRefreshIndicatorOpacity
+
+        if opacity > 0 {
+            ProgressView()
+                .controlSize(.small)
+                .tint(appSettings.primaryColor)
+                .scaleEffect(0.82)
+                .padding(7)
+                .background {
+                    Circle()
+                        .fill(appSettings.themePalette.background.opacity(0.94))
+                        .shadow(
+                            color: Color.black.opacity(colorScheme == .dark ? 0.28 : 0.10),
+                            radius: 8,
+                            x: 0,
+                            y: 3
+                        )
+                }
+                .opacity(opacity)
+                .scaleEffect(0.8 + (0.2 * opacity))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var pullToRefreshIndicatorOpacity: CGFloat {
+        guard isManualRefreshActive || pullToRefreshDistance > Self.pullToRefreshIndicatorVisibleDistance else {
+            return 0
+        }
+        guard !isManualRefreshActive else { return 1 }
+
+        let visibleRange = Self.pullToRefreshIndicatorMaxDistance - Self.pullToRefreshIndicatorVisibleDistance
+        guard visibleRange > 0 else { return 1 }
+
+        return min(
+            max(0, (pullToRefreshDistance - Self.pullToRefreshIndicatorVisibleDistance) / visibleRange),
+            1
+        )
     }
 
     private var feedSourcePickerLabel: some View {
@@ -475,19 +657,6 @@ struct HomeFeedView: View {
             Capsule(style: .continuous)
                 .fill(feedSourcePickerFill)
         )
-    }
-
-    @ViewBuilder
-    private var topNavigationBackground: some View {
-        if effectiveChromeColorScheme == .light {
-            Color.white
-        } else if appSettings.activeTheme == .gamer {
-            appSettings.themePalette.background
-        } else if appSettings.activeTheme == .dracula {
-            appSettings.themePalette.chromeBackground
-        } else {
-            appSettings.themePalette.chromeBackground
-        }
     }
 
     private var topNavigationControlFill: Color {
@@ -562,11 +731,17 @@ struct HomeFeedView: View {
                 Button {
                     isShowingFilterSheet = true
                 } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .font(.system(size: 21, weight: .regular))
-                        .foregroundStyle(appSettings.themePalette.mutedForeground)
-                        .frame(width: 46, height: 46)
-                        .contentShape(Rectangle())
+                    ZStack {
+                        Circle()
+                            .fill(topNavigationControlFill)
+                            .frame(width: 36, height: 36)
+
+                        Image(systemName: "line.3.horizontal.decrease")
+                            .font(.system(size: 21, weight: .regular))
+                            .foregroundStyle(appSettings.themePalette.mutedForeground)
+                    }
+                    .frame(width: 46, height: 46)
+                    .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Feed filters")
@@ -746,7 +921,7 @@ struct HomeFeedView: View {
                 Text(
                     viewModel.feedSource == .articles
                         ? "Follow some people to discover their writing."
-                        : "Follow people or switch to Network from the feed selector."
+                        : "Follow people or try Trending from the feed selector."
                 )
                     .font(.subheadline)
                     .multilineTextAlignment(.center)
@@ -838,23 +1013,23 @@ struct HomeFeedView: View {
                 openRelayFeed(relayURL: relayURL)
             },
             onOptimisticPublished: { publishedItem in
-                viewModel.insertOptimisticPublishedItem(publishedItem)
+                animateFeedInsertion {
+                    viewModel.insertOptimisticPublishedItem(publishedItem)
+                }
             },
             onMuteConversation: { conversationID in
                 viewModel.muteConversation(conversationID)
             }
         )
-        .listRowInsets(
-            EdgeInsets(
-                top: 0,
-                leading: Self.feedHorizontalInset,
-                bottom: 0,
-                trailing: Self.feedHorizontalInset
-            )
-        )
-        .listRowSeparator(appSettings.themePalette.feedCardStyle == nil ? .visible : .hidden)
-        .listRowSeparatorTint(appSettings.themePalette.chromeBorder)
-        .listRowBackground(Color.clear)
+        .padding(.horizontal, Self.feedHorizontalInset)
+        .overlay(alignment: .bottom) {
+            if appSettings.themePalette.feedCardStyle == nil {
+                Rectangle()
+                    .fill(appSettings.themePalette.chromeBorder)
+                    .frame(height: 0.7)
+                    .padding(.leading, Self.feedHorizontalInset)
+            }
+        }
         .onAppear {
             if appSettings.reactionsVisibleInFeeds {
                 engagementViewport.noteVisible(
@@ -868,8 +1043,19 @@ struct HomeFeedView: View {
         }
     }
 
+    private func animateFeedInsertion(_ updates: () -> Void) {
+        if let animation = FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
+                updates()
+            }
+        } else {
+            updates()
+        }
+    }
+
     private func openAuthSheet(tab: AuthSheetTab) {
         authSheetInitialTab = tab
+        authSheetPresentationID = UUID()
         isShowingAuthSheet = true
     }
 
@@ -898,6 +1084,7 @@ struct HomeFeedView: View {
             initialTab: authSheetInitialTab,
             onSelectedTabChange: { authSheetInitialTab = $0 }
         )
+        .id(authSheetPresentationID)
         .environmentObject(auth)
         .environmentObject(appSettings)
         .environmentObject(relaySettings)
@@ -929,7 +1116,7 @@ struct HomeFeedView: View {
     private func feedSourceLabel(for source: HomePrimaryFeedSource) -> String {
         switch source {
         case .network:
-            return "Network"
+            return "Following"
         case .following:
             return "Following"
         case .articles:
@@ -955,7 +1142,7 @@ struct HomeFeedView: View {
     private func feedSourceIconName(for source: HomePrimaryFeedSource) -> String {
         switch source {
         case .network:
-            return "dot.radiowaves.left.and.right"
+            return "person.2"
         case .following:
             return "person.2"
         case .articles:
@@ -1085,7 +1272,7 @@ struct HomeFeedView: View {
             HStack(spacing: 10) {
                 newNotesAvatarStack
 
-                Text(newNotesPillLabel)
+                Text("posted")
                     .font(.caption.weight(.semibold))
             }
             .foregroundStyle(appSettings.themePalette.foreground)
@@ -1124,11 +1311,6 @@ struct HomeFeedView: View {
         .padding(.trailing, authors.count > 1 ? 4 : 0)
     }
 
-    private var newNotesPillLabel: String {
-        let count = viewModel.visibleBufferedNewItemsCount
-        return count == 1 ? "1 note" : "\(count) notes"
-    }
-
     private var recentBufferedAuthors: [FeedItem] {
         var seenAuthors = Set<String>()
         var authors: [FeedItem] = []
@@ -1158,7 +1340,11 @@ struct HomeFeedView: View {
     private func autoShowBufferedItemsIfNeeded() {
         guard isNearFeedTop else { return }
         guard viewModel.visibleBufferedNewItemsCount > 0 else { return }
-        withAnimation(.easeInOut(duration: 0.2)) {
+        if let animation = FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
+                viewModel.showBufferedNewItems()
+            }
+        } else {
             viewModel.showBufferedNewItems()
         }
     }
@@ -1293,27 +1479,100 @@ struct HomeFeedView: View {
 }
 
 private struct HomeFeedRootContent: View {
+    @EnvironmentObject private var appSettings: AppSettingsStore
     @Binding var isShowingSideMenu: Bool
+    @Binding var scrollChromeOffsets: ScrollChromeOffsets
 
+    let bottomTabBarHeight: CGFloat
+    let topSafeAreaInset: CGFloat
+    let bottomSafeAreaInset: CGFloat
     let topNavigationBar: () -> AnyView
-    let feedContent: () -> AnyView
+    let feedContent: (_ topPadding: CGFloat, _ bottomPadding: CGFloat, _ topBarHeight: CGFloat, _ safeAreaBottom: CGFloat) -> AnyView
     let sideMenuContent: () -> AnyView
 
-    var body: some View {
-        SideMenuContainer(isOpen: $isShowingSideMenu) {
-            sideMenuContent()
-        } content: {
-            ZStack(alignment: .leading) {
-                AppThemeBackgroundView(holographicSpotlight: .feed)
-                    .ignoresSafeArea()
+    @State private var topBarHeight = ScrollChromeLayout.defaultTopBarHeight
 
-                VStack(spacing: 0) {
+    var body: some View {
+        GeometryReader { geometry in
+            let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)
+            let safeAreaBottom = max(max(0, bottomSafeAreaInset), geometry.safeAreaInsets.bottom)
+            let topHiddenOffset = ScrollChromeLayout.topHiddenOffset(
+                topBarHeight: topBarHeight,
+                safeAreaTop: safeAreaTop
+            )
+            let contentPadding = ScrollChromeLayout.feedContentPadding(
+                topBarHeight: topHiddenOffset,
+                bottomBarHeight: bottomTabBarHeight,
+                safeAreaBottom: safeAreaBottom
+            )
+            let topVisibleFraction = topNavigationBarVisibleFraction(topHiddenOffset: topHiddenOffset)
+
+            SideMenuContainer(
+                isOpen: $isShowingSideMenu,
+                topSafeAreaInset: safeAreaTop
+            ) {
+                sideMenuContent()
+            } content: {
+                ZStack(alignment: .top) {
+                    AppThemeBackgroundView(holographicSpotlight: .feed)
+                        .ignoresSafeArea()
+
+                    feedContent(
+                        contentPadding.top,
+                        contentPadding.bottom,
+                        topHiddenOffset,
+                        safeAreaBottom
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea(edges: [.top, .bottom])
+
                     topNavigationBar()
-                    feedContent()
+                        .background(topNavigationBarHeightReader)
+                        .padding(.top, safeAreaTop)
+                        .background(topNavigationBarBackground)
+                        .offset(y: scrollChromeOffsets.topBarOffset)
+                        .opacity(topVisibleFraction)
+                        .allowsHitTesting(topNavigationBarHitTestingEnabled(topHiddenOffset: topHiddenOffset))
+                        .accessibilityHidden(!topNavigationBarHitTestingEnabled(topHiddenOffset: topHiddenOffset))
+                        .zIndex(1)
                 }
             }
+            .onPreferenceChange(HomeFeedTopNavigationBarHeightPreferenceKey.self) { newValue in
+                guard newValue > 0, abs(topBarHeight - newValue) >= 0.5 else { return }
+                topBarHeight = newValue
+            }
         }
+        .ignoresSafeArea(edges: [.top, .bottom])
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private func topNavigationBarHitTestingEnabled(topHiddenOffset: CGFloat) -> Bool {
+        ScrollChromeLayout.chromeHitTestingEnabled(
+            offset: scrollChromeOffsets.topBarOffset,
+            hiddenOffset: topHiddenOffset
+        )
+    }
+
+    private func topNavigationBarVisibleFraction(topHiddenOffset: CGFloat) -> CGFloat {
+        ScrollChromeLayout.visibleFraction(
+            offset: -scrollChromeOffsets.topBarOffset,
+            hiddenOffset: topHiddenOffset
+        )
+    }
+
+    private var topNavigationBarHeightReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .preference(
+                    key: HomeFeedTopNavigationBarHeightPreferenceKey.self,
+                    value: proxy.size.height
+                )
+        }
+    }
+
+    private var topNavigationBarBackground: some View {
+        appSettings.themePalette.background
+            .ignoresSafeArea(edges: .top)
     }
 }
 
@@ -1479,6 +1738,14 @@ private struct HomeFeedTopOffsetPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
+    }
+}
+
+private struct HomeFeedTopNavigationBarHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

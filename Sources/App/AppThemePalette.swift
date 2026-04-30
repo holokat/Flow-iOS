@@ -85,6 +85,7 @@ struct AppThemePalette {
     private static let holographicLightSurface = Color(red: 0.957, green: 0.982, blue: 1.0)
     private static let holographicLightRaised = Color(red: 0.976, green: 0.966, blue: 1.0)
     private static let holographicLightBorder = Color.black.opacity(0.04)
+    private static let holographicLightLinkPreviewBorder = Color.black.opacity(0.08)
     private static let holographicLightForeground = Color(red: 0.055, green: 0.075, blue: 0.125)
     private static let holographicLightMuted = Color(red: 0.365, green: 0.418, blue: 0.540)
     private static let holographicDarkBackground = Color(red: 0.035, green: 0.043, blue: 0.075)
@@ -556,7 +557,7 @@ struct AppThemePalette {
             warningForeground: warningForeground,
             errorForeground: errorForeground,
             linkPreviewBackground: .white,
-            linkPreviewBorder: border,
+            linkPreviewBorder: Self.holographicLightLinkPreviewBorder,
             articlePreviewBackgroundTop: .white,
             articlePreviewBackgroundBottom: backgroundWash,
             articlePreviewBorder: border,
@@ -680,7 +681,7 @@ struct AppThemePalette {
         warningForeground: .orange,
         errorForeground: .red,
         linkPreviewBackground: Color(red: 0.96, green: 0.96, blue: 0.97),
-        linkPreviewBorder: Self.holographicLightBorder,
+        linkPreviewBorder: Self.whiteBorder,
         articlePreviewBackgroundTop: Color(red: 0.96, green: 0.96, blue: 0.97),
         articlePreviewBackgroundBottom: .white,
         articlePreviewBorder: Self.holographicLightBorder,
@@ -832,7 +833,7 @@ struct AppThemePalette {
         warningForeground: .orange,
         errorForeground: Self.holographicPink,
         linkPreviewBackground: .white,
-        linkPreviewBorder: Self.holographicLightBorder,
+        linkPreviewBorder: Self.holographicLightLinkPreviewBorder,
         articlePreviewBackgroundTop: .white,
         articlePreviewBackgroundBottom: Self.holographicLightBackground,
         articlePreviewBorder: Self.holographicLightBorder,

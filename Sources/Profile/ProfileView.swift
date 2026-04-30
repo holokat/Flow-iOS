@@ -20,12 +20,14 @@ enum ProfileViewLayout {
 
 struct ProfileView: View {
     private static let feedHorizontalInset: CGFloat = 14
-    private static let bottomScrollClearance: CGFloat = 110
 
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var toastCenter: AppToastCenter
     @EnvironmentObject private var relaySettings: RelaySettingsStore
+    @Environment(\.flowScrollChromeOffsets) private var flowScrollChromeOffsets
+    @Environment(\.flowBottomTabBarHeight) private var flowBottomTabBarHeight
     @Environment(\.dismiss) private var dismiss
 
     @StateObject private var viewModel: ProfileViewModel
@@ -204,9 +206,11 @@ struct ProfileView: View {
             let visibleItems = viewModel.visibleItems
             let visibleReplyCounts = ReplyCountEstimator.counts(for: visibleItems)
             let topSafeAreaInset = proxy.safeAreaInsets.top
+            let safeAreaBottom = max(0, proxy.safeAreaInsets.bottom)
+            let bottomScrollClearance = profileBottomScrollClearance(safeAreaBottom: safeAreaBottom)
 
             ZStack {
-                AppThemeBackgroundView(holographicSpotlight: .profile)
+                AppThemeBackgroundView()
                     .ignoresSafeArea()
 
                 List {
@@ -341,9 +345,12 @@ struct ProfileView: View {
                                     openRelayFeed(relayURL: relayURL)
                                 },
                                 onOptimisticPublished: { publishedItem in
-                                    viewModel.insertOptimisticPublishedItem(publishedItem)
+                                    animateFeedInsertion {
+                                        viewModel.insertOptimisticPublishedItem(publishedItem)
+                                    }
                                 }
                             )
+                            .transition(FlowTransitionMotion.feedItemInsertionTransition(reduceMotion: accessibilityReduceMotion))
                             .listRowInsets(
                                 EdgeInsets(
                                     top: 0,
@@ -390,7 +397,7 @@ struct ProfileView: View {
 
                     if !visibleItems.isEmpty || viewModel.isLoadingMore {
                         Color.clear
-                            .frame(height: Self.bottomScrollClearance)
+                            .frame(height: bottomScrollClearance)
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -400,28 +407,25 @@ struct ProfileView: View {
                 .contentMargins(.top, 0, for: .scrollContent)
                 .scrollContentBackground(.hidden)
                 .background(Color.clear)
-                .ignoresSafeArea(edges: .top)
+                .ignoresSafeArea(edges: [.top, .bottom])
                 .refreshable {
-                    await viewModel.refresh()
-                    await viewModel.refreshFollowRelationship(currentAccountPubkey: auth.currentAccount?.pubkey)
-                    await viewModel.refreshKnownFollowers(
-                        currentAccountPubkey: auth.currentAccount?.pubkey,
-                        followedPubkeys: followStore.followedPubkeys
-                    )
+                    await refreshProfileScreenData()
                     muteStore.refreshFromRelay()
                 }
+                .modifier(
+                    ProfileScrollChromeModifier(
+                        scrollChromeOffsets: flowScrollChromeOffsets,
+                        bottomTabBarHeight: flowBottomTabBarHeight,
+                        safeAreaBottom: safeAreaBottom
+                    )
+                )
             }
         }
         .navigationTitle("")
         .toolbar(.hidden, for: .navigationBar)
         .task {
             configureStores()
-            await viewModel.loadIfNeeded()
-            await viewModel.refreshFollowRelationship(currentAccountPubkey: auth.currentAccount?.pubkey)
-            await viewModel.refreshKnownFollowers(
-                currentAccountPubkey: auth.currentAccount?.pubkey,
-                followedPubkeys: followStore.followedPubkeys
-            )
+            await loadInitialProfileScreenData()
         }
         .sheet(isPresented: $isShowingProfileEditor) {
             ProfileEditorSheet(
@@ -541,12 +545,7 @@ struct ProfileView: View {
         .onChange(of: appSettings.slowConnectionMode) { _, _ in
             configureStores()
             Task {
-                await viewModel.refresh()
-                await viewModel.refreshFollowRelationship(currentAccountPubkey: auth.currentAccount?.pubkey)
-                await viewModel.refreshKnownFollowers(
-                    currentAccountPubkey: auth.currentAccount?.pubkey,
-                    followedPubkeys: followStore.followedPubkeys
-                )
+                await refreshProfileScreenData()
             }
         }
         .onChange(of: followStore.followedPubkeys) { _, _ in
@@ -557,6 +556,14 @@ struct ProfileView: View {
                 await viewModel.prepareForSelectedModeIfNeeded()
             }
         }
+    }
+
+    private func profileBottomScrollClearance(safeAreaBottom: CGFloat) -> CGFloat {
+        return ScrollChromeLayout.feedContentPadding(
+            topBarHeight: 0,
+            bottomBarHeight: flowBottomTabBarHeight,
+            safeAreaBottom: safeAreaBottom
+        ).bottom
     }
 
     private var profileBackButton: some View {
@@ -754,6 +761,32 @@ struct ProfileView: View {
         )
     }
 
+    private func loadInitialProfileScreenData() async {
+        async let loadIfNeeded: Void = viewModel.loadIfNeeded()
+        async let refreshFollowRelationship: Void = viewModel.refreshFollowRelationship(
+            currentAccountPubkey: auth.currentAccount?.pubkey
+        )
+        async let refreshKnownFollowers: Void = viewModel.refreshKnownFollowers(
+            currentAccountPubkey: auth.currentAccount?.pubkey,
+            followedPubkeys: followStore.followedPubkeys
+        )
+
+        _ = await (loadIfNeeded, refreshFollowRelationship, refreshKnownFollowers)
+    }
+
+    private func refreshProfileScreenData() async {
+        async let refreshProfile: Void = viewModel.refresh()
+        async let refreshFollowRelationship: Void = viewModel.refreshFollowRelationship(
+            currentAccountPubkey: auth.currentAccount?.pubkey
+        )
+        async let refreshKnownFollowers: Void = viewModel.refreshKnownFollowers(
+            currentAccountPubkey: auth.currentAccount?.pubkey,
+            followedPubkeys: followStore.followedPubkeys
+        )
+
+        _ = await (refreshProfile, refreshFollowRelationship, refreshKnownFollowers)
+    }
+
     private func refreshFollowRelationship() {
         Task {
             await viewModel.refreshFollowRelationship(currentAccountPubkey: auth.currentAccount?.pubkey)
@@ -810,6 +843,16 @@ struct ProfileView: View {
         (value ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+    }
+
+    private func animateFeedInsertion(_ updates: () -> Void) {
+        if let animation = FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
+                updates()
+            }
+        } else {
+            updates()
+        }
     }
 }
 
@@ -1049,6 +1092,36 @@ private struct ProfileConnectionsSheet: View {
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             toastCenter.show(message, style: .error)
+        }
+    }
+
+}
+
+private struct ProfileScrollChromeModifier: ViewModifier {
+    let scrollChromeOffsets: Binding<ScrollChromeOffsets>?
+    let bottomTabBarHeight: CGFloat
+    let safeAreaBottom: CGFloat
+    @State private var scrollChromeTracker = ScrollChromeTracker()
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *), let scrollChromeOffsets {
+            content
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    max(0, geometry.contentOffset.y + geometry.contentInsets.top)
+                } action: { _, scrollY in
+                    let updated = scrollChromeTracker.offsetsByApplyingScroll(
+                        currentScrollY: scrollY,
+                        currentVisualOffsets: scrollChromeOffsets.wrappedValue,
+                        topBarHeight: ScrollChromeLayout.defaultTopBarHeight,
+                        bottomBarHeight: bottomTabBarHeight,
+                        safeAreaBottom: safeAreaBottom
+                    )
+                    if ScrollChromeLayout.shouldPublishVisualOffsets(updated, over: scrollChromeOffsets.wrappedValue) {
+                        scrollChromeOffsets.wrappedValue = ScrollChromeLayout.publishedVisualOffsets(from: updated)
+                    }
+                }
+        } else {
+            content
         }
     }
 }

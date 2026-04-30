@@ -72,26 +72,21 @@ struct ProfileAboutTextView: View {
                 if let pubkey = Self.mentionedPubkey(from: normalized),
                    let actionURL = NoteContentParser.profileActionURL(for: pubkey) {
                     segment.link = actionURL
-                    segment.foregroundColor = .accentColor
                 } else if let externalURL = NoteContentParser.njumpURL(for: normalized) {
                     segment.link = externalURL
-                    segment.foregroundColor = .accentColor
                 }
             case .hashtag:
                 if let url = NoteContentParser.hashtagActionURL(for: token.value) {
                     segment.link = url
-                    segment.foregroundColor = .accentColor
                 }
             case .url, .image, .video, .youtubeVideo, .audio:
                 if let url = URL(string: token.value) {
                     segment.link = url
-                    segment.foregroundColor = .accentColor
                 }
             case .websocketURL:
                 if let url = RelayURLSupport.actionURL(for: token.value),
                    onRelayTap != nil {
                     segment.link = url
-                    segment.foregroundColor = .accentColor
                 } else {
                     segment.foregroundColor = appSettings.themePalette.secondaryForeground
                 }
@@ -102,7 +97,7 @@ struct ProfileAboutTextView: View {
             output += segment
         }
 
-        return output
+        return AttributedLinkStyler.applyingLinkColor(appSettings.linkColor, to: output)
     }
 
     private func displayValue(for token: NoteContentToken) -> String {

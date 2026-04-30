@@ -37,6 +37,12 @@ enum HomeFeedMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum HomeFeedModePolicy {
+    static func supportsModeTabs(for source: HomePrimaryFeedSource) -> Bool {
+        source == .following
+    }
+}
+
 enum FeedMode: String, CaseIterable, Identifiable {
     case posts
     case postsAndReplies
@@ -301,23 +307,25 @@ enum HomeFeedSourceResolver {
     ) -> HomePrimaryFeedSource {
         switch source {
         case .custom(let feedID):
-            return customFeedDefinition(id: feedID, customFeeds: customFeeds) == nil ? .network : .custom(feedID)
+            return customFeedDefinition(id: feedID, customFeeds: customFeeds) == nil ? .following : .custom(feedID)
         case .hashtag(let hashtag):
             let normalizedHashtag = HomePrimaryFeedSource.normalizeHashtag(hashtag)
             guard favoriteHashtags.contains(normalizedHashtag) else {
-                return .network
+                return .following
             }
             return .hashtag(normalizedHashtag)
         case .relay(let relayURL):
             let normalizedRelayURL = HomePrimaryFeedSource.normalizeRelayURLString(relayURL)
             guard favoriteRelayURLs.contains(normalizedRelayURL) else {
-                return .network
+                return .following
             }
             return .relay(normalizedRelayURL)
         case .polls:
-            return AppSettingsStore.shared.pollsFeedVisible ? .polls : .network
+            return AppSettingsStore.shared.pollsFeedVisible ? .polls : .following
         case .interests:
-            return interestHashtags.isEmpty ? .network : .interests
+            return interestHashtags.isEmpty ? .following : .interests
+        case .network:
+            return .following
         default:
             return source
         }
@@ -895,20 +903,12 @@ enum HomeFeedLiveUpdatePlanner {
             )
 
         case .articles:
-            let liveAuthors = Array(
-                HomeFeedViewModel.followingAuthorPubkeys(
-                    followingPubkeys: followingPubkeys,
-                    currentUserPubkey: currentUserPubkey
-                )
-                .prefix(400)
-            )
-            .sorted()
-            guard !liveAuthors.isEmpty else { return [] }
-            return targets(
-                relayURLs: HomeFeedSourceResolver.relayURLs(for: .articles, readRelayURLs: readRelayURLs),
-                filter: NostrFilter(authors: liveAuthors, kinds: [FeedKindFilters.longFormArticle], limit: 100),
-                scopeSignature: "articles:\(liveAuthors.joined(separator: ","))"
-            )
+            // Long-form article rows are intentionally refresh-driven. Avoid
+            // keeping a live article socket open on this surface so large
+            // article refreshes stay bounded by fetch/render work only.
+            let _ = followingPubkeys
+            let _ = currentUserPubkey
+            return []
 
         case .polls:
             let liveAuthors = Array(

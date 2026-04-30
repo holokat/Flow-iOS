@@ -19,7 +19,7 @@ enum ThreadDetailViewLayout {
 }
 
 struct ThreadDetailView: View {
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject var appSettings: AppSettingsStore
     @EnvironmentObject var relaySettings: RelaySettingsStore
@@ -178,7 +178,9 @@ struct ThreadDetailView: View {
                 quotedAvatarURLHint: draft.quotedAvatarURLHint,
                 onOptimisticPublished: { item in
                     if item.displayEvent.referencesConversation(id: viewModel.rootItem.displayEventID) {
-                        viewModel.appendLocalReply(item)
+                        animateFeedInsertion {
+                            viewModel.appendLocalReply(item)
+                        }
                     }
                 },
                 onPublished: {
@@ -198,7 +200,9 @@ struct ThreadDetailView: View {
                 replyTargetHandleHint: target.handle,
                 replyTargetAvatarURLHint: target.avatarURL,
                 onOptimisticPublished: { item in
-                    viewModel.appendLocalReply(item)
+                    animateFeedInsertion {
+                        viewModel.appendLocalReply(item)
+                    }
                 },
                 onPublished: {
                     Task {
@@ -254,15 +258,6 @@ struct ThreadDetailView: View {
             isPresented: $isShowingRootTranslation,
             text: rootNoteTranslationText
         )
-        .safeAreaInset(edge: .bottom) {
-            ThreadDetailReplyDockBar(
-                primaryColor: appSettings.primaryColor,
-                colorSchemeOverride: colorScheme,
-                onTap: {
-                    presentReplyComposer(for: viewModel.rootItem.canonicalDisplayItem)
-                }
-            )
-        }
     }
 
     private var noteDetailBody: some View {
@@ -797,6 +792,16 @@ struct ThreadDetailView: View {
         } catch {
             let errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             toastCenter.show(errorMessage, style: .error, duration: 2.8)
+        }
+    }
+
+    private func animateFeedInsertion(_ updates: () -> Void) {
+        if let animation = FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
+                updates()
+            }
+        } else {
+            updates()
         }
     }
 }

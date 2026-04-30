@@ -149,7 +149,7 @@ final class HashtagFeedViewModel: ObservableObject {
 
         do {
             let initialPage = try await fetchInitialHashtagPage()
-            let initialItems = pruneMutedItems(initialPage.items)
+            let initialItems = mergeWithLocalPublicationItems(initialPage.items)
             if items.isEmpty {
                 items = initialItems
             } else if !initialItems.isEmpty {
@@ -234,6 +234,7 @@ final class HashtagFeedViewModel: ObservableObject {
     }
 
     private func mergeKeepingNewest(itemsToMerge: [FeedItem]) {
+        LocalPublicationStore.shared.mergeFetchedItems(itemsToMerge)
         var byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
         for item in itemsToMerge {
             byID[item.id] = item
@@ -244,6 +245,23 @@ final class HashtagFeedViewModel: ObservableObject {
             }
             return $0.event.createdAt > $1.event.createdAt
         })
+    }
+
+    private func mergeWithLocalPublicationItems(_ fetchedItems: [FeedItem]) -> [FeedItem] {
+        LocalPublicationStore.shared.mergeFetchedItems(fetchedItems)
+        return pruneMutedItems(
+            HomeFeedPageFetcher.mergeItemArrays(
+                primary: fetchedItems,
+                secondary: localPublicationItems()
+            )
+        )
+    }
+
+    private func localPublicationItems() -> [FeedItem] {
+        LocalPublicationStore.shared.records(matching: { item in
+            item.displayEvent.containsHashtag(normalizedHashtag)
+        })
+        .map(\.item)
     }
 
     private func pruneMutedItems(

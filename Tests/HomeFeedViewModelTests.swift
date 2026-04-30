@@ -68,11 +68,87 @@ final class HomeFeedViewModelTests: XCTestCase {
         let viewModel = HomeFeedViewModel(relayURL: defaultHomeRelayURL)
         viewModel.updateCurrentUserPubkey(currentUserPubkey)
 
-        XCTAssertEqual(viewModel.feedSource, .network)
+        XCTAssertEqual(viewModel.feedSource, .following)
 
         viewModel.updateInterestHashtags(["technology", "ai"])
 
         XCTAssertEqual(viewModel.feedSource, .interests)
+    }
+
+    @MainActor
+    func testFeedSourceOptionsExcludeNetworkAndStartWithFollowing() {
+        let viewModel = HomeFeedViewModel(relayURL: defaultHomeRelayURL)
+
+        XCTAssertFalse(viewModel.feedSourceOptions.contains(.network))
+        XCTAssertEqual(Array(viewModel.feedSourceOptions.prefix(3)), [.following, .articles, .polls])
+    }
+
+    @MainActor
+    func testLegacyNetworkFeedPreferenceFallsBackToFollowing() {
+        let currentUserPubkey = hex("d")
+        let preferenceKey = HomeFeedViewModel.persistedFeedSourceKey(pubkey: currentUserPubkey)
+        UserDefaults.standard.removeObject(forKey: preferenceKey)
+        defer {
+            UserDefaults.standard.removeObject(forKey: preferenceKey)
+        }
+
+        UserDefaults.standard.set("network", forKey: preferenceKey)
+
+        let viewModel = HomeFeedViewModel(relayURL: defaultHomeRelayURL)
+        viewModel.updateCurrentUserPubkey(currentUserPubkey)
+
+        XCTAssertEqual(viewModel.feedSource, .following)
+    }
+
+    @MainActor
+    func testUnavailableFeedSourcesFallBackToFollowing() {
+        let customFeed = CustomFeedDefinition(
+            id: "alerts",
+            name: "Alerts",
+            hashtags: ["alerts"]
+        )
+        let viewModel = HomeFeedViewModel(relayURL: defaultHomeRelayURL)
+
+        viewModel.updateFavoriteHashtags(["swift"])
+        viewModel.selectFeedSource(.hashtag("swift"))
+        viewModel.updateFavoriteHashtags([])
+        XCTAssertEqual(viewModel.feedSource, .following)
+
+        viewModel.updateFavoriteRelays(["wss://relay.example.com"])
+        viewModel.selectFeedSource(.relay("wss://relay.example.com"))
+        viewModel.updateFavoriteRelays([])
+        XCTAssertEqual(viewModel.feedSource, .following)
+
+        viewModel.updateCustomFeeds([customFeed])
+        viewModel.selectFeedSource(.custom(customFeed.id))
+        viewModel.updateCustomFeeds([])
+        XCTAssertEqual(viewModel.feedSource, .following)
+
+        viewModel.updatePollsFeedVisibility(true)
+        viewModel.selectFeedSource(.polls)
+        viewModel.updatePollsFeedVisibility(false)
+        XCTAssertEqual(viewModel.feedSource, .following)
+    }
+
+    @MainActor
+    func testOnlyFollowingFeedSupportsNotesRepliesModeTabs() {
+        XCTAssertTrue(HomeFeedViewModel.supportsModeTabsForTesting(source: .following))
+
+        let nonFollowingSources: [HomePrimaryFeedSource] = [
+            .network,
+            .articles,
+            .polls,
+            .trending,
+            .interests,
+            .news,
+            .custom("alerts"),
+            .hashtag("nostr"),
+            .relay("wss://relay.example.com")
+        ]
+
+        for source in nonFollowingSources {
+            XCTAssertFalse(HomeFeedViewModel.supportsModeTabsForTesting(source: source), "\(source)")
+        }
     }
 
     @MainActor
@@ -125,6 +201,7 @@ final class HomeFeedViewModelTests: XCTestCase {
             ]
         )
         await harness.setRelayDelay(3_100_000_000, for: secondaryHomeRelayURL)
+        harness.viewModel.feedSource = .network
         let startedAt = Date()
         await harness.viewModel.refresh()
         let elapsed = Date().timeIntervalSince(startedAt)
@@ -137,7 +214,7 @@ final class HomeFeedViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testNetworkRefreshBackfillsPastRepliesToRecoverNotesMode() async throws {
+    func testLegacyNetworkRefreshDoesNotApplyFollowingModeTabs() async throws {
         let replyTargetID = hex("f")
         let newestReplies = (0..<40).map { index in
             makeEvent(
@@ -167,9 +244,10 @@ final class HomeFeedViewModelTests: XCTestCase {
             pageSize: 20
         )
 
+        harness.viewModel.feedSource = .network
         await harness.viewModel.refresh()
 
-        XCTAssertEqual(harness.viewModel.visibleItems.map { $0.id }, [olderTopLevelNote.id])
+        XCTAssertEqual(harness.viewModel.visibleItems.map { $0.id }, newestReplies.prefix(20).map(\.id))
     }
 
     @MainActor
@@ -263,6 +341,140 @@ final class HomeFeedViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testArticlesFeedUsesPublishedAtForEditedReplaceableArticles() async throws {
+        let currentUserPubkey = hex("d")
+        let followedAuthorPubkey = hex("a")
+        let relayFollowList = makeEvent(
+            id: String(format: "%064x", 0x43),
+            pubkey: currentUserPubkey,
+            kind: 3,
+            tags: [["p", followedAuthorPubkey]],
+            content: "",
+            createdAt: 1_700_000_950
+        )
+        let olderArticleOriginal = makeEvent(
+            id: String(format: "%064x", 0x44),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.longFormArticle,
+            tags: [
+                ["d", "older-article"],
+                ["title", "Older article"],
+                ["published_at", "1700000100"]
+            ],
+            content: "Original text",
+            createdAt: 1_700_000_100
+        )
+        let olderArticleEdit = makeEvent(
+            id: String(format: "%064x", 0x45),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.longFormArticle,
+            tags: [
+                ["d", "older-article"],
+                ["title", "Older article"],
+                ["published_at", "1700000100"]
+            ],
+            content: "Typo fix",
+            createdAt: 1_700_000_900
+        )
+        let newerArticle = makeEvent(
+            id: String(format: "%064x", 0x46),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.longFormArticle,
+            tags: [
+                ["d", "newer-article"],
+                ["title", "Newer article"],
+                ["published_at", "1700000800"]
+            ],
+            content: "Newer text",
+            createdAt: 1_700_000_800
+        )
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                defaultHomeRelayURL: [relayFollowList, olderArticleOriginal, newerArticle]
+            ],
+            pageSize: 20
+        )
+
+        harness.selectFeedSource(.articles, for: currentUserPubkey)
+        try await harness.waitUntilIdle(timeout: 4)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [newerArticle.id, olderArticleOriginal.id])
+
+        await harness.setRemoteEvents([relayFollowList, olderArticleEdit, newerArticle])
+        await harness.viewModel.refresh()
+
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [newerArticle.id, olderArticleEdit.id])
+    }
+
+    @MainActor
+    func testArticlesRefreshStaysResponsiveWhenReplacingLargeEditedArticles() async throws {
+        let currentUserPubkey = hex("a")
+        let followedAuthorPubkey = hex("b")
+        let relayFollowList = makeEvent(
+            id: String(format: "%064x", 0x50),
+            pubkey: currentUserPubkey,
+            kind: 3,
+            tags: [["p", followedAuthorPubkey]],
+            content: "",
+            createdAt: 1_700_001_000
+        )
+        let originalBody = "Original article body"
+        let largeBody = (0..<300)
+            .map { "Paragraph \($0) with enough words to force repeated article parsing work." }
+            .joined(separator: "\n")
+        let originals = (0..<36).map { index in
+            makeEvent(
+                id: makeHexID(index + 0x100),
+                pubkey: followedAuthorPubkey,
+                kind: FeedKindFilters.longFormArticle,
+                tags: [
+                    ["d", "article-\(index)"],
+                    ["title", "Article \(index)"],
+                    ["published_at", "\(1_700_000_000 + index)"]
+                ],
+                content: originalBody,
+                createdAt: 1_700_000_000 + index
+            )
+        }
+        let edits = (0..<36).map { index in
+            makeEvent(
+                id: makeHexID(index + 0x200),
+                pubkey: followedAuthorPubkey,
+                kind: FeedKindFilters.longFormArticle,
+                tags: [
+                    ["d", "article-\(index)"],
+                    ["title", "Article \(index)"],
+                    ["published_at", "\(1_700_000_000 + index)"]
+                ],
+                content: largeBody + "\nEdit \(index)",
+                createdAt: 1_700_000_500 + index
+            )
+        }
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                defaultHomeRelayURL: [relayFollowList] + originals
+            ],
+            pageSize: 100
+        )
+
+        harness.selectFeedSource(.articles, for: currentUserPubkey)
+        try await harness.waitUntilIdle(timeout: 8)
+        XCTAssertEqual(harness.viewModel.visibleItems.count, originals.count)
+
+        await harness.setRemoteEvents([relayFollowList] + edits)
+
+        let startedAt = Date()
+        await harness.viewModel.refresh()
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        XCTAssertLessThan(elapsed, 1.75)
+        XCTAssertEqual(harness.viewModel.visibleItems.count, edits.count)
+        XCTAssertEqual(
+            Set(harness.viewModel.visibleItems.map { $0.id }),
+            Set(edits.map { $0.id })
+        )
+    }
+
+    @MainActor
     func testArticlesFeedTreatsMissingFollowingsAsEmptyStateCondition() async throws {
         let currentUserPubkey = hex("e")
         let harness = try HomeFeedViewModelHarness()
@@ -317,7 +529,7 @@ final class HomeFeedViewModelTests: XCTestCase {
     func testPaginationKeepsFullVisibleTargetOutsideInitialFollowingPass() {
         XCTAssertEqual(
             HomeFeedViewModel.initialVisibleTargetForTesting(
-                source: .network,
+                source: .trending,
                 mode: .posts,
                 limit: 100
             ),
@@ -350,6 +562,54 @@ final class HomeFeedViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testTrendingIgnoresHiddenFollowingModeSelection() async throws {
+        let trendingNote = makeEvent(
+            id: hex("7"),
+            pubkey: hex("8"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Top-level trending note",
+            createdAt: 1_700_000_500
+        )
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                NostrFeedService.nostrArchivesTrendingRelayURL: [trendingNote]
+            ]
+        )
+
+        harness.viewModel.mode = .postsAndReplies
+        harness.viewModel.feedSource = .trending
+        await harness.viewModel.refresh()
+
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [trendingNote.id])
+    }
+
+    @MainActor
+    func testTrendingEmptyInitialLoadRetriesWithoutManualRefresh() async throws {
+        let trendingNote = makeEvent(
+            id: hex("6"),
+            pubkey: hex("5"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Recovered trending note",
+            createdAt: 1_700_000_600
+        )
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                NostrFeedService.nostrArchivesTrendingRelayURL: []
+            ]
+        )
+
+        harness.viewModel.feedSource = .trending
+        await harness.viewModel.refresh()
+        XCTAssertTrue(harness.viewModel.visibleItems.isEmpty)
+
+        await harness.setRemoteEvents([trendingNote], for: NostrFeedService.nostrArchivesTrendingRelayURL)
+
+        try await harness.waitForVisibleItem(id: trendingNote.id, timeout: 3)
+    }
+
+    @MainActor
     func testLoadIfNeededRefreshesFromRelayInsteadOfRecentSnapshotBootstrap() async throws {
         let harness = try HomeFeedViewModelHarness()
         let refreshedAuthorPubkey = hex("b")
@@ -368,6 +628,7 @@ final class HomeFeedViewModelTests: XCTestCase {
             createdAt: 1_700_000_201
         )
 
+        harness.viewModel.feedSource = .network
         await harness.setRemoteEvents([refreshedNote, refreshedProfile])
 
         await harness.viewModel.loadIfNeeded()
@@ -389,6 +650,7 @@ final class HomeFeedViewModelTests: XCTestCase {
             content: "Relay row",
             createdAt: 1_700_000_400
         )
+        harness.viewModel.feedSource = .network
         await harness.setRemoteEvents([remoteNote])
         await harness.setRelayDelay(700_000_000)
 
@@ -404,9 +666,46 @@ final class HomeFeedViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testRefreshKeepsOptimisticPublishedItemUntilConnectedSourcesEchoItBack() async throws {
+        LocalPublicationStore.shared.clearForTesting()
+        defer {
+            LocalPublicationStore.shared.clearForTesting()
+        }
+
+        let harness = try HomeFeedViewModelHarness()
+        let remoteNote = makeEvent(
+            id: hex("9"),
+            pubkey: hex("b"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Relay row",
+            createdAt: 1_700_000_210
+        )
+        let optimisticNote = makeEvent(
+            id: hex("a"),
+            pubkey: hex("c"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Optimistic note",
+            createdAt: 1_700_000_320
+        )
+
+        await harness.setRemoteEvents([remoteNote])
+        harness.viewModel.feedSource = .network
+        let optimisticItem = FeedItem(event: optimisticNote, profile: nil)
+        LocalPublicationStore.shared.registerPublishing(item: optimisticItem)
+        harness.viewModel.insertOptimisticPublishedItem(optimisticItem)
+
+        await harness.viewModel.refresh()
+
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [optimisticNote.id, remoteNote.id])
+    }
+
+    @MainActor
     func testRefreshCommitsFullyHydratedTopBatchBeforePublishingItems() async throws {
         let harness = try HomeFeedViewModelHarness()
 
+        harness.viewModel.feedSource = .network
         harness.startObservingItemCommits()
         await harness.viewModel.refresh()
         try await harness.finishBackgroundHydration()
@@ -643,6 +942,308 @@ final class HomeFeedViewModelTests: XCTestCase {
         XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [authorNote.id])
     }
 
+}
+
+final class HomeFeedLoadingRegressionTests: XCTestCase {
+    @MainActor
+    func testFollowingNotesModeShowsTopLevelNotesFromFollowedAuthorsOnly() async throws {
+        let currentUserPubkey = hex("a")
+        let followedAuthorPubkey = hex("b")
+        let unfollowedAuthorPubkey = hex("c")
+        let replyTargetID = hex("d")
+        let relayFollowList = makeEvent(
+            id: hex("e"),
+            pubkey: currentUserPubkey,
+            kind: 3,
+            tags: [["p", followedAuthorPubkey]],
+            content: "",
+            createdAt: 1_700_000_400
+        )
+        let followedReply = makeEvent(
+            id: hex("f"),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [
+                ["e", replyTargetID, "", "root"],
+                ["e", replyTargetID, "", "reply"]
+            ],
+            content: "Followed reply",
+            createdAt: 1_700_000_420
+        )
+        let followedTopLevelNote = makeEvent(
+            id: makeHexID(0x10),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Followed note",
+            createdAt: 1_700_000_410
+        )
+        let unfollowedTopLevelNote = makeEvent(
+            id: makeHexID(0x11),
+            pubkey: unfollowedAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Unfollowed note",
+            createdAt: 1_700_000_430
+        )
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                defaultHomeRelayURL: [
+                    relayFollowList,
+                    unfollowedTopLevelNote,
+                    followedReply,
+                    followedTopLevelNote
+                ]
+            ]
+        )
+
+        harness.selectFollowingFeed(for: currentUserPubkey)
+        try await harness.waitUntilIdle(timeout: 4)
+
+        XCTAssertEqual(harness.viewModel.feedSource, .following)
+        XCTAssertEqual(harness.viewModel.mode, .posts)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [followedTopLevelNote.id])
+    }
+
+    @MainActor
+    func testArticlesFeedShowsFollowedLongFormArticlesOnly() async throws {
+        let currentUserPubkey = hex("d")
+        let followedAuthorPubkey = hex("a")
+        let relayFollowList = makeEvent(
+            id: String(format: "%064x", 0x40),
+            pubkey: currentUserPubkey,
+            kind: 3,
+            tags: [["p", followedAuthorPubkey]],
+            content: "",
+            createdAt: 1_700_000_410
+        )
+        let article = makeEvent(
+            id: String(format: "%064x", 0x41),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.longFormArticle,
+            tags: [["title", "Followed article"]],
+            content: "Long-form article",
+            createdAt: 1_700_000_400
+        )
+        let note = makeEvent(
+            id: String(format: "%064x", 0x42),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Plain note",
+            createdAt: 1_700_000_420
+        )
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                defaultHomeRelayURL: [relayFollowList, note, article]
+            ],
+            pageSize: 20
+        )
+
+        harness.selectFeedSource(.articles, for: currentUserPubkey)
+        try await harness.waitUntilIdle(timeout: 4)
+
+        XCTAssertEqual(harness.viewModel.feedSource, .articles)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [article.id])
+    }
+
+    @MainActor
+    func testInterestsFeedLoadsOnlySelectedHashtagItems() async throws {
+        let matchingNote = makeEvent(
+            id: hex("1"),
+            pubkey: hex("2"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [["t", "swift"]],
+            content: "Swift interest note",
+            createdAt: 1_700_000_510
+        )
+        let otherNote = makeEvent(
+            id: hex("3"),
+            pubkey: hex("4"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [["t", "nostr"]],
+            content: "Other interest note",
+            createdAt: 1_700_000_520
+        )
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                defaultHomeRelayURL: [otherNote, matchingNote]
+            ]
+        )
+
+        harness.viewModel.updateInterestHashtags(["Swift"])
+        harness.viewModel.selectFeedSource(.interests)
+        try await harness.waitUntilIdle(timeout: 4)
+
+        XCTAssertEqual(harness.viewModel.feedSource, .interests)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [matchingNote.id])
+    }
+
+    @MainActor
+    func testTrendingFeedLoadsRankedItems() async throws {
+        let trendingNote = makeEvent(
+            id: hex("5"),
+            pubkey: hex("6"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Ranked trending note",
+            createdAt: 1_700_000_530
+        )
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                NostrFeedService.nostrArchivesTrendingRelayURL: [trendingNote]
+            ]
+        )
+
+        harness.viewModel.selectFeedSource(.trending)
+        try await harness.waitUntilIdle(timeout: 4)
+
+        XCTAssertEqual(harness.viewModel.feedSource, .trending)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [trendingNote.id])
+    }
+
+    @MainActor
+    func testPollsFeedShowsOnlyFollowedPolls() async throws {
+        let currentUserPubkey = hex("7")
+        let followedAuthorPubkey = hex("8")
+        let unfollowedAuthorPubkey = hex("9")
+        let previousPollsFeedVisible = AppSettingsStore.shared.pollsFeedVisible
+        defer {
+            AppSettingsStore.shared.pollsFeedVisible = previousPollsFeedVisible
+        }
+        AppSettingsStore.shared.pollsFeedVisible = true
+        let relayFollowList = makeEvent(
+            id: hex("a"),
+            pubkey: currentUserPubkey,
+            kind: 3,
+            tags: [["p", followedAuthorPubkey]],
+            content: "",
+            createdAt: 1_700_000_540
+        )
+        let followedPoll = makeEvent(
+            id: hex("b"),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.poll,
+            tags: [
+                ["poll_option", "ios", "iOS"],
+                ["poll_option", "android", "Android"],
+                ["polltype", "singlechoice"]
+            ],
+            content: "Favorite client?",
+            createdAt: 1_700_000_550
+        )
+        let followedNote = makeEvent(
+            id: hex("c"),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Plain note",
+            createdAt: 1_700_000_560
+        )
+        let unfollowedPoll = makeEvent(
+            id: hex("d"),
+            pubkey: unfollowedAuthorPubkey,
+            kind: FeedKindFilters.poll,
+            tags: [
+                ["poll_option", "tea", "Tea"],
+                ["poll_option", "coffee", "Coffee"],
+                ["polltype", "singlechoice"]
+            ],
+            content: "Unfollowed poll",
+            createdAt: 1_700_000_570
+        )
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                defaultHomeRelayURL: [
+                    relayFollowList,
+                    unfollowedPoll,
+                    followedNote,
+                    followedPoll
+                ]
+            ]
+        )
+
+        harness.viewModel.updatePollsFeedVisibility(true)
+        harness.selectFeedSource(.polls, for: currentUserPubkey)
+        try await harness.waitUntilIdle(timeout: 4)
+
+        XCTAssertEqual(harness.viewModel.feedSource, .polls)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [followedPoll.id])
+    }
+
+    @MainActor
+    func testNewsFeedMergesRelayAuthorAndHashtagSourcesWithoutDuplicates() async throws {
+        let currentUserPubkey = hex("d")
+        AppSettingsStore.shared.configure(accountPubkey: currentUserPubkey)
+        let previousNewsRelayURLs = AppSettingsStore.shared.newsRelayURLs
+        let previousNewsAuthorPubkeys = AppSettingsStore.shared.newsAuthorPubkeys
+        let previousNewsHashtags = AppSettingsStore.shared.newsHashtags
+        defer {
+            AppSettingsStore.shared.setNewsRelayURLs(previousNewsRelayURLs)
+            AppSettingsStore.shared.setNewsAuthorPubkeys(previousNewsAuthorPubkeys)
+            AppSettingsStore.shared.setNewsHashtags(previousNewsHashtags)
+        }
+
+        let authorPubkey = hex("e")
+        let authorReadRelayURL = URL(string: "wss://merged-news-author.example")!
+        let relayListEvent = makeEvent(
+            id: hex("f"),
+            pubkey: authorPubkey,
+            kind: 10_002,
+            tags: [["r", authorReadRelayURL.absoluteString, "read"]],
+            content: "",
+            createdAt: 1_700_000_580
+        )
+        let relayNewsNote = makeEvent(
+            id: makeHexID(0x12),
+            pubkey: hex("1"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Relay news note",
+            createdAt: 1_700_000_590
+        )
+        let authorNewsNote = makeEvent(
+            id: makeHexID(0x13),
+            pubkey: authorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Author news note",
+            createdAt: 1_700_000_600
+        )
+        let hashtagNewsNote = makeEvent(
+            id: makeHexID(0x14),
+            pubkey: hex("2"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [["t", "macro"]],
+            content: "Hashtag news note",
+            createdAt: 1_700_000_610
+        )
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                defaultHomeRelayURL: [
+                    relayListEvent,
+                    relayNewsNote,
+                    authorNewsNote,
+                    hashtagNewsNote
+                ],
+                authorReadRelayURL: [authorNewsNote]
+            ]
+        )
+
+        AppSettingsStore.shared.setNewsRelayURLs([defaultHomeRelayURL])
+        AppSettingsStore.shared.setNewsAuthorPubkeys([authorPubkey])
+        AppSettingsStore.shared.setNewsHashtags(["macro"])
+
+        harness.viewModel.updateCurrentUserPubkey(currentUserPubkey)
+        harness.viewModel.selectFeedSource(.news)
+        try await harness.waitUntilIdle(timeout: 4)
+
+        XCTAssertEqual(harness.viewModel.feedSource, .news)
+        XCTAssertEqual(
+            harness.viewModel.visibleItems.map(\.id),
+            [hashtagNewsNote.id, authorNewsNote.id, relayNewsNote.id]
+        )
+    }
 }
 
 private let defaultHomeRelayURL = URL(string: "wss://relay.example.com")!
@@ -897,7 +1498,7 @@ private final class HomeFeedViewModelHarness {
     func waitUntilIdle(timeout: TimeInterval = 2) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if !viewModel.isLoading && !viewModel.isLoadingMore {
+            if !viewModel.isLoading && !viewModel.isLoadingMore && !viewModel.isBootstrappingFeed {
                 return
             }
             try await Task.sleep(nanoseconds: 50_000_000)

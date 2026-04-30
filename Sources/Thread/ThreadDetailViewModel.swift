@@ -144,7 +144,7 @@ final class ThreadDetailViewModel: ObservableObject {
         scheduleRootHydration()
 
         do {
-            rawReplies = pruneMutedItems(try await service.fetchThreadReplies(
+            rawReplies = mergeWithLocalPublicationReplies(try await service.fetchThreadReplies(
                 relayURLs: readRelayURLs,
                 rootEventID: rootItem.displayEventID,
                 includeNestedReplies: false,
@@ -280,7 +280,11 @@ final class ThreadDetailViewModel: ObservableObject {
 
                 await MainActor.run {
                     guard self.rootItem.displayEventID.lowercased() == rootEventID.lowercased() else { return }
-                    let visibleReplies = self.pruneMutedItems(refreshedReplies, snapshot: moderationSnapshot)
+                    let visibleReplies = self.mergeWithLocalPublicationReplies(
+                        refreshedReplies,
+                        rootEventID: rootEventID,
+                        snapshot: moderationSnapshot
+                    )
                     guard !visibleReplies.isEmpty || self.rawReplies.isEmpty else { return }
                     self.errorMessage = nil
                     self.rawReplies = visibleReplies
@@ -347,6 +351,7 @@ final class ThreadDetailViewModel: ObservableObject {
     }
 
     private func mergeKeepingThreadOrder(itemsToMerge: [FeedItem]) {
+        LocalPublicationStore.shared.mergeFetchedItems(itemsToMerge)
         var byID = Dictionary(uniqueKeysWithValues: rawReplies.map { ($0.id.lowercased(), $0) })
         for item in itemsToMerge {
             byID[item.id.lowercased()] = item
@@ -355,6 +360,34 @@ final class ThreadDetailViewModel: ObservableObject {
         Task { [weak self] in
             await self?.rebuildReplyBuckets()
         }
+    }
+
+    private func mergeWithLocalPublicationReplies(
+        _ fetchedReplies: [FeedItem],
+        rootEventID: String? = nil,
+        snapshot: MuteFilterSnapshot? = nil
+    ) -> [FeedItem] {
+        LocalPublicationStore.shared.mergeFetchedItems(fetchedReplies)
+        return pruneMutedItems(
+            HomeFeedPageFetcher.mergeItemArrays(
+                primary: fetchedReplies,
+                secondary: localPublicationReplies(rootEventID: rootEventID)
+            ),
+            snapshot: snapshot
+        )
+    }
+
+    private func localPublicationReplies(rootEventID: String? = nil) -> [FeedItem] {
+        let normalizedRootEventID = (rootEventID ?? rootItem.displayEventID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalizedRootEventID.isEmpty else { return [] }
+
+        return LocalPublicationStore.shared.records(matching: { item in
+            item.id.lowercased() != normalizedRootEventID &&
+            item.displayEvent.referencesConversation(id: normalizedRootEventID)
+        })
+        .map(\.item)
     }
 
     private func rebuildReplyBuckets() async {

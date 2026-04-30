@@ -560,12 +560,13 @@ private final class GlobalProfileQRCodeOverlayController {
 
     private func buildPresentation(for account: AuthAccount) async -> GlobalProfileQRCodePresentation {
         let profile = await ProfileCache.shared.cachedProfile(pubkey: account.pubkey)
+        let qrCodeImage = await QRCodeRenderer.renderAsync(payload: "nostr:\(account.npub)")
 
         return GlobalProfileQRCodePresentation(
             displayName: preferredDisplayName(from: profile, fallbackPubkey: account.pubkey),
             handle: preferredHandle(from: profile, fallbackPubkey: account.pubkey),
             avatarURL: preferredAvatarURL(from: profile),
-            qrCodeImage: QRCodeRenderer.render(payload: "nostr:\(account.npub)")
+            qrCodeImage: qrCodeImage
         )
     }
 

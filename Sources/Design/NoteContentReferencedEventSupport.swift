@@ -70,10 +70,12 @@ private actor EmbeddedReferencedNoteCache {
     static let shared = EmbeddedReferencedNoteCache()
 
     private enum CachedResult {
-        case value(FeedItem?)
+        case value(FeedItem)
+        case miss(storedAt: Date)
     }
 
     private let maxResolvedEntries = 512
+    private let missRetryInterval: TimeInterval = 60
     private var resolvedItems: [String: CachedResult] = [:]
     private var resolvedOrder: [String] = []
     private var inFlightTasks: [String: Task<FeedItem?, Never>] = [:]
@@ -83,6 +85,12 @@ private actor EmbeddedReferencedNoteCache {
             switch cached {
             case .value(let item):
                 return (true, item)
+            case .miss(let storedAt):
+                guard Date().timeIntervalSince(storedAt) >= missRetryInterval else {
+                    return (true, nil)
+                }
+                resolvedItems.removeValue(forKey: key)
+                resolvedOrder.removeAll { $0 == key }
             }
         }
         return (false, nil)
@@ -97,13 +105,20 @@ private actor EmbeddedReferencedNoteCache {
     }
 
     func storeResolvedValue(_ item: FeedItem?, for key: String) {
+        let cachedResult: CachedResult
+        if let item {
+            cachedResult = .value(item)
+        } else {
+            cachedResult = .miss(storedAt: Date())
+        }
+
         if resolvedItems[key] == nil {
             resolvedOrder.append(key)
         } else {
             resolvedOrder.removeAll { $0 == key }
             resolvedOrder.append(key)
         }
-        resolvedItems[key] = .value(item)
+        resolvedItems[key] = cachedResult
         inFlightTasks[key] = nil
 
         let overflow = resolvedOrder.count - maxResolvedEntries

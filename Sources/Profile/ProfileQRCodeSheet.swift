@@ -16,13 +16,10 @@ struct ProfileQRCodeSheet: View {
 
     @State private var isShowingScanner = false
     @State private var pendingScannedProfilePubkey: String?
+    @State private var qrCodeImage: UIImage?
 
     private var qrPayload: String {
         "nostr:\(npub)"
-    }
-
-    private var qrCodeImage: UIImage? {
-        QRCodeRenderer.render(payload: qrPayload)
     }
 
     var body: some View {
@@ -61,6 +58,10 @@ struct ProfileQRCodeSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .presentationBackground(appSettings.themePalette.sheetBackground)
+        .task(id: qrPayload) {
+            let payload = qrPayload
+            qrCodeImage = await QRCodeRenderer.renderAsync(payload: payload)
+        }
         .fullScreenCover(isPresented: $isShowingScanner) {
             ProfileQRScannerFlowView(
                 onOpenProfile: { pubkey in
@@ -616,7 +617,24 @@ private struct ProfileQRCodeBlurredAvatarBackground: View {
 }
 
 enum QRCodeRenderer {
+    private static let cache = QRCodeImageCache()
+    private static let context = CIContext(options: [.useSoftwareRenderer: false])
+
     static func render(payload: String) -> UIImage? {
+        cache.image(for: payload) {
+            renderUncached(payload: payload)
+        }
+    }
+
+    static func renderAsync(payload: String) async -> UIImage? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: render(payload: payload))
+            }
+        }
+    }
+
+    private static func renderUncached(payload: String) -> UIImage? {
         let data = Data(payload.utf8)
         let filter = CIFilter.qrCodeGenerator()
         filter.message = data
@@ -624,12 +642,36 @@ enum QRCodeRenderer {
 
         guard let outputImage = filter.outputImage else { return nil }
         let scaledImage = outputImage.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
-        let context = CIContext(options: [.useSoftwareRenderer: false])
 
         guard let cgImage = context.createCGImage(scaledImage, from: scaledImage.extent) else {
             return nil
         }
 
         return UIImage(cgImage: cgImage)
+    }
+}
+
+private final class QRCodeImageCache {
+    private var images: [String: UIImage] = [:]
+    private let lock = NSLock()
+
+    func image(for payload: String, render: () -> UIImage?) -> UIImage? {
+        lock.lock()
+        if let cachedImage = images[payload] {
+            lock.unlock()
+            return cachedImage
+        }
+        lock.unlock()
+
+        guard let image = render() else { return nil }
+
+        lock.lock()
+        if let cachedImage = images[payload] {
+            lock.unlock()
+            return cachedImage
+        }
+        images[payload] = image
+        lock.unlock()
+        return image
     }
 }

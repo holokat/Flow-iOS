@@ -178,6 +178,12 @@ private struct FeedRowCardChromeModifier: ViewModifier {
 }
 
 struct FeedRowView: View {
+    private struct PublicationFailurePresentation: Identifiable {
+        let id: String
+        let message: String
+    }
+
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var relaySettings: RelaySettingsStore
@@ -185,6 +191,7 @@ struct FeedRowView: View {
     private let reactionStats = NoteReactionStatsService.shared
     private let muteStore = MuteStore.shared
     private let mutedThreadStore = MutedThreadStore.shared
+    @ObservedObject private var localPublicationStore = LocalPublicationStore.shared
 
     struct AvatarMenuActions {
         let followLabel: String
@@ -219,6 +226,7 @@ struct FeedRowView: View {
     @State private var isShowingReportSheet = false
     @State private var isShowingTranslation = false
     @State private var reactionSnapshot: NoteReactionEventSnapshot?
+    @State private var publicationFailurePresentation: PublicationFailurePresentation?
     private let reshareService = ResharePublishService()
     private let reactionPublishService = NoteReactionPublishService()
     private let reportPublishService = NoteReportPublishService()
@@ -287,6 +295,13 @@ struct FeedRowView: View {
             isPresented: $isShowingTranslation,
             text: noteTranslationText
         )
+        .alert(item: $publicationFailurePresentation) { details in
+            Alert(
+                title: Text("Couldn't publish"),
+                message: Text(details.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
         .onReceive(reactionStats.publisher(for: item.displayEventID)) { snapshot in
             reactionSnapshot = snapshot
         }
@@ -475,6 +490,8 @@ struct FeedRowView: View {
                     onOpenThread?()
                 }
 
+            publicationStatusAccessory
+
             noteOptionsButton
         }
     }
@@ -580,6 +597,50 @@ struct FeedRowView: View {
 
     private var mutedChromeColor: Color {
         appSettings.themePalette.mutedForeground
+    }
+
+    private var publicationRecord: LocalPublicationRecord? {
+        localPublicationStore.record(for: item.id)
+    }
+
+    @ViewBuilder
+    private var publicationStatusAccessory: some View {
+        switch publicationRecord?.state {
+        case .publishing:
+            ProgressView()
+                .controlSize(.small)
+                .tint(mutedChromeColor)
+                .frame(width: 16, height: 16)
+                .transition(FlowTransitionMotion.iconSwapTransition(reduceMotion: accessibilityReduceMotion))
+                .accessibilityLabel("Publishing")
+        case .failed:
+            Button {
+                publicationFailurePresentation = PublicationFailurePresentation(
+                    id: item.id,
+                    message: publicationFailureMessage
+                )
+            } label: {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(appSettings.themePalette.warningForeground)
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.plain)
+            .transition(FlowTransitionMotion.iconSwapTransition(reduceMotion: accessibilityReduceMotion))
+            .accessibilityLabel("Publishing failed")
+            .accessibilityHint("Shows why this item couldn't publish to connected sources")
+        default:
+            EmptyView()
+        }
+    }
+
+    private var publicationFailureMessage: String {
+        if let message = publicationRecord?.state.failureMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !message.isEmpty {
+            return message
+        }
+
+        return "This item is still visible here, but it couldn't publish to connected sources."
     }
 
     @ViewBuilder
@@ -704,7 +765,7 @@ struct FeedRowView: View {
 
                 Image(systemName: iconName)
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(appSettings.primaryColor)
             }
         }
     }

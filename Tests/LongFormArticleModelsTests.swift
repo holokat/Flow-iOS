@@ -29,6 +29,35 @@ final class LongFormArticleModelsTests: XCTestCase {
         XCTAssertEqual(metadata.readingTimeMinutes, 1)
     }
 
+    func testIndexMetadataParsesIdentifierAndPublishedAtFromTagsOnly() throws {
+        let event = makeArticleEvent(
+            tags: [
+                ["d", "flow-article"],
+                ["published_at", "1710000123"]
+            ],
+            content: String(repeating: "word ", count: 20_000)
+        )
+
+        let metadata = try XCTUnwrap(event.longFormArticleIndexMetadata)
+
+        XCTAssertEqual(metadata.identifier, "flow-article")
+        XCTAssertEqual(metadata.publishedAt, 1_710_000_123)
+    }
+
+    func testIndexMetadataFallsBackToCreatedAtWhenPublishedAtTagMissing() throws {
+        let createdAt = 1_700_000_000
+        let event = makeArticleEvent(
+            tags: [["d", "flow-article"]],
+            content: "Hello world",
+            createdAt: createdAt
+        )
+
+        let metadata = try XCTUnwrap(event.longFormArticleIndexMetadata)
+
+        XCTAssertEqual(metadata.identifier, "flow-article")
+        XCTAssertEqual(metadata.publishedAt, createdAt)
+    }
+
     func testParserBuildsStructuredBlocks() {
         let markdown = """
         # Title

@@ -4,21 +4,15 @@ enum NostrLongFormArticleKind {
     static let article = 30_023
 }
 
-struct NostrLongFormArticleMetadata: Hashable, Sendable {
-    let title: String
+private struct LongFormArticleTagMetadata: Hashable, Sendable {
+    let title: String?
     let summary: String?
     let imageURL: URL?
-    let imageIsContentFallback: Bool
     let identifier: String?
     let publishedAt: Int
     let tags: [String]
-    let wordCount: Int
 
-    init?(event: NostrEvent) {
-        guard event.kind == NostrLongFormArticleKind.article else {
-            return nil
-        }
-
+    init(event: NostrEvent) {
         var title: String?
         var summary: String?
         var imageURL: URL?
@@ -69,28 +63,12 @@ struct NostrLongFormArticleMetadata: Hashable, Sendable {
             }
         }
 
-        let resolvedTitle = title ?? identifier ?? "Untitled"
-        let contentImageURL = imageURL == nil
-            ? LongFormArticleMarkdownParser.firstImageURL(in: event.content)
-            : nil
-        let wordCount = Self.wordCount(in: event.content)
-
-        self.title = resolvedTitle
+        self.title = title
         self.summary = summary
-        self.imageURL = imageURL ?? contentImageURL
-        self.imageIsContentFallback = imageURL == nil && contentImageURL != nil
+        self.imageURL = imageURL
         self.identifier = identifier
         self.publishedAt = publishedAt
         self.tags = tags
-        self.wordCount = wordCount
-    }
-
-    var publishedDate: Date {
-        Date(timeIntervalSince1970: TimeInterval(publishedAt))
-    }
-
-    var readingTimeMinutes: Int {
-        max(1, Int(round(Double(max(wordCount, 1)) / 220)))
     }
 
     private static func normalizedText(from tag: [String], at index: Int) -> String? {
@@ -107,6 +85,62 @@ struct NostrLongFormArticleMetadata: Hashable, Sendable {
             return nil
         }
         return url
+    }
+}
+
+struct NostrLongFormArticleIndexMetadata: Hashable, Sendable {
+    let identifier: String?
+    let publishedAt: Int
+
+    init?(event: NostrEvent) {
+        guard event.kind == NostrLongFormArticleKind.article else {
+            return nil
+        }
+
+        let tagMetadata = LongFormArticleTagMetadata(event: event)
+        self.identifier = tagMetadata.identifier
+        self.publishedAt = tagMetadata.publishedAt
+    }
+}
+
+struct NostrLongFormArticleMetadata: Hashable, Sendable {
+    let title: String
+    let summary: String?
+    let imageURL: URL?
+    let imageIsContentFallback: Bool
+    let identifier: String?
+    let publishedAt: Int
+    let tags: [String]
+    let wordCount: Int
+
+    init?(event: NostrEvent) {
+        guard event.kind == NostrLongFormArticleKind.article else {
+            return nil
+        }
+
+        let tagMetadata = LongFormArticleTagMetadata(event: event)
+        let resolvedTitle = tagMetadata.title ?? tagMetadata.identifier ?? "Untitled"
+        let contentImageURL = tagMetadata.imageURL == nil
+            ? LongFormArticleMarkdownParser.firstImageURL(in: event.content)
+            : nil
+        let wordCount = Self.wordCount(in: event.content)
+
+        self.title = resolvedTitle
+        self.summary = tagMetadata.summary
+        self.imageURL = tagMetadata.imageURL ?? contentImageURL
+        self.imageIsContentFallback = tagMetadata.imageURL == nil && contentImageURL != nil
+        self.identifier = tagMetadata.identifier
+        self.publishedAt = tagMetadata.publishedAt
+        self.tags = tagMetadata.tags
+        self.wordCount = wordCount
+    }
+
+    var publishedDate: Date {
+        Date(timeIntervalSince1970: TimeInterval(publishedAt))
+    }
+
+    var readingTimeMinutes: Int {
+        max(1, Int(round(Double(max(wordCount, 1)) / 220)))
     }
 
     private static func wordCount(in markdown: String) -> Int {
@@ -377,6 +411,10 @@ enum LongFormArticleMarkdownParser {
 }
 
 extension NostrEvent {
+    var longFormArticleIndexMetadata: NostrLongFormArticleIndexMetadata? {
+        NostrLongFormArticleIndexMetadata(event: self)
+    }
+
     var longFormArticleMetadata: NostrLongFormArticleMetadata? {
         NostrLongFormArticleMetadata(event: self)
     }
