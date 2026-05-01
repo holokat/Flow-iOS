@@ -136,11 +136,14 @@ struct YouTubeInlinePlayerView: View {
     let url: URL
     let layout: NoteContentMediaLayout
     @EnvironmentObject private var appSettings: AppSettingsStore
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         if let embed = NoteContentParser.youtubeVideoEmbed(from: url.absoluteString),
            let embedURL = embed.embedURL() {
-            YouTubeEmbedWebView(url: embedURL)
+            YouTubeEmbedWebView(url: embedURL) { externalURL in
+                openURL(externalURL)
+            }
                 .background(Color.black)
                 .frame(maxWidth: .infinity, maxHeight: maxVideoHeight, alignment: .leading)
                 .aspectRatio(16.0 / 9.0, contentMode: .fit)
@@ -169,11 +172,112 @@ struct YouTubeInlinePlayerView: View {
     }
 }
 
+enum YouTubeEmbedNavigationDecision: Equatable {
+    case allowInWebView
+    case openExternally(URL)
+    case cancel
+}
+
+enum YouTubeEmbedNavigationPolicy {
+    static func decision(for navigationURL: URL?, embedURL: URL, isNewWindow: Bool) -> YouTubeEmbedNavigationDecision {
+        guard let navigationURL else { return .cancel }
+
+        if isNewWindow {
+            return .openExternally(navigationURL)
+        }
+
+        guard let scheme = navigationURL.scheme?.lowercased() else {
+            return .cancel
+        }
+
+        if scheme == "about" {
+            return .allowInWebView
+        }
+
+        if scheme != "http" && scheme != "https" {
+            return .openExternally(navigationURL)
+        }
+
+        if isEmbedNavigation(navigationURL, embedURL: embedURL) {
+            return .allowInWebView
+        }
+
+        return .openExternally(navigationURL)
+    }
+
+    private static func isEmbedNavigation(_ navigationURL: URL, embedURL: URL) -> Bool {
+        guard let host = navigationURL.host?.lowercased(),
+              let embedHost = embedURL.host?.lowercased(),
+              host == embedHost else {
+            return false
+        }
+
+        if navigationURL.path == embedURL.path {
+            return true
+        }
+
+        return navigationURL.path.hasPrefix("/embed/")
+    }
+}
+
 private struct YouTubeEmbedWebView: UIViewRepresentable {
     let url: URL
+    let openExternally: (URL) -> Void
 
-    final class Coordinator {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var loadedURL: URL?
+        var embedURL: URL?
+        var openExternally: ((URL) -> Void)?
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            guard let embedURL = embedURL ?? loadedURL else {
+                decisionHandler(.cancel)
+                return
+            }
+            let decision = YouTubeEmbedNavigationPolicy.decision(
+                for: navigationAction.request.url,
+                embedURL: embedURL,
+                isNewWindow: navigationAction.targetFrame == nil
+            )
+            handle(decision, decisionHandler: decisionHandler)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            guard let embedURL = embedURL ?? loadedURL else { return nil }
+            let decision = YouTubeEmbedNavigationPolicy.decision(
+                for: navigationAction.request.url,
+                embedURL: embedURL,
+                isNewWindow: true
+            )
+            if case .openExternally(let url) = decision {
+                openExternally?(url)
+            }
+            return nil
+        }
+
+        private func handle(
+            _ decision: YouTubeEmbedNavigationDecision,
+            decisionHandler: (WKNavigationActionPolicy) -> Void
+        ) {
+            switch decision {
+            case .allowInWebView:
+                decisionHandler(.allow)
+            case .openExternally(let url):
+                openExternally?(url)
+                decisionHandler(.cancel)
+            case .cancel:
+                decisionHandler(.cancel)
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -192,10 +296,14 @@ private struct YouTubeEmbedWebView: UIViewRepresentable {
         webView.scrollView.backgroundColor = .black
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.bounces = false
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        context.coordinator.embedURL = url
+        context.coordinator.openExternally = openExternally
         guard context.coordinator.loadedURL != url else { return }
         context.coordinator.loadedURL = url
         webView.loadHTMLString(Self.embedHTML(for: url), baseURL: Self.refererBaseURL)
@@ -203,6 +311,10 @@ private struct YouTubeEmbedWebView: UIViewRepresentable {
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
         coordinator.loadedURL = nil
+        coordinator.embedURL = nil
+        coordinator.openExternally = nil
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
         webView.stopLoading()
         webView.loadHTMLString("", baseURL: nil)
     }

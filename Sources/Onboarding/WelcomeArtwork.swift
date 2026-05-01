@@ -4,11 +4,15 @@ enum WelcomeArtwork: String, CaseIterable, Identifiable, Hashable, Sendable {
     case cityConversation = "welcome-scene-city"
     case cozyBedroom = "welcome-scene-bedroom"
     case cafeConversation = "welcome-scene-cafe"
+    case parkConversation = "welcome-scene-park"
+    case terraceConversation = "welcome-scene-terrace"
 
     static let orderedCycle: [WelcomeArtwork] = [
         .cityConversation,
         .cozyBedroom,
-        .cafeConversation
+        .cafeConversation,
+        .parkConversation,
+        .terraceConversation
     ]
 
     var id: String { rawValue }
@@ -34,7 +38,7 @@ enum WelcomeScratchRevealLayout {
         case scratchEnded
     }
 
-    static let completionThreshold: Double = 0.99
+    static let completionThreshold: Double = 0.90
     static let brushLineWidth: CGFloat = 82
     static let normalizedBrushRadius: CGFloat = 0.075
     static let coverageGridColumns = 18

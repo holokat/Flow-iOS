@@ -151,20 +151,10 @@ extension HomeFeedViewModel {
         followingPubkeys: [String],
         currentUserPubkey: String?
     ) -> [String] {
-        var ordered: [String] = []
-        if let currentUserPubkey {
-            ordered.append(currentUserPubkey)
-        }
-        ordered.append(contentsOf: followingPubkeys)
-
-        var seen = Set<String>()
-        return ordered.compactMap { rawPubkey in
-            let normalized = rawPubkey
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-            guard !normalized.isEmpty, seen.insert(normalized).inserted else { return nil }
-            return normalized
-        }
+        HomeFeedVisibilityFilter.followingAuthorPubkeys(
+            followingPubkeys: followingPubkeys,
+            currentUserPubkey: currentUserPubkey
+        )
     }
 
     nonisolated static func prefixForVisibleModeLimitForTesting(

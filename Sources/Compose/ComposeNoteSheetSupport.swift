@@ -665,6 +665,456 @@ enum SharedComposeImportError: LocalizedError {
     }
 }
 
+struct ComposeMediaAttachmentController {
+    private let mediaUploadService: MediaUploadService
+    private let klipyGIFService: KlipyGIFService
+    private let uuidProvider: () -> UUID
+
+    init(
+        mediaUploadService: MediaUploadService = .shared,
+        klipyGIFService: KlipyGIFService = .shared,
+        uuidProvider: @escaping () -> UUID = UUID.init
+    ) {
+        self.mediaUploadService = mediaUploadService
+        self.klipyGIFService = klipyGIFService
+        self.uuidProvider = uuidProvider
+    }
+
+    var isCameraAvailable: Bool {
+        UIImagePickerController.isSourceTypeAvailable(.camera)
+    }
+
+    func currentCapturePermissions() -> CameraCapturePermissionSnapshot {
+        CameraCapturePermissionSnapshot.current()
+    }
+
+    func requestCaptureAccess(for mediaType: AVMediaType) async -> Bool {
+        await withCheckedContinuation { continuation in
+            AVCaptureDevice.requestAccess(for: mediaType) { granted in
+                continuation.resume(returning: granted)
+            }
+        }
+    }
+
+    func uploadAttachment(
+        from item: PhotosPickerItem,
+        normalizedNsec: String
+    ) async throws -> ComposeMediaAttachment {
+        let preparedMedia = try await MediaUploadPreparation.prepareUploadMedia(from: item)
+        return try await uploadPreparedMedia(preparedMedia, filenamePrefix: "note", normalizedNsec: normalizedNsec)
+    }
+
+    func uploadAttachment(
+        from capturedMedia: CapturedCameraMedia,
+        normalizedNsec: String
+    ) async throws -> ComposeMediaAttachment {
+        let preparedMedia: PreparedUploadMedia
+
+        switch capturedMedia {
+        case .image(let imageData, let capturedMimeType, let capturedFileExtension):
+            preparedMedia = try MediaUploadPreparation.prepareUploadMedia(
+                data: imageData,
+                mimeType: capturedMimeType,
+                fileExtension: capturedFileExtension
+            )
+
+        case .video(let fileURL, let capturedMimeType, let capturedFileExtension):
+            preparedMedia = try await MediaUploadPreparation.prepareUploadMedia(
+                fileURL: fileURL,
+                mimeType: capturedMimeType,
+                fileExtension: capturedFileExtension
+            )
+        }
+
+        return try await uploadPreparedMedia(preparedMedia, filenamePrefix: "note", normalizedNsec: normalizedNsec)
+    }
+
+    func uploadAttachment(
+        from selection: KlipyGIFAttachmentCandidate,
+        normalizedNsec: String
+    ) async throws -> ComposeMediaAttachment {
+        let downloadedData = try await klipyGIFService.downloadGIFData(for: selection)
+        let preparedMedia = try await MediaUploadPreparation.prepareGIFKeyboardUploadMedia(
+            data: downloadedData,
+            mimeType: selection.mimeType,
+            fileExtension: selection.fileExtension
+        )
+        let attachment = try await uploadPreparedMedia(
+            preparedMedia,
+            filenamePrefix: "gif",
+            normalizedNsec: normalizedNsec,
+            imetaTagTransform: gifKeyboardIMetaTag(from:preparedMedia:)
+        )
+        return attachment
+    }
+
+    func uploadAttachment(
+        from sharedAttachment: SharedComposeAttachment,
+        normalizedNsec: String
+    ) async throws -> ComposeMediaAttachment {
+        let preparedMedia = try await prepareSharedComposeAttachmentForUpload(sharedAttachment)
+        return try await uploadPreparedMedia(preparedMedia, filenamePrefix: "note", normalizedNsec: normalizedNsec)
+    }
+
+    func registerKlipyShare(for selection: KlipyGIFAttachmentCandidate) async {
+        await klipyGIFService.registerShare(
+            slug: selection.slug,
+            customerID: selection.customerID,
+            query: selection.searchQuery
+        )
+    }
+
+    func textRemovingUploadedMediaURL(_ url: URL, from text: String) -> String {
+        let urlString = url.absoluteString
+        guard text.contains(urlString) else { return text }
+
+        return text
+            .replacingOccurrences(of: "\n\(urlString)", with: "")
+            .replacingOccurrences(of: urlString, with: "")
+            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func uploadPreparedMedia(
+        _ preparedMedia: PreparedUploadMedia,
+        filenamePrefix: String,
+        normalizedNsec: String,
+        imetaTagTransform: ([String], PreparedUploadMedia) -> [String] = { imetaTag, _ in imetaTag }
+    ) async throws -> ComposeMediaAttachment {
+        let filename = "\(filenamePrefix)-\(uuidProvider().uuidString).\(preparedMedia.fileExtension)"
+        let result = try await mediaUploadService.uploadMedia(
+            data: preparedMedia.data,
+            mimeType: preparedMedia.mimeType,
+            filename: filename,
+            nsec: normalizedNsec,
+            provider: .blossom
+        )
+
+        return ComposeMediaAttachment(
+            url: result.url,
+            imetaTag: imetaTagTransform(result.imetaTag, preparedMedia),
+            mimeType: preparedMedia.mimeType,
+            fileSizeBytes: preparedMedia.data.count
+        )
+    }
+
+    private func gifKeyboardIMetaTag(
+        from imetaTag: [String],
+        preparedMedia: PreparedUploadMedia
+    ) -> [String] {
+        guard preparedMedia.mimeType.lowercased().hasPrefix("video/") else {
+            return imetaTag
+        }
+
+        var updatedTag = imetaTag
+        if !updatedTag.contains(where: { $0.lowercased().hasPrefix("m ") }) {
+            updatedTag.append("m \(preparedMedia.mimeType)")
+        }
+        if !updatedTag.contains(where: { $0.lowercased().hasPrefix("size ") }) {
+            updatedTag.append("size \(preparedMedia.data.count)")
+        }
+        if !updatedTag.contains(where: { $0.lowercased().hasPrefix("flow-gif-loop ") }) {
+            updatedTag.append("flow-gif-loop 1")
+        }
+
+        if !updatedTag.contains(where: { $0.lowercased().hasPrefix("dim ") }),
+           let previewSize = preparedMedia.previewImage?.size,
+           previewSize.width > 0,
+           previewSize.height > 0 {
+            updatedTag.append("dim \(Int(previewSize.width.rounded()))x\(Int(previewSize.height.rounded()))")
+        }
+
+        return updatedTag
+    }
+
+    private func prepareSharedComposeAttachmentForUpload(
+        _ sharedAttachment: SharedComposeAttachment
+    ) async throws -> PreparedUploadMedia {
+        guard let fileURL = sharedAttachment.resolvedFileURL else {
+            throw SharedComposeImportError.missingFileURL
+        }
+
+        let mimeType = sharedAttachment.mimeType
+        let normalizedMimeType = mimeType.lowercased()
+        let normalizedFileExtension = sharedAttachment.fileExtension.lowercased()
+
+        if normalizedMimeType.hasPrefix("video/") ||
+            ["mp4", "mov", "m4v", "webm", "mkv"].contains(normalizedFileExtension) {
+            return try await MediaUploadPreparation.prepareUploadMedia(
+                fileURL: fileURL,
+                mimeType: mimeType,
+                fileExtension: normalizedFileExtension
+            )
+        }
+
+        guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else {
+            throw SharedComposeImportError.unreadableFile
+        }
+
+        return try MediaUploadPreparation.prepareUploadMedia(
+            data: data,
+            mimeType: mimeType,
+            fileExtension: normalizedFileExtension
+        )
+    }
+}
+
+struct ComposeMentionSuggestionController {
+    func suggestions(
+        for query: ComposeMentionQuery,
+        currentAccountPubkey: String?,
+        selectedMentions: [ComposeSelectedMention],
+        profileService: NostrFeedService,
+        limit: Int = 24
+    ) async -> [ComposeMentionSuggestion] {
+        let normalizedQuery = query.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let followedPubkeys = await MainActor.run {
+            FollowStore.shared.followedPubkeys
+        }
+        let profileResults: [ProfileSearchResult]
+        if normalizedQuery.isEmpty {
+            profileResults = await localMentionSeedProfileResults(
+                followedPubkeys: followedPubkeys,
+                limit: limit,
+                currentAccountPubkey: currentAccountPubkey,
+                profileService: profileService
+            )
+        } else {
+            profileResults = await profileService.searchProfiles(
+                query: normalizedQuery,
+                limit: limit,
+                preferredPubkeys: followedPubkeys
+            )
+        }
+
+        let excludedPubkeys = Set(selectedMentions.map(\.pubkey))
+        let normalizedCurrentPubkey = currentAccountPubkey?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        return profileResults.compactMap(ComposeMentionSuggestion.init).filter { suggestion in
+            guard !excludedPubkeys.contains(suggestion.pubkey) else { return false }
+            if let normalizedCurrentPubkey, suggestion.pubkey == normalizedCurrentPubkey {
+                return false
+            }
+            return true
+        }
+    }
+
+    private func localMentionSeedProfileResults(
+        followedPubkeys: Set<String>,
+        limit: Int,
+        currentAccountPubkey: String?,
+        profileService: NostrFeedService
+    ) async -> [ProfileSearchResult] {
+        guard limit > 0 else { return [] }
+
+        let orderedFollowedPubkeys = await orderedFollowedMentionPubkeys(
+            fallback: followedPubkeys,
+            currentAccountPubkey: currentAccountPubkey,
+            profileService: profileService
+        )
+        let followedCandidates = Array(orderedFollowedPubkeys.prefix(max(limit * 3, 48)))
+        let followedProfiles = await profileService.cachedProfiles(pubkeys: followedCandidates)
+        let followedResults = followedCandidates.enumerated().compactMap { index, pubkey -> ProfileSearchResult? in
+            guard let profile = followedProfiles[pubkey] else { return nil }
+            return ProfileSearchResult(
+                pubkey: pubkey,
+                profile: profile,
+                createdAt: Int.max - index
+            )
+        }
+        let recentResults = await profileService.recentLocalProfiles(limit: limit)
+
+        return mergedMentionProfileResults(
+            [followedResults, recentResults],
+            limit: limit
+        )
+    }
+
+    private func orderedFollowedMentionPubkeys(
+        fallback followedPubkeys: Set<String>,
+        currentAccountPubkey: String?,
+        profileService: NostrFeedService
+    ) async -> [String] {
+        if let normalizedCurrentPubkey = currentAccountPubkey?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+           !normalizedCurrentPubkey.isEmpty,
+           let snapshot = await profileService.cachedFollowListSnapshot(pubkey: normalizedCurrentPubkey) {
+            let ordered = normalizedUniqueMentionPubkeys(snapshot.followedPubkeys)
+            if !ordered.isEmpty {
+                return ordered
+            }
+        }
+
+        return normalizedUniqueMentionPubkeys(Array(followedPubkeys).sorted())
+    }
+
+    private func mergedMentionProfileResults(
+        _ groups: [[ProfileSearchResult]],
+        limit: Int
+    ) -> [ProfileSearchResult] {
+        guard limit > 0 else { return [] }
+
+        var seen = Set<String>()
+        var merged: [ProfileSearchResult] = []
+        merged.reserveCapacity(limit)
+
+        for group in groups {
+            for result in group {
+                let pubkey = result.pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard !pubkey.isEmpty, seen.insert(pubkey).inserted else { continue }
+                merged.append(result)
+                if merged.count >= limit {
+                    return merged
+                }
+            }
+        }
+
+        return merged
+    }
+
+    private func normalizedUniqueMentionPubkeys(_ pubkeys: [String]) -> [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        ordered.reserveCapacity(pubkeys.count)
+
+        for pubkey in pubkeys {
+            let normalized = pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { continue }
+            ordered.append(normalized)
+        }
+        return ordered
+    }
+}
+
+struct ComposeDraftInsertionResult: Equatable {
+    let text: String
+    let selectedMentions: [ComposeSelectedMention]
+    let selectedRange: NSRange
+}
+
+struct ComposeDraftController {
+    func makeSnapshot(
+        text: String,
+        additionalTags: [[String]],
+        uploadedAttachments: [ComposeMediaAttachment],
+        selectedMentions: [ComposeSelectedMention],
+        pollDraft: ComposePollDraft?,
+        replyTargetEvent: NostrEvent?,
+        replyTargetDisplayNameHint: String?,
+        replyTargetHandleHint: String?,
+        replyTargetAvatarURLHint: URL?,
+        quotedEvent: NostrEvent?,
+        quotedDisplayNameHint: String?,
+        quotedHandleHint: String?,
+        quotedAvatarURLHint: URL?
+    ) -> SavedComposeDraftSnapshot {
+        SavedComposeDraftSnapshot(
+            text: text,
+            additionalTags: additionalTags,
+            uploadedAttachments: uploadedAttachments,
+            selectedMentions: selectedMentions,
+            pollDraft: pollDraft,
+            replyTargetEvent: replyTargetEvent,
+            replyTargetDisplayNameHint: replyTargetDisplayNameHint,
+            replyTargetHandleHint: replyTargetHandleHint,
+            replyTargetAvatarURLHint: replyTargetAvatarURLHint,
+            quotedEvent: quotedEvent,
+            quotedDisplayNameHint: quotedDisplayNameHint,
+            quotedHandleHint: quotedHandleHint,
+            quotedAvatarURLHint: quotedAvatarURLHint
+        )
+    }
+
+    @MainActor
+    @discardableResult
+    func saveDraftIfNeeded(
+        store: AppComposeDraftStore,
+        snapshot: SavedComposeDraftSnapshot,
+        ownerPubkey: String?,
+        existingDraftID: UUID?
+    ) -> SavedComposeDraft? {
+        store.saveDraft(
+            snapshot: snapshot,
+            ownerPubkey: ownerPubkey,
+            existingDraftID: existingDraftID
+        )
+    }
+
+    @MainActor
+    func deleteDraft(
+        _ draft: SavedComposeDraft,
+        store: AppComposeDraftStore,
+        activeDraftID: UUID?
+    ) -> UUID? {
+        store.deleteDraft(draft)
+        return activeDraftID == draft.id ? nil : activeDraftID
+    }
+
+    func insertionResult(
+        for draft: SavedComposeDraft,
+        currentText: String,
+        selectedMentions: [ComposeSelectedMention]
+    ) -> ComposeDraftInsertionResult? {
+        guard draft.canInsertText else { return nil }
+
+        let separator: String
+        if currentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            separator = ""
+        } else if currentText.hasSuffix("\n") {
+            separator = "\n"
+        } else {
+            separator = "\n\n"
+        }
+
+        let offset = (currentText as NSString).length + (separator as NSString).length
+        let updatedText = currentText + separator + draft.snapshot.text
+        var updatedMentions = selectedMentions + draft.snapshot.selectedMentions.map { $0.shifted(by: offset) }
+        updatedMentions.sort { lhs, rhs in
+            if lhs.range.location == rhs.range.location {
+                return lhs.handle < rhs.handle
+            }
+            return lhs.range.location < rhs.range.location
+        }
+
+        return ComposeDraftInsertionResult(
+            text: updatedText,
+            selectedMentions: updatedMentions,
+            selectedRange: NSRange(location: (updatedText as NSString).length, length: 0)
+        )
+    }
+
+    func freshSnapshot() -> SavedComposeDraftSnapshot {
+        SavedComposeDraftSnapshot(
+            text: "",
+            additionalTags: [],
+            uploadedAttachments: [],
+            selectedMentions: [],
+            pollDraft: nil,
+            replyTargetEvent: nil,
+            replyTargetDisplayNameHint: nil,
+            replyTargetHandleHint: nil,
+            replyTargetAvatarURLHint: nil,
+            quotedEvent: nil,
+            quotedDisplayNameHint: nil,
+            quotedHandleHint: nil,
+            quotedAvatarURLHint: nil
+        )
+    }
+
+    func normalizedHint(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func normalizedHandle(_ value: String?) -> String? {
+        guard let trimmed = normalizedHint(value) else { return nil }
+        return trimmed.hasPrefix("@") ? trimmed : "@\(trimmed)"
+    }
+}
+
 struct ComposeContextPreviewSnapshot: Equatable {
     let authorPubkey: String
     let createdAtDate: Date

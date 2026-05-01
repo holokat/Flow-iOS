@@ -166,6 +166,47 @@ final class NoteContentLinkResolverTests: XCTestCase {
         XCTAssertEqual(embed.videoID, "dQw4w9WgXcQ")
     }
 
+    func testYouTubeEmbedNavigationAllowsEmbedURLInsideWebView() throws {
+        let embedURL = try XCTUnwrap(URL(string: "https://www.youtube.com/embed/dQw4w9WgXcQ?playsinline=1&rel=0"))
+
+        XCTAssertEqual(
+            YouTubeEmbedNavigationPolicy.decision(
+                for: embedURL,
+                embedURL: embedURL,
+                isNewWindow: false
+            ),
+            .allowInWebView
+        )
+    }
+
+    func testYouTubeEmbedNavigationOpensWatchURLExternally() throws {
+        let embedURL = try XCTUnwrap(URL(string: "https://www.youtube.com/embed/dQw4w9WgXcQ?playsinline=1&rel=0"))
+        let watchURL = try XCTUnwrap(URL(string: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+
+        XCTAssertEqual(
+            YouTubeEmbedNavigationPolicy.decision(
+                for: watchURL,
+                embedURL: embedURL,
+                isNewWindow: false
+            ),
+            .openExternally(watchURL)
+        )
+    }
+
+    func testYouTubeEmbedNavigationOpensNewWindowURLExternally() throws {
+        let embedURL = try XCTUnwrap(URL(string: "https://www.youtube.com/embed/dQw4w9WgXcQ?playsinline=1&rel=0"))
+        let watchURL = try XCTUnwrap(URL(string: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+
+        XCTAssertEqual(
+            YouTubeEmbedNavigationPolicy.decision(
+                for: watchURL,
+                embedURL: embedURL,
+                isNewWindow: true
+            ),
+            .openExternally(watchURL)
+        )
+    }
+
     func testNeventIdentifierEncodesEventMetadataForCopying() throws {
         let event = NostrEvent(
             id: String(repeating: "1", count: 64),

@@ -9,7 +9,6 @@ import UniformTypeIdentifiers
 
 struct ComposeNoteSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var toastCenter: AppToastCenter
@@ -64,8 +63,9 @@ struct ComposeNoteSheet: View {
     @State private var activeSavedDraftID: UUID?
     @State private var hasPublishedSuccessfully = false
 
-    private let mediaUploadService = MediaUploadService.shared
-    private let klipyGIFService = KlipyGIFService.shared
+    private let mediaAttachmentController = ComposeMediaAttachmentController()
+    private let mentionSuggestionController = ComposeMentionSuggestionController()
+    private let draftController = ComposeDraftController()
     private let profileService = NostrFeedService()
 
     let currentAccountPubkey: String?
@@ -239,62 +239,14 @@ struct ComposeNoteSheet: View {
         availableSavedDrafts.count
     }
 
-    private var draftLibraryCountText: String? {
-        guard availableSavedDraftCount > 0 else { return nil }
-        if availableSavedDraftCount > 99 {
-            return "99+"
-        }
-        return "\(availableSavedDraftCount)"
-    }
-
-    private var draftLibraryAccessibilityLabel: String {
-        if availableSavedDraftCount == 1 {
-            return "Open drafts, 1 saved draft"
-        }
-        return "Open drafts, \(availableSavedDraftCount) saved drafts"
-    }
-
     private var composeSheetBackground: Color {
         appSettings.activeTheme == .light ? .white : appSettings.themePalette.groupedBackground
     }
 
     private var draftLibraryToolbarButton: some View {
-        Button {
+        ComposeDraftLibraryToolbarButton(savedDraftCount: availableSavedDraftCount) {
             isShowingDraftLibrary = true
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: availableSavedDraftCount > 0 ? "tray.full.fill" : "tray")
-                    .id(availableSavedDraftCount > 0)
-                    .transition(FlowTransitionMotion.iconSwapTransition(reduceMotion: accessibilityReduceMotion))
-                    .foregroundStyle(appSettings.primaryColor)
-
-                if let draftLibraryCountText {
-                    Text(draftLibraryCountText)
-                        .font(.caption.weight(.semibold))
-                        .monospacedDigit()
-                        .id(draftLibraryCountText)
-                        .transition(FlowTransitionMotion.numberPopTransition(reduceMotion: accessibilityReduceMotion))
-                }
-            }
-            .animation(FlowTransitionMotion.iconSwapAnimation(reduceMotion: accessibilityReduceMotion), value: availableSavedDraftCount > 0)
-            .animation(FlowTransitionMotion.numberPopAnimation(reduceMotion: accessibilityReduceMotion), value: draftLibraryCountText)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(appSettings.themePalette.secondaryForeground)
-            .padding(.horizontal, ComposeToolbarLayout.draftButtonHorizontalPadding)
-            .padding(.vertical, ComposeToolbarLayout.draftButtonVerticalPadding)
-            .background(
-                Capsule()
-                    .fill(appSettings.themePalette.tertiaryFill.opacity(ComposeToolbarLayout.draftButtonBackgroundOpacity))
-            )
-            .overlay {
-                Capsule()
-                    .stroke(
-                        appSettings.themePalette.separator.opacity(ComposeToolbarLayout.draftButtonBorderOpacity),
-                        lineWidth: 0.7
-                    )
-            }
         }
-        .accessibilityLabel(draftLibraryAccessibilityLabel)
     }
 
     private var standardComposerLayout: some View {
@@ -336,159 +288,42 @@ struct ComposeNoteSheet: View {
     }
 
     private var composeCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            composeEditor
-
-            if !mediaAttachments.isEmpty {
-                mediaAttachmentPreviewList
-            }
-
-            if let _ = pollDraft, canAttachPoll {
-                ComposePollEditorView(
-                    draft: pollDraftBinding,
-                    onRemove: {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            pollDraft = nil
-                        }
-                    }
-                )
-            }
-
-            HStack {
-                PhotosPicker(
-                    selection: $selectedMediaItems,
-                    selectionBehavior: .ordered,
-                    matching: .any(of: [.images, .videos])
-                ) {
-                    composeToolbarCircle {
-                        if isUploadingMedia {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "photo")
-                                .font(.system(size: 18, weight: .medium))
-                        }
-                    }
+        ComposeComposerCardView(
+            viewModel: viewModel,
+            speechTranscriber: speechTranscriber,
+            mode: mode,
+            selectedMediaItems: $selectedMediaItems,
+            mediaAttachments: mediaAttachments,
+            pollDraft: $pollDraft,
+            isEditorFocused: $isEditorFocused,
+            editorSelectedRange: $editorSelectedRange,
+            selectedMentions: $selectedMentions,
+            mentionSuggestionAnchorY: $mentionSuggestionAnchorY,
+            activeMentionQuery: activeMentionQuery,
+            mentionSuggestions: mentionSuggestions,
+            isLoadingMentionSuggestions: isLoadingMentionSuggestions,
+            isUploadingMedia: isUploadingMedia,
+            isRequestingCaptureAccess: isRequestingCaptureAccess,
+            canAttachPoll: canAttachPoll,
+            currentNsec: currentNsec,
+            writeRelayURLs: writeRelayURLs,
+            onMentionQueryChange: handleMentionQueryChange(_:),
+            onMentionSuggestionSelect: insertMentionSuggestion(_:),
+            onPreviewMedia: { attachment in
+                previewingMediaAttachment = attachment
+            },
+            onRemoveMedia: removeMediaAttachment(_:),
+            onCameraTap: handleCameraButtonTap,
+            onGIFTap: {
+                isShowingKlipyGIFPicker = true
+            },
+            onSpeechToggle: {
+                Task {
+                    await handleSpeechToggle()
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(appSettings.primaryColor)
-                .disabled(isUploadingMedia || viewModel.isPublishing)
-
-                cameraAttachmentButton(symbolFont: .system(size: 18, weight: .medium))
-
-                Button {
-                    isShowingKlipyGIFPicker = true
-                } label: {
-                    Text("GIF")
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(appSettings.themePalette.tertiaryFill)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(appSettings.primaryColor)
-                .disabled(isUploadingMedia || viewModel.isPublishing)
-
-                Button {
-                    Task {
-                        await handleSpeechToggle()
-                    }
-                } label: {
-                    composeToolbarCircle(isActive: speechTranscriber.isRecording) {
-                        if speechTranscriber.isRecording {
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 15, weight: .semibold))
-                        } else if speechTranscriber.isTranscribing {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "waveform")
-                                .font(.system(size: 17, weight: .medium))
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(viewModel.isPublishing || isUploadingMedia)
-
-                if canAttachPoll {
-                    Button {
-                        togglePollDraft()
-                    } label: {
-                        composeToolbarCircle(isActive: pollDraft != nil) {
-                            Image(systemName: pollDraft == nil ? "chart.bar.xaxis" : "chart.bar.fill")
-                                .font(.system(size: 17, weight: .medium))
-                                .id(pollDraft != nil)
-                                .transition(FlowTransitionMotion.iconSwapTransition(reduceMotion: accessibilityReduceMotion))
-                        }
-                    }
-                    .animation(FlowTransitionMotion.iconSwapAnimation(reduceMotion: accessibilityReduceMotion), value: pollDraft != nil)
-                    .buttonStyle(.plain)
-                    .disabled(viewModel.isPublishing || isUploadingMedia)
-                    .accessibilityLabel(pollDraft == nil ? "Add poll" : "Edit poll")
-                }
-
-                if speechTranscriber.isRecording {
-                    Text(formatVoiceDuration(milliseconds: speechTranscriber.elapsedMs))
-                        .font(.footnote.monospacedDigit())
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                }
-
-                Spacer()
-
-                ComposeCharacterCountRing(
-                    characterCount: viewModel.characterCount,
-                    characterLimit: viewModel.characterLimit
-                )
-
-                if currentNsec == nil {
-                    Label("nsec required", systemImage: "lock.fill")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                } else if writeRelayURLs.isEmpty {
-                    Label("No connected sources", systemImage: "wifi.slash")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var composeEditor: some View {
-        ZStack(alignment: .topLeading) {
-            if viewModel.text.isEmpty {
-                Text(mode.placeholderText)
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 16)
-            }
-
-            composeTextView(horizontalPadding: 8, verticalPadding: 8)
-                .frame(minHeight: composeEditorMinHeight)
-        }
-        .overlay(alignment: .topLeading) {
-            if shouldShowMentionSuggestions {
-                mentionSuggestionList
-                    .padding(.top, mentionSuggestionPanelTopPadding)
-                    .padding(.horizontal, 8)
-                    .zIndex(2)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .animation(.easeInOut(duration: 0.16), value: shouldShowMentionSuggestions)
-        .animation(.easeInOut(duration: 0.16), value: mentionSuggestionPanelTopPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .zIndex(shouldShowMentionSuggestions ? 1 : 0)
-    }
-
-    private var composeEditorMinHeight: CGFloat {
-        guard shouldShowMentionSuggestions else { return 180 }
-        return max(180, mentionSuggestionPanelTopPadding + ComposeMentionSuggestionPanel.maxHeight + 12)
-    }
-
-    private var mentionSuggestionPanelTopPadding: CGFloat {
-        min(max(mentionSuggestionAnchorY + 12, 42), 118)
+            },
+            onTogglePoll: togglePollDraft
+        )
     }
 
     private var statusSection: some View {
@@ -501,35 +336,6 @@ struct ComposeNoteSheet: View {
             missingNsec: currentNsec == nil,
             missingPublishSources: writeRelayURLs.isEmpty,
             pollValidationMessage: pollValidationMessage
-        )
-    }
-
-    @ViewBuilder
-    private func composeTextView(horizontalPadding: CGFloat, verticalPadding: CGFloat) -> some View {
-        ComposeMultilineTextView(
-            text: $viewModel.text,
-            isFocused: $isEditorFocused,
-            selectedRange: $editorSelectedRange,
-            mentions: $selectedMentions,
-            mentionAnchorY: $mentionSuggestionAnchorY,
-            mentionColor: UIColor(appSettings.primaryColor),
-            characterLimit: ComposeNoteTextLimit.maxCharacterCount,
-            onMentionQueryChange: handleMentionQueryChange(_:)
-        )
-        .padding(.horizontal, horizontalPadding)
-        .padding(.vertical, verticalPadding)
-    }
-
-    private var shouldShowMentionSuggestions: Bool {
-        guard isEditorFocused, activeMentionQuery != nil else { return false }
-        return isLoadingMentionSuggestions || !mentionSuggestions.isEmpty
-    }
-
-    private var mentionSuggestionList: some View {
-        ComposeMentionSuggestionPanel(
-            suggestions: mentionSuggestions,
-            isLoading: isLoadingMentionSuggestions,
-            onSelect: insertMentionSuggestion(_:)
         )
     }
 
@@ -571,36 +377,14 @@ struct ComposeNoteSheet: View {
     }
 
     private func refreshMentionSuggestions(for query: ComposeMentionQuery) async {
-        let normalizedQuery = query.query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let followedPubkeys = await MainActor.run {
-            FollowStore.shared.followedPubkeys
-        }
-        let profileResults: [ProfileSearchResult]
-        if normalizedQuery.isEmpty {
-            profileResults = await localMentionSeedProfileResults(
-                followedPubkeys: followedPubkeys,
-                limit: 24
-            )
-        } else {
-            profileResults = await profileService.searchProfiles(
-                query: normalizedQuery,
-                limit: 24,
-                preferredPubkeys: followedPubkeys
-            )
-        }
-
-        let excludedPubkeys = Set(selectedMentions.map(\.pubkey))
-        let normalizedCurrentPubkey = currentAccountPubkey?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        let suggestions = profileResults.compactMap(ComposeMentionSuggestion.init).filter { suggestion in
-            guard !excludedPubkeys.contains(suggestion.pubkey) else { return false }
-            if let normalizedCurrentPubkey, suggestion.pubkey == normalizedCurrentPubkey {
-                return false
-            }
-            return true
-        }
+        let currentAccountPubkey = currentAccountPubkey
+        let selectedMentions = selectedMentions
+        let suggestions = await mentionSuggestionController.suggestions(
+            for: query,
+            currentAccountPubkey: currentAccountPubkey,
+            selectedMentions: selectedMentions,
+            profileService: profileService
+        )
 
         guard !Task.isCancelled else { return }
 
@@ -609,84 +393,6 @@ struct ComposeNoteSheet: View {
             mentionSuggestions = suggestions
             isLoadingMentionSuggestions = false
         }
-    }
-
-    private func localMentionSeedProfileResults(
-        followedPubkeys: Set<String>,
-        limit: Int
-    ) async -> [ProfileSearchResult] {
-        guard limit > 0 else { return [] }
-
-        let orderedFollowedPubkeys = await orderedFollowedMentionPubkeys(fallback: followedPubkeys)
-        let followedCandidates = Array(orderedFollowedPubkeys.prefix(max(limit * 3, 48)))
-        let followedProfiles = await profileService.cachedProfiles(pubkeys: followedCandidates)
-        let followedResults = followedCandidates.enumerated().compactMap { index, pubkey -> ProfileSearchResult? in
-            guard let profile = followedProfiles[pubkey] else { return nil }
-            return ProfileSearchResult(
-                pubkey: pubkey,
-                profile: profile,
-                createdAt: Int.max - index
-            )
-        }
-        let recentResults = await profileService.recentLocalProfiles(limit: limit)
-
-        return mergedMentionProfileResults(
-            [followedResults, recentResults],
-            limit: limit
-        )
-    }
-
-    private func orderedFollowedMentionPubkeys(fallback followedPubkeys: Set<String>) async -> [String] {
-        if let normalizedCurrentPubkey = currentAccountPubkey?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased(),
-           !normalizedCurrentPubkey.isEmpty,
-           let snapshot = await profileService.cachedFollowListSnapshot(pubkey: normalizedCurrentPubkey) {
-            let ordered = normalizedUniqueMentionPubkeys(snapshot.followedPubkeys)
-            if !ordered.isEmpty {
-                return ordered
-            }
-        }
-
-        return normalizedUniqueMentionPubkeys(Array(followedPubkeys).sorted())
-    }
-
-    private func mergedMentionProfileResults(
-        _ groups: [[ProfileSearchResult]],
-        limit: Int
-    ) -> [ProfileSearchResult] {
-        guard limit > 0 else { return [] }
-
-        var seen = Set<String>()
-        var merged: [ProfileSearchResult] = []
-        merged.reserveCapacity(limit)
-
-        for group in groups {
-            for result in group {
-                let pubkey = result.pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                guard !pubkey.isEmpty, seen.insert(pubkey).inserted else { continue }
-                merged.append(result)
-                if merged.count >= limit {
-                    return merged
-                }
-            }
-        }
-
-        return merged
-    }
-
-    private func normalizedUniqueMentionPubkeys(_ pubkeys: [String]) -> [String] {
-        var seen = Set<String>()
-        var ordered: [String] = []
-        ordered.reserveCapacity(pubkeys.count)
-
-        for pubkey in pubkeys {
-            let normalized = pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard !normalized.isEmpty, seen.insert(normalized).inserted else { continue }
-            ordered.append(normalized)
-        }
-
-        return ordered
     }
 
     private func insertMentionSuggestion(_ suggestion: ComposeMentionSuggestion) {
@@ -709,13 +415,6 @@ struct ComposeNoteSheet: View {
 
     private var canAttachPoll: Bool {
         mode == .newNote
-    }
-
-    private var pollDraftBinding: Binding<ComposePollDraft> {
-        Binding(
-            get: { pollDraft ?? .defaultDraft() },
-            set: { pollDraft = $0 }
-        )
     }
 
     private var pollValidationMessage: String? {
@@ -815,45 +514,6 @@ struct ComposeNoteSheet: View {
                 )
             }
         }
-    }
-
-    private var mediaAttachmentPreviewList: some View {
-        ComposeMediaAttachmentStrip(
-            attachments: mediaAttachments,
-            colorScheme: colorScheme,
-            onPreview: { attachment in
-                previewingMediaAttachment = attachment
-            },
-            onRemove: removeMediaAttachment(_:)
-        )
-    }
-
-    private func composeToolbarCircle<Content: View>(
-        isActive: Bool = false,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        content()
-            .foregroundStyle(isActive ? Color.white : appSettings.primaryColor)
-            .tint(isActive ? Color.white : appSettings.primaryColor)
-            .frame(width: 32, height: 32)
-            .background(
-                isActive ? appSettings.primaryColor : appSettings.themePalette.tertiaryFill,
-                in: Circle()
-            )
-    }
-
-    private func cameraAttachmentButton(symbolFont: Font) -> some View {
-        Button {
-            handleCameraButtonTap()
-        } label: {
-            composeToolbarCircle {
-                Image(systemName: "camera")
-                    .font(symbolFont)
-            }
-        }
-        .buttonStyle(.plain)
-        .disabled(isUploadingMedia || viewModel.isPublishing || isRequestingCaptureAccess)
-        .accessibilityLabel("Capture photo or video")
     }
 
     private func refreshComposeAccountSummary() async {
@@ -1065,13 +725,13 @@ struct ComposeNoteSheet: View {
     }
 
     private func handleCameraButtonTap() {
-        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+        guard mediaAttachmentController.isCameraAvailable else {
             viewModel.feedbackMessage = "This device doesn't have an available camera right now."
             viewModel.feedbackIsError = true
             return
         }
 
-        let permissions = CameraCapturePermissionSnapshot.current()
+        let permissions = mediaAttachmentController.currentCapturePermissions()
         capturePermissions = permissions
 
         if permissions.isCameraBlocked {
@@ -1092,11 +752,11 @@ struct ComposeNoteSheet: View {
         isRequestingCaptureAccess = true
         defer { isRequestingCaptureAccess = false }
 
-        var permissions = CameraCapturePermissionSnapshot.current()
+        var permissions = mediaAttachmentController.currentCapturePermissions()
 
         if permissions.cameraRequiresPrompt {
-            _ = await requestCaptureAccess(for: .video)
-            permissions = CameraCapturePermissionSnapshot.current()
+            _ = await mediaAttachmentController.requestCaptureAccess(for: .video)
+            permissions = mediaAttachmentController.currentCapturePermissions()
         }
 
         guard !permissions.isCameraBlocked else {
@@ -1105,21 +765,13 @@ struct ComposeNoteSheet: View {
         }
 
         if permissions.microphoneRequiresPrompt {
-            _ = await requestCaptureAccess(for: .audio)
-            permissions = CameraCapturePermissionSnapshot.current()
+            _ = await mediaAttachmentController.requestCaptureAccess(for: .audio)
+            permissions = mediaAttachmentController.currentCapturePermissions()
         }
 
         capturePermissions = permissions
         isShowingCapturePermissionSheet = false
         presentCameraCapture(using: permissions)
-    }
-
-    private func requestCaptureAccess(for mediaType: AVMediaType) async -> Bool {
-        await withCheckedContinuation { continuation in
-            AVCaptureDevice.requestAccess(for: mediaType) { granted in
-                continuation.resume(returning: granted)
-            }
-        }
     }
 
     private func presentCameraCapture(using permissions: CameraCapturePermissionSnapshot) {
@@ -1154,7 +806,10 @@ struct ComposeNoteSheet: View {
         }
 
         do {
-            let attachment = try await uploadCapturedMediaAttachment(capturedMedia, normalizedNsec: normalizedNsec)
+            let attachment = try await mediaAttachmentController.uploadAttachment(
+                from: capturedMedia,
+                normalizedNsec: normalizedNsec
+            )
             if !mediaAttachments.contains(where: { $0.url == attachment.url }) {
                 mediaAttachments.append(attachment)
                 removeUploadedMediaURLIfPresent(attachment.url)
@@ -1188,7 +843,10 @@ struct ComposeNoteSheet: View {
 
         for item in items {
             do {
-                let attachment = try await uploadMediaAttachment(from: item, normalizedNsec: normalizedNsec)
+                let attachment = try await mediaAttachmentController.uploadAttachment(
+                    from: item,
+                    normalizedNsec: normalizedNsec
+                )
 
                 if !mediaAttachments.contains(where: { $0.url == attachment.url }) {
                     mediaAttachments.append(attachment)
@@ -1222,26 +880,6 @@ struct ComposeNoteSheet: View {
         }
     }
 
-    private func uploadMediaAttachment(from item: PhotosPickerItem, normalizedNsec: String) async throws -> ComposeMediaAttachment {
-        let preparedMedia = try await MediaUploadPreparation.prepareUploadMedia(from: item)
-        let filename = "note-\(UUID().uuidString).\(preparedMedia.fileExtension)"
-
-        let result = try await mediaUploadService.uploadMedia(
-            data: preparedMedia.data,
-            mimeType: preparedMedia.mimeType,
-            filename: filename,
-            nsec: normalizedNsec,
-            provider: .blossom
-        )
-
-        return ComposeMediaAttachment(
-            url: result.url,
-            imetaTag: result.imetaTag,
-            mimeType: preparedMedia.mimeType,
-            fileSizeBytes: preparedMedia.data.count
-        )
-    }
-
     private func handleKlipyGIFSelection(_ selection: KlipyGIFAttachmentCandidate) async {
         guard !isUploadingMedia else { return }
         viewModel.feedbackMessage = nil
@@ -1260,7 +898,10 @@ struct ComposeNoteSheet: View {
         }
 
         do {
-            let attachment = try await uploadKlipyGIFAttachment(selection, normalizedNsec: normalizedNsec)
+            let attachment = try await mediaAttachmentController.uploadAttachment(
+                from: selection,
+                normalizedNsec: normalizedNsec
+            )
 
             if !mediaAttachments.contains(where: { $0.url == attachment.url }) {
                 mediaAttachments.append(attachment)
@@ -1271,11 +912,7 @@ struct ComposeNoteSheet: View {
             toastCenter.show("GIF added")
 
             Task {
-                await klipyGIFService.registerShare(
-                    slug: selection.slug,
-                    customerID: selection.customerID,
-                    query: selection.searchQuery
-                )
+                await mediaAttachmentController.registerKlipyShare(for: selection)
             }
         } catch {
             viewModel.feedbackMessage = (error as? LocalizedError)?.errorDescription ?? "Couldn't add that GIF right now."
@@ -1283,142 +920,14 @@ struct ComposeNoteSheet: View {
         }
     }
 
-    private func uploadKlipyGIFAttachment(
-        _ selection: KlipyGIFAttachmentCandidate,
-        normalizedNsec: String
-    ) async throws -> ComposeMediaAttachment {
-        let downloadedData = try await klipyGIFService.downloadGIFData(for: selection)
-        let preparedMedia = try await MediaUploadPreparation.prepareGIFKeyboardUploadMedia(
-            data: downloadedData,
-            mimeType: selection.mimeType,
-            fileExtension: selection.fileExtension
-        )
-        let filename = "gif-\(UUID().uuidString).\(preparedMedia.fileExtension)"
-
-        let result = try await mediaUploadService.uploadMedia(
-            data: preparedMedia.data,
-            mimeType: preparedMedia.mimeType,
-            filename: filename,
-            nsec: normalizedNsec,
-            provider: .blossom
-        )
-
-        let imetaTag = gifKeyboardIMetaTag(
-            from: result.imetaTag,
-            preparedMedia: preparedMedia
-        )
-
-        return ComposeMediaAttachment(
-            url: result.url,
-            imetaTag: imetaTag,
-            mimeType: preparedMedia.mimeType,
-            fileSizeBytes: preparedMedia.data.count
-        )
-    }
-
-    private func gifKeyboardIMetaTag(
-        from imetaTag: [String],
-        preparedMedia: PreparedUploadMedia
-    ) -> [String] {
-        guard preparedMedia.mimeType.lowercased().hasPrefix("video/") else {
-            return imetaTag
-        }
-
-        var updatedTag = imetaTag
-        if !updatedTag.contains(where: { $0.lowercased().hasPrefix("m ") }) {
-            updatedTag.append("m \(preparedMedia.mimeType)")
-        }
-        if !updatedTag.contains(where: { $0.lowercased().hasPrefix("size ") }) {
-            updatedTag.append("size \(preparedMedia.data.count)")
-        }
-        if !updatedTag.contains(where: { $0.lowercased().hasPrefix("flow-gif-loop ") }) {
-            updatedTag.append("flow-gif-loop 1")
-        }
-
-        if !updatedTag.contains(where: { $0.lowercased().hasPrefix("dim ") }),
-           let previewSize = preparedMedia.previewImage?.size,
-           previewSize.width > 0,
-           previewSize.height > 0 {
-            updatedTag.append("dim \(Int(previewSize.width.rounded()))x\(Int(previewSize.height.rounded()))")
-        }
-
-        return updatedTag
-    }
-
-    private func uploadCapturedMediaAttachment(
-        _ capturedMedia: CapturedCameraMedia,
-        normalizedNsec: String
-    ) async throws -> ComposeMediaAttachment {
-        let preparedMedia: PreparedUploadMedia
-
-        switch capturedMedia {
-        case .image(let imageData, let capturedMimeType, let capturedFileExtension):
-            preparedMedia = try MediaUploadPreparation.prepareUploadMedia(
-                data: imageData,
-                mimeType: capturedMimeType,
-                fileExtension: capturedFileExtension
-            )
-
-        case .video(let fileURL, let capturedMimeType, let capturedFileExtension):
-            preparedMedia = try await MediaUploadPreparation.prepareUploadMedia(
-                fileURL: fileURL,
-                mimeType: capturedMimeType,
-                fileExtension: capturedFileExtension
-            )
-        }
-
-        let filename = "note-\(UUID().uuidString).\(preparedMedia.fileExtension)"
-        let result = try await mediaUploadService.uploadMedia(
-            data: preparedMedia.data,
-            mimeType: preparedMedia.mimeType,
-            filename: filename,
-            nsec: normalizedNsec,
-            provider: .blossom
-        )
-
-        return ComposeMediaAttachment(
-            url: result.url,
-            imetaTag: result.imetaTag,
-            mimeType: preparedMedia.mimeType,
-            fileSizeBytes: preparedMedia.data.count
-        )
-    }
-
-    private func uploadSharedComposeAttachment(
-        _ sharedAttachment: SharedComposeAttachment,
-        normalizedNsec: String
-    ) async throws -> ComposeMediaAttachment {
-        let preparedMedia = try await prepareSharedComposeAttachmentForUpload(sharedAttachment)
-        let filename = "note-\(UUID().uuidString).\(preparedMedia.fileExtension)"
-        let result = try await mediaUploadService.uploadMedia(
-            data: preparedMedia.data,
-            mimeType: preparedMedia.mimeType,
-            filename: filename,
-            nsec: normalizedNsec,
-            provider: .blossom
-        )
-
-        return ComposeMediaAttachment(
-            url: result.url,
-            imetaTag: result.imetaTag,
-            mimeType: preparedMedia.mimeType,
-            fileSizeBytes: preparedMedia.data.count
-        )
-    }
-
     private func removeMediaAttachment(_ attachment: ComposeMediaAttachment) {
         mediaAttachments.removeAll { $0.id == attachment.id }
     }
 
     private func removeUploadedMediaURLIfPresent(_ url: URL) {
-        let urlString = url.absoluteString
-        guard viewModel.text.contains(urlString) else { return }
-
-        viewModel.text = viewModel.text
-            .replacingOccurrences(of: "\n\(urlString)", with: "")
-            .replacingOccurrences(of: urlString, with: "")
-            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let updatedText = mediaAttachmentController.textRemovingUploadedMediaURL(url, from: viewModel.text)
+        guard updatedText != viewModel.text else { return }
+        viewModel.text = updatedText
     }
 
     private func handleSpeechToggle() async {
@@ -1445,46 +954,6 @@ struct ComposeNoteSheet: View {
             viewModel.text += needsSeparator ? " \(normalized)" : normalized
         }
         isEditorFocused = true
-    }
-
-    private func formatVoiceDuration(milliseconds: Int) -> String {
-        let safeMilliseconds = max(milliseconds, 0)
-        let totalSeconds = safeMilliseconds / 1_000
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        return String(format: "%02d:%02d", minutes, seconds)
-    }
-
-    private func defaultFileExtension(for mimeType: String) -> String {
-        let normalized = mimeType.lowercased()
-        if normalized.contains("jpeg") || normalized.contains("jpg") {
-            return "jpg"
-        }
-        if normalized.contains("png") {
-            return "png"
-        }
-        if normalized.contains("heic") {
-            return "heic"
-        }
-        if normalized.contains("gif") {
-            return "gif"
-        }
-        if normalized.contains("webp") {
-            return "webp"
-        }
-        if normalized.contains("quicktime") || normalized.contains("mov") {
-            return "mov"
-        }
-        if normalized.contains("mp4") {
-            return "mp4"
-        }
-        if normalized.contains("mpeg") || normalized.contains("mp3") {
-            return "mp3"
-        }
-        if normalized.contains("m4a") {
-            return "m4a"
-        }
-        return "bin"
     }
 
     private func openSystemSettings() {
@@ -1657,12 +1126,12 @@ struct ComposeNoteSheet: View {
     ) {
         currentAdditionalTags = additionalTags
         currentReplyTargetEvent = replyTargetEvent
-        currentReplyTargetDisplayNameHint = normalizedDraftHint(replyTargetDisplayNameHint)
-        currentReplyTargetHandleHint = normalizedDraftHandle(replyTargetHandleHint)
+        currentReplyTargetDisplayNameHint = draftController.normalizedHint(replyTargetDisplayNameHint)
+        currentReplyTargetHandleHint = draftController.normalizedHandle(replyTargetHandleHint)
         currentReplyTargetAvatarURLHint = replyTargetAvatarURLHint
         currentQuotedEvent = quotedEvent
-        currentQuotedDisplayNameHint = normalizedDraftHint(quotedDisplayNameHint)
-        currentQuotedHandleHint = normalizedDraftHandle(quotedHandleHint)
+        currentQuotedDisplayNameHint = draftController.normalizedHint(quotedDisplayNameHint)
+        currentQuotedHandleHint = draftController.normalizedHandle(quotedHandleHint)
         currentQuotedAvatarURLHint = quotedAvatarURLHint
 
         replyTargetDisplayName = currentReplyTargetDisplayNameHint
@@ -1686,7 +1155,8 @@ struct ComposeNoteSheet: View {
         }
         guard !viewModel.isPublishing else { return }
 
-        let savedDraft = composeDraftStore.saveDraft(
+        let savedDraft = draftController.saveDraftIfNeeded(
+            store: composeDraftStore,
             snapshot: currentDraftSnapshot,
             ownerPubkey: currentAccountPubkey,
             existingDraftID: activeSavedDraftID
@@ -1701,7 +1171,7 @@ struct ComposeNoteSheet: View {
     }
 
     private var currentDraftSnapshot: SavedComposeDraftSnapshot {
-        SavedComposeDraftSnapshot(
+        draftController.makeSnapshot(
             text: viewModel.text,
             additionalTags: currentAdditionalTags,
             uploadedAttachments: mediaAttachments,
@@ -1720,7 +1190,8 @@ struct ComposeNoteSheet: View {
 
     private func loadSavedDraft(_ draft: SavedComposeDraft) {
         if activeSavedDraftID != draft.id {
-            _ = composeDraftStore.saveDraft(
+            _ = draftController.saveDraftIfNeeded(
+                store: composeDraftStore,
                 snapshot: currentDraftSnapshot,
                 ownerPubkey: currentAccountPubkey,
                 existingDraftID: activeSavedDraftID
@@ -1733,63 +1204,36 @@ struct ComposeNoteSheet: View {
     }
 
     private func insertSavedDraftText(_ draft: SavedComposeDraft) {
-        guard draft.canInsertText else { return }
+        guard let insertion = draftController.insertionResult(
+            for: draft,
+            currentText: viewModel.text,
+            selectedMentions: selectedMentions
+        ) else { return }
 
-        let existingText = viewModel.text
-        let separator: String
-        if existingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            separator = ""
-        } else if existingText.hasSuffix("\n") {
-            separator = "\n"
-        } else {
-            separator = "\n\n"
-        }
-
-        let offset = (existingText as NSString).length + (separator as NSString).length
-        viewModel.text = existingText + separator + draft.snapshot.text
-        selectedMentions.append(contentsOf: draft.snapshot.selectedMentions.map { $0.shifted(by: offset) })
-        selectedMentions.sort { lhs, rhs in
-            if lhs.range.location == rhs.range.location {
-                return lhs.handle < rhs.handle
-            }
-            return lhs.range.location < rhs.range.location
-        }
-        editorSelectedRange = NSRange(location: (viewModel.text as NSString).length, length: 0)
+        viewModel.text = insertion.text
+        selectedMentions = insertion.selectedMentions
+        editorSelectedRange = insertion.selectedRange
         isEditorFocused = true
         toastCenter.show("Draft text inserted", style: .info)
     }
 
     private func deleteSavedDraft(_ draft: SavedComposeDraft) {
-        composeDraftStore.deleteDraft(draft)
-        if activeSavedDraftID == draft.id {
-            activeSavedDraftID = nil
-        }
+        activeSavedDraftID = draftController.deleteDraft(
+            draft,
+            store: composeDraftStore,
+            activeDraftID: activeSavedDraftID
+        )
     }
 
     private func clearComposerForFreshDraft() {
-        _ = composeDraftStore.saveDraft(
+        _ = draftController.saveDraftIfNeeded(
+            store: composeDraftStore,
             snapshot: currentDraftSnapshot,
             ownerPubkey: currentAccountPubkey,
             existingDraftID: activeSavedDraftID
         )
 
-        applySavedDraftSnapshot(
-            SavedComposeDraftSnapshot(
-                text: "",
-                additionalTags: [],
-                uploadedAttachments: [],
-                selectedMentions: [],
-                pollDraft: nil,
-                replyTargetEvent: nil,
-                replyTargetDisplayNameHint: nil,
-                replyTargetHandleHint: nil,
-                replyTargetAvatarURLHint: nil,
-                quotedEvent: nil,
-                quotedDisplayNameHint: nil,
-                quotedHandleHint: nil,
-                quotedAvatarURLHint: nil
-            )
-        )
+        applySavedDraftSnapshot(draftController.freshSnapshot())
         activeSavedDraftID = nil
         toastCenter.show("Started a fresh draft", style: .info)
     }
@@ -1817,16 +1261,6 @@ struct ComposeNoteSheet: View {
         viewModel.feedbackIsError = false
         editorSelectedRange = NSRange(location: (viewModel.text as NSString).length, length: 0)
         isEditorFocused = true
-    }
-
-    private func normalizedDraftHint(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func normalizedDraftHandle(_ value: String?) -> String? {
-        guard let trimmed = normalizedDraftHint(value) else { return nil }
-        return trimmed.hasPrefix("@") ? trimmed : "@\(trimmed)"
     }
 
     private var configuredPublishSourceCount: Int {
@@ -1860,8 +1294,8 @@ struct ComposeNoteSheet: View {
 
         for sharedAttachment in initialSharedAttachments {
             do {
-                let attachment = try await uploadSharedComposeAttachment(
-                    sharedAttachment,
+                let attachment = try await mediaAttachmentController.uploadAttachment(
+                    from: sharedAttachment,
                     normalizedNsec: normalizedNsec
                 )
 
@@ -1902,37 +1336,6 @@ struct ComposeNoteSheet: View {
     private func cleanupInitialSharedAttachments() {
         guard !initialSharedAttachments.isEmpty else { return }
         FlowSharedComposeDraftStore.cleanupAttachmentFiles(initialSharedAttachments)
-    }
-
-    private func prepareSharedComposeAttachmentForUpload(
-        _ sharedAttachment: SharedComposeAttachment
-    ) async throws -> PreparedUploadMedia {
-        guard let fileURL = sharedAttachment.resolvedFileURL else {
-            throw SharedComposeImportError.missingFileURL
-        }
-
-        let mimeType = sharedAttachment.mimeType
-        let normalizedMimeType = mimeType.lowercased()
-        let normalizedFileExtension = sharedAttachment.fileExtension.lowercased()
-
-        if normalizedMimeType.hasPrefix("video/") ||
-            ["mp4", "mov", "m4v", "webm", "mkv"].contains(normalizedFileExtension) {
-            return try await MediaUploadPreparation.prepareUploadMedia(
-                fileURL: fileURL,
-                mimeType: mimeType,
-                fileExtension: normalizedFileExtension
-            )
-        }
-
-        guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else {
-            throw SharedComposeImportError.unreadableFile
-        }
-
-        return try MediaUploadPreparation.prepareUploadMedia(
-            data: data,
-            mimeType: mimeType,
-            fileExtension: normalizedFileExtension
-        )
     }
 
     nonisolated private static func renderEventForQuotePreview(_ event: NostrEvent) -> NostrEvent {

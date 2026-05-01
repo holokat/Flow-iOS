@@ -2,6 +2,8 @@ import SwiftUI
 import UIKit
 
 enum ThreadDetailViewLayout {
+    static let noteReplyActionBottomComfortPadding: CGFloat = 24
+
     static func navigationTitle(hasArticleHero: Bool) -> String {
         hasArticleHero ? "" : "Note"
     }
@@ -16,10 +18,23 @@ enum ThreadDetailViewLayout {
     ) -> CGFloat {
         minimumPadding + max(0, safeAreaInset)
     }
+
+    static func noteBottomContentPadding(
+        bottomTabBarHeight: CGFloat,
+        safeAreaBottom: CGFloat,
+        comfortPadding: CGFloat = noteReplyActionBottomComfortPadding
+    ) -> CGFloat {
+        ScrollChromeLayout.feedContentPadding(
+            topBarHeight: 0,
+            bottomBarHeight: bottomTabBarHeight,
+            safeAreaBottom: safeAreaBottom
+        ).bottom + max(0, comfortPadding)
+    }
 }
 
 struct ThreadDetailView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.flowBottomTabBarHeight) private var flowBottomTabBarHeight
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject var appSettings: AppSettingsStore
     @EnvironmentObject var relaySettings: RelaySettingsStore
@@ -261,103 +276,112 @@ struct ThreadDetailView: View {
     }
 
     private var noteDetailBody: some View {
-        ScrollViewReader { scrollProxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ThreadDetailRootNoteCard(
-                        item: viewModel.rootItem,
-                        isHiddenByNSFW: hideNSFWEnabled && viewModel.rootItem.moderationEvents.contains(where: { $0.containsNSFWHashtag }),
-                        reactionCount: rootReactionCount,
-                        commentCount: rootReplyCount,
-                        repostCount: rootRepostCount,
-                        showReactions: appSettings.reactionsVisibleInFeeds,
-                        isFollowingAuthor: followStore.isFollowing(viewModel.rootItem.displayAuthorPubkey),
-                        rootFollowStatusIconName: rootFollowStatusIconName,
-                        isLikedByCurrentUser: isRootLikedByCurrentUser,
-                        isBonusReactionByCurrentUser: isRootBonusReactionByCurrentUser,
-                        onFollowToggle: {
-                            followStore.toggleFollow(viewModel.rootItem.displayAuthorPubkey)
-                        },
-                        onOpenProfile: openProfile,
-                        onOpenHashtag: openHashtagFeed,
-                        onOpenReferencedEvent: { referencedItem in
-                            selectedThreadItem = referencedItem.threadNavigationItem
-                        },
-                        onOpenRelay: openRelayFeed,
-                        onOptionsTap: {
-                            isShowingRootNoteOptionsSheet = true
-                        },
-                        onReplyTap: {
-                            presentReplyComposer(for: viewModel.rootItem.canonicalDisplayItem)
-                        },
-                        onReactionTap: { bonusCount in
-                            Task {
-                                await handleRootReactionTap(bonusCount: bonusCount)
+        GeometryReader { geometry in
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ThreadDetailRootNoteCard(
+                            item: viewModel.rootItem,
+                            isHiddenByNSFW: hideNSFWEnabled && viewModel.rootItem.moderationEvents.contains(where: { $0.containsNSFWHashtag }),
+                            reactionCount: rootReactionCount,
+                            commentCount: rootReplyCount,
+                            repostCount: rootRepostCount,
+                            showReactions: appSettings.reactionsVisibleInFeeds,
+                            isFollowingAuthor: followStore.isFollowing(viewModel.rootItem.displayAuthorPubkey),
+                            rootFollowStatusIconName: rootFollowStatusIconName,
+                            isLikedByCurrentUser: isRootLikedByCurrentUser,
+                            isBonusReactionByCurrentUser: isRootBonusReactionByCurrentUser,
+                            onFollowToggle: {
+                                followStore.toggleFollow(viewModel.rootItem.displayAuthorPubkey)
+                            },
+                            onOpenProfile: openProfile,
+                            onOpenHashtag: openHashtagFeed,
+                            onOpenReferencedEvent: { referencedItem in
+                                selectedThreadItem = referencedItem.threadNavigationItem
+                            },
+                            onOpenRelay: openRelayFeed,
+                            onOptionsTap: {
+                                isShowingRootNoteOptionsSheet = true
+                            },
+                            onReplyTap: {
+                                presentReplyComposer(for: viewModel.rootItem.canonicalDisplayItem)
+                            },
+                            onReactionTap: { bonusCount in
+                                Task {
+                                    await handleRootReactionTap(bonusCount: bonusCount)
+                                }
+                            },
+                            onRepostTap: {
+                                isShowingReshareSheet = true
+                            },
+                            shareLink: rootNoteShareLink
+                        )
+
+                        ThreadDetailSeparator(leadingPadding: 16)
+
+                        ThreadDetailContentSection(
+                            selectedContentTab: $selectedContentTab,
+                            replies: threadReplies,
+                            spamReplies: threadSpamReplies,
+                            spamRepliesExpanded: viewModel.isSpamRepliesExpanded,
+                            replyCountsByTarget: replyCountsByTarget,
+                            noteActivityRows: noteActivityRows,
+                            isLoadingReplies: viewModel.isLoading,
+                            isLoadingReactions: viewModel.isLoadingNoteActivity,
+                            repliesErrorMessage: viewModel.errorMessage,
+                            reactionsErrorMessage: viewModel.noteActivityErrorMessage,
+                            rootEventID: viewModel.rootItem.displayEventID,
+                            showReactions: appSettings.reactionsVisibleInFeeds,
+                            effectiveReadRelayURLs: effectiveReadRelayURLs,
+                            currentUserPubkey: auth.currentAccount?.pubkey,
+                            isFollowingAuthor: { followStore.isFollowing($0) },
+                            onFollowToggle: { followStore.toggleFollow($0) },
+                            onOpenHashtag: openHashtagFeed,
+                            onOpenProfile: openProfile,
+                            onOpenRelay: openRelayFeed,
+                            onOpenThread: { item in
+                                selectedThreadItem = item.threadNavigationItem
+                            },
+                            onReplyTap: { item in
+                                presentReplyComposer(for: item)
+                            },
+                            onToggleSpamReplies: {
+                                viewModel.toggleSpamRepliesExpanded()
+                            },
+                            onMarkNotSpam: { pubkey in
+                                viewModel.markSpamReplyAuthorAsNotSpam(pubkey)
+                                toastCenter.show("Moved replies back into the thread", style: .info)
                             }
-                        },
-                        onRepostTap: {
-                            isShowingReshareSheet = true
-                        },
-                        shareLink: rootNoteShareLink
-                    )
-
-                    ThreadDetailSeparator(leadingPadding: 16)
-
-                    ThreadDetailContentSection(
-                        selectedContentTab: $selectedContentTab,
-                        replies: threadReplies,
-                        spamReplies: threadSpamReplies,
-                        spamRepliesExpanded: viewModel.isSpamRepliesExpanded,
-                        replyCountsByTarget: replyCountsByTarget,
-                        noteActivityRows: noteActivityRows,
-                        isLoadingReplies: viewModel.isLoading,
-                        isLoadingReactions: viewModel.isLoadingNoteActivity,
-                        repliesErrorMessage: viewModel.errorMessage,
-                        reactionsErrorMessage: viewModel.noteActivityErrorMessage,
-                        rootEventID: viewModel.rootItem.displayEventID,
-                        showReactions: appSettings.reactionsVisibleInFeeds,
-                        effectiveReadRelayURLs: effectiveReadRelayURLs,
-                        currentUserPubkey: auth.currentAccount?.pubkey,
-                        isFollowingAuthor: { followStore.isFollowing($0) },
-                        onFollowToggle: { followStore.toggleFollow($0) },
-                        onOpenHashtag: openHashtagFeed,
-                        onOpenProfile: openProfile,
-                        onOpenRelay: openRelayFeed,
-                        onOpenThread: { item in
-                            selectedThreadItem = item.threadNavigationItem
-                        },
-                        onReplyTap: { item in
-                            presentReplyComposer(for: item)
-                        },
-                        onToggleSpamReplies: {
-                            viewModel.toggleSpamRepliesExpanded()
-                        },
-                        onMarkNotSpam: { pubkey in
-                            viewModel.markSpamReplyAuthorAsNotSpam(pubkey)
-                            toastCenter.show("Moved replies back into the thread", style: .info)
-                        }
+                        )
+                    }
+                    .padding(
+                        .bottom,
+                        ThreadDetailViewLayout.noteBottomContentPadding(
+                            bottomTabBarHeight: flowBottomTabBarHeight,
+                            safeAreaBottom: geometry.safeAreaInsets.bottom
+                        )
                     )
                 }
-            }
-            .refreshable {
-                await viewModel.refresh(
-                    includeNoteActivity: selectedContentTab == .reactions || viewModel.hasLoadedNoteActivity
-                )
-            }
-            .task {
-                await performInitialLoad(isArticle: false)
-            }
-            .onChange(of: pendingReplyScrollTargetID) { _, replyID in
-                guard let replyID else { return }
-                Task { @MainActor in
-                    await scrollReplyIntoView(replyID: replyID, using: scrollProxy)
-                    pendingReplyScrollTargetID = nil
+                .refreshable {
+                    await viewModel.refresh(
+                        includeNoteActivity: selectedContentTab == .reactions || viewModel.hasLoadedNoteActivity
+                    )
                 }
-            }
-            .onChange(of: selectedContentTab) { _, newValue in
-                guard newValue == .reactions else { return }
-                Task {
-                    await viewModel.loadNoteActivityIfNeeded()
+                .task {
+                    await performInitialLoad(isArticle: false)
+                }
+                .onChange(of: pendingReplyScrollTargetID) { _, replyID in
+                    guard let replyID else { return }
+                    Task { @MainActor in
+                        await scrollReplyIntoView(replyID: replyID, using: scrollProxy)
+                        pendingReplyScrollTargetID = nil
+                    }
+                }
+                .onChange(of: selectedContentTab) { _, newValue in
+                    guard newValue == .reactions else { return }
+                    Task {
+                        await viewModel.loadNoteActivityIfNeeded()
+                    }
                 }
             }
         }
