@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import Foundation
+import UIKit
 @testable import Flow
 
 final class FlowLayoutGuardrailsTests: XCTestCase {
@@ -448,39 +449,61 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
     }
 
     func testWelcomeScratchRevealAdvancesThroughArtworkSequence() {
+        let cycledAssetNames = WelcomeArtwork.orderedCycle.reduce(
+            into: [WelcomeArtwork.orderedCycle[0].assetName]
+        ) { names, artwork in
+            names.append(WelcomeScratchRevealLayout.nextArtwork(after: artwork).assetName)
+        }
+
         XCTAssertEqual(
-            WelcomeScratchRevealLayout.nextArtwork(after: .cityConversation),
-            .cozyBedroom
-        )
-        XCTAssertEqual(
-            WelcomeScratchRevealLayout.nextArtwork(after: .cozyBedroom),
-            .cafeConversation
-        )
-        XCTAssertEqual(
-            WelcomeScratchRevealLayout.nextArtwork(after: .cafeConversation),
-            .cityConversation
+            cycledAssetNames,
+            [
+                "welcome-scene-city",
+                "welcome-scene-bedroom",
+                "welcome-scene-cafe",
+                "welcome-scene-park",
+                "welcome-scene-terrace",
+                "welcome-scene-city"
+            ]
         )
     }
 
     func testWelcomeArtworkSelectionStartsFromFirstOrderedImage() {
         XCTAssertEqual(
-            WelcomeArtwork.orderedCycle,
-            [.cityConversation, .cozyBedroom, .cafeConversation]
+            WelcomeArtwork.orderedCycle.map(\.assetName),
+            [
+                "welcome-scene-city",
+                "welcome-scene-bedroom",
+                "welcome-scene-cafe",
+                "welcome-scene-park",
+                "welcome-scene-terrace"
+            ]
         )
         XCTAssertEqual(WelcomeArtworkSelection.initial().artwork, WelcomeArtwork.orderedCycle[0])
     }
 
+    func testWelcomeArtworkAssetsLoadForEveryScratchableScene() {
+        let appBundle = Bundle(for: AuthManager.self)
+
+        for artwork in WelcomeArtwork.orderedCycle {
+            XCTAssertNotNil(
+                UIImage(named: artwork.assetName, in: appBundle, compatibleWith: nil),
+                "Missing welcome artwork asset named \(artwork.assetName)"
+            )
+        }
+    }
+
     func testWelcomeScratchRevealCompletionUsesCoverageThreshold() {
-        XCTAssertEqual(WelcomeScratchRevealLayout.completionThreshold, 0.99, accuracy: 0.0001)
+        XCTAssertEqual(WelcomeScratchRevealLayout.completionThreshold, 0.90, accuracy: 0.0001)
         XCTAssertFalse(
             WelcomeScratchRevealLayout.shouldAdvance(
-                coverage: 0.989,
+                coverage: 0.899,
                 phase: .scratchEnded
             )
         )
         XCTAssertTrue(
             WelcomeScratchRevealLayout.shouldAdvance(
-                coverage: 0.99,
+                coverage: 0.90,
                 phase: .scratchEnded
             )
         )
@@ -671,6 +694,25 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertEqual(
             ThreadDetailViewLayout.topControlTopPadding(safeAreaInset: -8),
             4,
+            accuracy: 0.0001
+        )
+    }
+
+    func testThreadDetailNoteReservesBottomClearanceForReplyActions() {
+        XCTAssertEqual(
+            ThreadDetailViewLayout.noteBottomContentPadding(
+                bottomTabBarHeight: 65,
+                safeAreaBottom: 34
+            ),
+            123,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            ThreadDetailViewLayout.noteBottomContentPadding(
+                bottomTabBarHeight: 65,
+                safeAreaBottom: -8
+            ),
+            89,
             accuracy: 0.0001
         )
     }

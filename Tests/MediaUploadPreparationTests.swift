@@ -1,3 +1,4 @@
+import AVKit
 import ImageIO
 import UIKit
 import UniformTypeIdentifiers
@@ -102,6 +103,27 @@ final class MediaUploadPreparationTests: XCTestCase {
 
     func testShortMP4LoopPolicyCapsGIFLikePlaybackAtFourSeconds() {
         XCTAssertEqual(NoteShortMP4LoopPolicy.maximumLoopingDurationSeconds, 4, accuracy: 0.0001)
+    }
+
+    func testNativeVideoPlaybackUsesStallResistantBufferingPolicy() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/media/video.mp4"))
+        let coordinator = NoteNativeVideoPlayerController.Coordinator()
+        let controller = AVPlayerViewController()
+
+        coordinator.configure(
+            url: url,
+            autoplay: false,
+            isMuted: false,
+            loops: false,
+            controller: controller,
+            onPlaybackStateChange: nil
+        )
+
+        XCTAssertTrue(coordinator.player.automaticallyWaitsToMinimizeStalling)
+        XCTAssertGreaterThanOrEqual(
+            coordinator.player.currentItem?.preferredForwardBufferDuration ?? 0,
+            12
+        )
     }
 
     func testPrepareGIFKeyboardUploadMediaKeepsStaticGIFAsGIF() async throws {

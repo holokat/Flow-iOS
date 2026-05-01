@@ -109,6 +109,8 @@
 		4C5B1231F1007DD4B5F0A634 /* ImageRemixEditorProcessing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 419BE95AAE93709A1913E5F5 /* ImageRemixEditorProcessing.swift */; };
 		4DE483109FBEF1EBF7839014 /* AppIconRotator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72B16F2A4EB630E35E4187D6 /* AppIconRotator.swift */; };
 		4E68B42AA7722487D13569A6 /* HomeFeedModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF4CE20A439FB46B16EB9DA7 /* HomeFeedModels.swift */; };
+		A1F3E0D55DAA4B7D9A100001 /* HomeFeedPageFetching.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F3E0D55DAA4B7D9A100002 /* HomeFeedPageFetching.swift */; };
+		A1F3E0D55DAA4B7D9A100003 /* HomeFeedVisibilityFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F3E0D55DAA4B7D9A100004 /* HomeFeedVisibilityFilter.swift */; };
 		B0F2A7C14D9A4EF8A0F0C901 /* HomeFeedViewModelSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0F2A7C24D9A4EF8A0F0C902 /* HomeFeedViewModelSupport.swift */; };
 		51C692A0B2D75FC091A58283 /* KlipyGIFServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BBC297781EB6C719EE31929 /* KlipyGIFServiceTests.swift */; };
 		52C61C33CE36A6629F3F83C3 /* NostrRelayClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6D17F2EC311D3203D8950E1 /* NostrRelayClientTests.swift */; };
@@ -145,7 +147,17 @@
 		7ECE6E88E6E7794ABFCF1E25 /* TimelineKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D8015688B1D51344FFFCB7 /* TimelineKey.swift */; };
 		80B005995F6230F0A04127A7 /* GeistSans.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D2830367616A47232D42906F /* GeistSans.ttf */; };
 		8221FB25EC505A4C93948B32 /* HomeSlideoutMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B291DA499152538A295F6 /* HomeSlideoutMenuView.swift */; };
+		220E30A677D545213EA7D2A2 /* NoteAudioPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6133DBFA5B0AA77347D53FE0 /* NoteAudioPlayerView.swift */; };
+		5AF98AD564485BC9AA0CA622 /* NoteContentCaches.swift in Sources */ = {isa = PBXBuildFile; fileRef = 588E88BCBC4C6CF0CBFC1AA6 /* NoteContentCaches.swift */; };
 		83BD2BC53EBAEEDD7E3BA155 /* NoteContentSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8775A29A2E887E24CB4156F /* NoteContentSupport.swift */; };
+		809EFA1C1B114AA35933C631 /* NoteImageFullscreenViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3978298F902DDDE94911237B /* NoteImageFullscreenViewer.swift */; };
+		BBA527FCDCDD7A2E9F51B51D /* NoteImageGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84F322D84FB1DB1B92889DC3 /* NoteImageGalleryView.swift */; };
+		85615154B03487A9DA51251E /* NoteInlineFeedVideoPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1644616F9774CB1862170F2 /* NoteInlineFeedVideoPlayer.swift */; };
+		E17D55B3AEB1F46F87A22309 /* NoteMediaCacheSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2DB81649504E436DA37E513 /* NoteMediaCacheSupport.swift */; };
+		4EF85E78170A4EEF1D564BE7 /* NoteMediaPlaceholderViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B2EA3FE2385B56F93E9A11 /* NoteMediaPlaceholderViews.swift */; };
+		6616CF0EA8E45C5B59CE0BC5 /* NoteMediaPlaybackAudioSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 018007FF65F278B2BD9E33E3 /* NoteMediaPlaybackAudioSession.swift */; };
+		F99DA55A56C5818C07534DC1 /* NoteNativeVideoPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D5E5797834D26DE3AE3C2BF /* NoteNativeVideoPlayerController.swift */; };
+		0F1BACA2580409425A1D2EFB /* NoteVideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A8E4104DADF1DF956F004C /* NoteVideoPlayerView.swift */; };
 		863D8F5E77A252D216D3BAF9 /* FlowMediaCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B67EBE0499A7E029AD05A18 /* FlowMediaCache.swift */; };
 		8879AC3A5F08A6C3834FA14C /* ImageRemixEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06956FE5E9ACFD111F2466F5 /* ImageRemixEditorView.swift */; };
 		893D1C8A40135CF4B1742398 /* error.c in Sources */ = {isa = PBXBuildFile; fileRef = 9EA932F25A0A52EB21D16725 /* error.c */; };
@@ -425,11 +437,23 @@
 		7FE9CAE721D948356BF6EBEE /* calib_x.npy */ = {isa = PBXFileReference; lastKnownFileType = file; path = calib_x.npy; sourceTree = "<group>"; };
 		8030679878DFA4FEAD247B37 /* BreakReminderOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreakReminderOverlay.swift; sourceTree = "<group>"; };
 		80377C2D08C763557460F183 /* HaloLinkThreadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaloLinkThreadView.swift; sourceTree = "<group>"; };
+		6133DBFA5B0AA77347D53FE0 /* NoteAudioPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteAudioPlayerView.swift; sourceTree = "<group>"; };
+		588E88BCBC4C6CF0CBFC1AA6 /* NoteContentCaches.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteContentCaches.swift; sourceTree = "<group>"; };
 		823977950839E37CAB16C2DB /* NoteContentMediaSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteContentMediaSupport.swift; sourceTree = "<group>"; };
+		3978298F902DDDE94911237B /* NoteImageFullscreenViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteImageFullscreenViewer.swift; sourceTree = "<group>"; };
+		84F322D84FB1DB1B92889DC3 /* NoteImageGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteImageGalleryView.swift; sourceTree = "<group>"; };
+		B1644616F9774CB1862170F2 /* NoteInlineFeedVideoPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteInlineFeedVideoPlayer.swift; sourceTree = "<group>"; };
+		B2DB81649504E436DA37E513 /* NoteMediaCacheSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteMediaCacheSupport.swift; sourceTree = "<group>"; };
+		A2B2EA3FE2385B56F93E9A11 /* NoteMediaPlaceholderViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteMediaPlaceholderViews.swift; sourceTree = "<group>"; };
+		018007FF65F278B2BD9E33E3 /* NoteMediaPlaybackAudioSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteMediaPlaybackAudioSession.swift; sourceTree = "<group>"; };
+		7D5E5797834D26DE3AE3C2BF /* NoteNativeVideoPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteNativeVideoPlayerController.swift; sourceTree = "<group>"; };
+		66A8E4104DADF1DF956F004C /* NoteVideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteVideoPlayerView.swift; sourceTree = "<group>"; };
 		8264623494917B38C1140FFF /* ComposeKlipyGIFPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeKlipyGIFPickerSheet.swift; sourceTree = "<group>"; };
 		83D09F5E927339516641BC1C /* content_parser.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = content_parser.c; sourceTree = "<group>"; };
 		845975B17AAA4A48E4DEA9A4 /* AuthSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSheetView.swift; sourceTree = "<group>"; };
 		85EAD6ECBAD9C4846932EE1C /* NoteContentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteContentParser.swift; sourceTree = "<group>"; };
+		A1F3E0D55DAA4B7D9A100002 /* HomeFeedPageFetching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeFeedPageFetching.swift; sourceTree = "<group>"; };
+		A1F3E0D55DAA4B7D9A100004 /* HomeFeedVisibilityFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeFeedVisibilityFilter.swift; sourceTree = "<group>"; };
 		87F4B84828ED1C578A57652F /* HomeFeedViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeFeedViewModel.swift; sourceTree = "<group>"; };
 		B0F2A7C24D9A4EF8A0F0C902 /* HomeFeedViewModelSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeFeedViewModelSupport.swift; sourceTree = "<group>"; };
 		88E10288F9317E8E9959E77E /* FeedRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedRowView.swift; sourceTree = "<group>"; };
@@ -874,10 +898,12 @@
 			isa = PBXGroup;
 			children = (
 				EF4CE20A439FB46B16EB9DA7 /* HomeFeedModels.swift */,
+				A1F3E0D55DAA4B7D9A100002 /* HomeFeedPageFetching.swift */,
 				D0E539613B4947ABF1C8C766 /* HomeFeedTrustGraph.swift */,
 				3BF58C9E17E69DC8787A73BC /* HomeFeedView.swift */,
 				87F4B84828ED1C578A57652F /* HomeFeedViewModel.swift */,
 				B0F2A7C24D9A4EF8A0F0C902 /* HomeFeedViewModelSupport.swift */,
+				A1F3E0D55DAA4B7D9A100004 /* HomeFeedVisibilityFilter.swift */,
 				AA1B291DA499152538A295F6 /* HomeSlideoutMenuView.swift */,
 				0D212FF62CC30CCC5E53F0F0 /* KeysView.swift */,
 				E6BDD5E9DEFAD0D257ED53A2 /* RelaySettingsView.swift */,
@@ -1066,12 +1092,22 @@
 				419BE95AAE93709A1913E5F5 /* ImageRemixEditorProcessing.swift */,
 				06956FE5E9ACFD111F2466F5 /* ImageRemixEditorView.swift */,
 				450CE812E3F8DE441BEC6D44 /* LongFormArticleView.swift */,
+				6133DBFA5B0AA77347D53FE0 /* NoteAudioPlayerView.swift */,
+				588E88BCBC4C6CF0CBFC1AA6 /* NoteContentCaches.swift */,
 				4490BF8B8B960A1AABF0D7F2 /* NoteContentLinkPreviewSupport.swift */,
 				823977950839E37CAB16C2DB /* NoteContentMediaSupport.swift */,
 				A2CF16D1CFAEE3E16D551092 /* NoteContentReferencedEventSupport.swift */,
 				A8775A29A2E887E24CB4156F /* NoteContentSupport.swift */,
 				DAD56D1E53FBA71CADBC7443 /* NoteContentView.swift */,
+				3978298F902DDDE94911237B /* NoteImageFullscreenViewer.swift */,
+				84F322D84FB1DB1B92889DC3 /* NoteImageGalleryView.swift */,
+				B1644616F9774CB1862170F2 /* NoteInlineFeedVideoPlayer.swift */,
+				B2DB81649504E436DA37E513 /* NoteMediaCacheSupport.swift */,
+				A2B2EA3FE2385B56F93E9A11 /* NoteMediaPlaceholderViews.swift */,
+				018007FF65F278B2BD9E33E3 /* NoteMediaPlaybackAudioSession.swift */,
+				7D5E5797834D26DE3AE3C2BF /* NoteNativeVideoPlayerController.swift */,
 				505A7CDC9E3F0A15A1C4F5F8 /* NoteReportSheetView.swift */,
+				66A8E4104DADF1DF956F004C /* NoteVideoPlayerView.swift */,
 				F79B3D104E32A2F61E6771B2 /* PollNoteView.swift */,
 				3D961155CF6467EAA934FDBA /* ReactionButton.swift */,
 				AFABF13735545F8FDEA81317 /* RelativeTimestampFormatter.swift */,
@@ -1322,10 +1358,12 @@
 				E3CB4D576B5D27EA0202781E /* HashtagRoute.swift in Sources */,
 				151C23D4ABE5ECA1B40E1D40 /* HomeFeedFilterStore.swift in Sources */,
 				4E68B42AA7722487D13569A6 /* HomeFeedModels.swift in Sources */,
+				A1F3E0D55DAA4B7D9A100001 /* HomeFeedPageFetching.swift in Sources */,
 				D752A2B9207B76AD2D0305C9 /* HomeFeedTrustGraph.swift in Sources */,
 				2F8184A1622F2852891CF9C4 /* HomeFeedView.swift in Sources */,
 				977E112C8E7948939005ADBA /* HomeFeedViewModel.swift in Sources */,
 				B0F2A7C14D9A4EF8A0F0C901 /* HomeFeedViewModelSupport.swift in Sources */,
+				A1F3E0D55DAA4B7D9A100003 /* HomeFeedVisibilityFilter.swift in Sources */,
 				8221FB25EC505A4C93948B32 /* HomeSlideoutMenuView.swift in Sources */,
 				BB69B3F29E3BCAE9A3549E4A /* ICloudKeyRestoreView.swift in Sources */,
 				E9E1B7C07E63650062ED4CFF /* ImageRemixEditorControls.swift in Sources */,
@@ -1361,11 +1399,21 @@
 				428E63D458E51F56026A14B8 /* NostrModels.swift in Sources */,
 				5F992FBFE1651B29293B6234 /* NostrRelayClient.swift in Sources */,
 				FE3D512792C9423E8D9B1D90 /* NoteContentLinkPreviewSupport.swift in Sources */,
+				220E30A677D545213EA7D2A2 /* NoteAudioPlayerView.swift in Sources */,
+				5AF98AD564485BC9AA0CA622 /* NoteContentCaches.swift in Sources */,
 				E582F5905EF83F0916CAE8CD /* NoteContentMediaSupport.swift in Sources */,
 				2FFE75A363A191C5B56B6DB3 /* NoteContentParser.swift in Sources */,
 				BCA4D2BB1938711406498161 /* NoteContentReferencedEventSupport.swift in Sources */,
 				83BD2BC53EBAEEDD7E3BA155 /* NoteContentSupport.swift in Sources */,
 				219D62635380D10EC4EC494B /* NoteContentView.swift in Sources */,
+				809EFA1C1B114AA35933C631 /* NoteImageFullscreenViewer.swift in Sources */,
+				BBA527FCDCDD7A2E9F51B51D /* NoteImageGalleryView.swift in Sources */,
+				85615154B03487A9DA51251E /* NoteInlineFeedVideoPlayer.swift in Sources */,
+				E17D55B3AEB1F46F87A22309 /* NoteMediaCacheSupport.swift in Sources */,
+				4EF85E78170A4EEF1D564BE7 /* NoteMediaPlaceholderViews.swift in Sources */,
+				6616CF0EA8E45C5B59CE0BC5 /* NoteMediaPlaybackAudioSession.swift in Sources */,
+				F99DA55A56C5818C07534DC1 /* NoteNativeVideoPlayerController.swift in Sources */,
+				0F1BACA2580409425A1D2EFB /* NoteVideoPlayerView.swift in Sources */,
 				69D6CF9F7B4C78BCD3BC892F /* NoteReactionPublishService.swift in Sources */,
 				E3806E3A54B945E2841840CF /* NoteReactionStatsService.swift in Sources */,
 				EF9DDCFCE2BC983E5D945908 /* NoteReactionStatsStore.swift in Sources */,
