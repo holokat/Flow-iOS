@@ -28,10 +28,10 @@ struct AuthorRelayPlanner {
 
             let entry = normalizedDirectoryEntries[normalizedAuthor]
             let authorPrimaryRelayURLs: [URL]
-            if let entry, !entry.readRelayURLs.isEmpty {
-                authorPrimaryRelayURLs = entry.readRelayURLs
+            if let entry, !entry.writeRelayURLs.isEmpty {
+                authorPrimaryRelayURLs = entry.writeRelayURLs
             } else {
-                authorPrimaryRelayURLs = entry?.writeRelayURLs ?? []
+                authorPrimaryRelayURLs = entry?.readRelayURLs ?? []
             }
 
             relayURLsByPubkey[normalizedAuthor] = RelayURLSupport.normalizedRelayURLs(

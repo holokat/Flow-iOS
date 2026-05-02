@@ -221,7 +221,7 @@ final class NostrFeedServiceTests: XCTestCase {
         XCTAssertEqual(resolved[newer.id.lowercased()]?.content, newer.content)
     }
 
-    func testOutboxRelayPlanStoresFetchedRelayDirectoryEntryAndPrefersReadRelays() async throws {
+    func testOutboxRelayPlanStoresFetchedRelayDirectoryEntryAndPrefersWriteRelays() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FlowOutboxRelayPlan-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -269,7 +269,7 @@ final class NostrFeedServiceTests: XCTestCase {
         XCTAssertEqual(
             canonicalRelayStrings(plan.relayURLs(for: authorPubkey)),
             [
-                "wss://author-read.example",
+                "wss://author-write.example",
                 "wss://hinted.example",
                 "wss://relay.example.com",
                 "wss://relay.damus.io",
@@ -286,7 +286,7 @@ final class NostrFeedServiceTests: XCTestCase {
         XCTAssertNotNil(storedEntry?.refreshedAt)
     }
 
-    func testFetchOutboxBackedAuthorFeedUsesReadRelaysWithoutQueryingWriteRelays() async throws {
+    func testFetchOutboxBackedAuthorFeedUsesWriteRelaysForAuthorContent() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FlowOutboxAuthorFeed-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -344,8 +344,7 @@ final class NostrFeedServiceTests: XCTestCase {
         let storedEvent = await eventRepository.events(ids: [authoredEvent.id])
 
         XCTAssertEqual(items.map(\.id), [authoredEvent.id])
-        XCTAssertTrue(canonicalRelayStrings(requestedRelayURLs).contains("wss://author-feed-read.example"))
-        XCTAssertFalse(canonicalRelayStrings(requestedRelayURLs).contains("wss://author-feed-write.example"))
+        XCTAssertTrue(canonicalRelayStrings(requestedRelayURLs).contains("wss://author-feed-write.example"))
         XCTAssertEqual(storedEvent[authoredEvent.id.lowercased()]?.id.lowercased(), authoredEvent.id.lowercased())
     }
 
