@@ -195,14 +195,14 @@ private final class ActivityViewModelHarness {
         let profileSnapshotStore = ProfileSnapshotStore(fileManager: fileManager)
         let profileCache = ProfileCache(snapshotStore: profileSnapshotStore)
         let followListCache = FollowListSnapshotCache(fileManager: fileManager)
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
         let service = NostrFeedService(
             relayClient: relayClient,
             timelineCache: TimelineEventCache(),
             profileCache: profileCache,
             relayHintCache: ProfileRelayHintCache(),
             followListCache: followListCache,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             presentationCache: FeedPresentationCache()
         )
 

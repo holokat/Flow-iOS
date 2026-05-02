@@ -65,7 +65,7 @@ final class FeedVisibilityTests: XCTestCase {
 
         let relayURL = URL(string: "wss://relay.example.com")!
         let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
         let authorPubkey = hex("a")
         let article = makeEvent(
             id: hex("f"),
@@ -89,11 +89,11 @@ final class FeedVisibilityTests: XCTestCase {
         let service = makeProfileFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let profileEventService = ProfileEventService(
             relayClient: relayClient,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let viewModel = ProfileViewModel(
             pubkey: authorPubkey,
@@ -104,7 +104,7 @@ final class FeedVisibilityTests: XCTestCase {
             service: service,
             profileEventService: profileEventService,
             relayClient: NoopPublishingRelayClient(),
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
 
         viewModel.mode = .articles
@@ -122,7 +122,7 @@ final class FeedVisibilityTests: XCTestCase {
         let relayURL = URL(string: "wss://relay.example.com")!
         let authorReadRelayURL = URL(string: "wss://author-profile-read.example")!
         let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
         let authorPubkey = hex("b")
         let relayListEvent = makeEvent(
             id: hex("1"),
@@ -147,11 +147,11 @@ final class FeedVisibilityTests: XCTestCase {
         let service = makeProfileFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let profileEventService = ProfileEventService(
             relayClient: relayClient,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let viewModel = ProfileViewModel(
             pubkey: authorPubkey,
@@ -162,7 +162,7 @@ final class FeedVisibilityTests: XCTestCase {
             service: service,
             profileEventService: profileEventService,
             relayClient: NoopPublishingRelayClient(),
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
 
         await viewModel.refresh()
@@ -178,7 +178,7 @@ final class FeedVisibilityTests: XCTestCase {
 
         let relayURL = URL(string: "wss://relay.example.com")!
         let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
         let authorPubkey = hex("d")
         let replyTargetID = hex("e")
         let olderNote = makeEvent(
@@ -208,11 +208,11 @@ final class FeedVisibilityTests: XCTestCase {
         let service = makeProfileFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let profileEventService = ProfileEventService(
             relayClient: relayClient,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let viewModel = ProfileViewModel(
             pubkey: authorPubkey,
@@ -223,7 +223,7 @@ final class FeedVisibilityTests: XCTestCase {
             service: service,
             profileEventService: profileEventService,
             relayClient: NoopPublishingRelayClient(),
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
 
         await viewModel.refresh()
@@ -239,7 +239,7 @@ final class FeedVisibilityTests: XCTestCase {
 
         let relayURL = URL(string: "wss://relay.example.com")!
         let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
         let authorPubkey = hex("f")
         let note = makeEvent(
             id: hex("7"),
@@ -256,11 +256,11 @@ final class FeedVisibilityTests: XCTestCase {
         let service = makeProfileFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let profileEventService = ProfileEventService(
             relayClient: relayClient,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let viewModel = ProfileViewModel(
             pubkey: authorPubkey,
@@ -271,7 +271,7 @@ final class FeedVisibilityTests: XCTestCase {
             service: service,
             profileEventService: profileEventService,
             relayClient: NoopPublishingRelayClient(),
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
 
         let refreshTask = Task {
@@ -297,7 +297,7 @@ final class FeedVisibilityTests: XCTestCase {
         let relayURL = URL(string: "wss://relay.example.com")!
         let authorReadRelayURL = URL(string: "wss://author-article-read.example")!
         let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
         let authorPubkey = hex("c")
         let relayListEvent = makeEvent(
             id: hex("3"),
@@ -330,11 +330,11 @@ final class FeedVisibilityTests: XCTestCase {
         let service = makeProfileFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let profileEventService = ProfileEventService(
             relayClient: relayClient,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let viewModel = ProfileViewModel(
             pubkey: authorPubkey,
@@ -345,7 +345,7 @@ final class FeedVisibilityTests: XCTestCase {
             service: service,
             profileEventService: profileEventService,
             relayClient: NoopPublishingRelayClient(),
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
 
         viewModel.mode = .articles
@@ -362,7 +362,7 @@ final class FeedVisibilityTests: XCTestCase {
 
         let relayURL = URL(string: "wss://relay.example.com")!
         let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
         let authorPubkey = hex("d")
         let note = makeEvent(
             id: hex("6"),
@@ -386,11 +386,11 @@ final class FeedVisibilityTests: XCTestCase {
         let service = makeProfileFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let profileEventService = ProfileEventService(
             relayClient: relayClient,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let viewModel = ProfileViewModel(
             pubkey: authorPubkey,
@@ -401,7 +401,7 @@ final class FeedVisibilityTests: XCTestCase {
             service: service,
             profileEventService: profileEventService,
             relayClient: NoopPublishingRelayClient(),
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
 
         await viewModel.refresh()
@@ -520,7 +520,7 @@ private final class FeedVisibilityTestFileManager: FileManager, @unchecked Senda
 private func makeProfileFeedService(
     relayClient: any NostrRelayEventFetching,
     fileManager: FeedVisibilityTestFileManager,
-    seenEventStore: SeenEventStore
+    eventRepository: EventRepository
 ) -> NostrFeedService {
     let profileSnapshotStore = ProfileSnapshotStore(fileManager: fileManager)
     let profileCache = ProfileCache(snapshotStore: profileSnapshotStore)
@@ -532,7 +532,7 @@ private func makeProfileFeedService(
         profileCache: profileCache,
         relayHintCache: ProfileRelayHintCache(),
         followListCache: followListCache,
-        seenEventStore: seenEventStore,
+        eventRepository: eventRepository,
         presentationCache: FeedPresentationCache()
     )
 }

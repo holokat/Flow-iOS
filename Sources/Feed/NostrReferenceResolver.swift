@@ -2,7 +2,7 @@ import Foundation
 
 struct NostrReferenceResolver: Sendable {
     private let relayTimelineFetcher: RelayTimelineFetcher
-    private let seenEventStore: any SeenEventStoring
+    private let eventRepository: any EventRepositoryStoring
     private let resolveOutboxRelayPlan: @Sendable ([String], [URL], [String: [URL]]) async -> AuthorRelayPlan
     private let buildFeedItems: @Sendable (
         [URL],
@@ -13,7 +13,7 @@ struct NostrReferenceResolver: Sendable {
 
     init(
         relayTimelineFetcher: RelayTimelineFetcher,
-        seenEventStore: any SeenEventStoring,
+        eventRepository: any EventRepositoryStoring,
         resolveOutboxRelayPlan: @escaping @Sendable ([String], [URL], [String: [URL]]) async -> AuthorRelayPlan,
         buildFeedItems: @escaping @Sendable (
             [URL],
@@ -23,7 +23,7 @@ struct NostrReferenceResolver: Sendable {
         ) async -> [FeedItem]
     ) {
         self.relayTimelineFetcher = relayTimelineFetcher
-        self.seenEventStore = seenEventStore
+        self.eventRepository = eventRepository
         self.resolveOutboxRelayPlan = resolveOutboxRelayPlan
         self.buildFeedItems = buildFeedItems
     }
@@ -60,7 +60,7 @@ struct NostrReferenceResolver: Sendable {
         }
 
         guard let event else { return nil }
-        await seenEventStore.store(events: [event])
+        await eventRepository.store(events: [event])
 
         let items = await buildFeedItems(
             relayTargets,
@@ -116,7 +116,7 @@ struct NostrReferenceResolver: Sendable {
         }
 
         if !unresolvedEventReferences.isEmpty {
-            let cachedByID = await seenEventStore.events(
+            let cachedByID = await eventRepository.events(
                 ids: unresolvedEventReferences.compactMap(\.eventID)
             )
             if !cachedByID.isEmpty {
@@ -262,7 +262,7 @@ struct NostrReferenceResolver: Sendable {
 
         let deduplicatedFetched = deduplicateEvents(fetchedEvents)
         if !deduplicatedFetched.isEmpty {
-            await seenEventStore.store(events: deduplicatedFetched)
+            await eventRepository.store(events: deduplicatedFetched)
         }
 
         return resolved
@@ -379,7 +379,7 @@ struct NostrReferenceResolver: Sendable {
             return nil
         }
 
-        if let cached = await seenEventStore.events(ids: [normalizedEventID])[normalizedEventID] {
+        if let cached = await eventRepository.events(ids: [normalizedEventID])[normalizedEventID] {
             return cached
         }
 

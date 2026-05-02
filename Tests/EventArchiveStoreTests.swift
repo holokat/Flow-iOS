@@ -2,30 +2,39 @@ import XCTest
 @testable import Flow
 
 final class EventArchiveStoreTests: XCTestCase {
-    func testEventPersistencePolicyKeepsWispKindsAndOwnEventsOnly() {
+    func testEventPersistenceKeepsWispKindsAndOwnEventsOnly() async throws {
+        let rootURL = try makeRootURL(prefix: "EventPersistence")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
         let ownPubkey = hex("a")
-        let policy = EventPersistencePolicy(currentUserPubkey: "  \(ownPubkey.uppercased())\n")
+        let persistence = EventPersistence(
+            archiveStore: EventArchiveStore(fileManager: EventArchiveTestFileManager(rootURL: rootURL)),
+            currentUserPubkey: "  \(ownPubkey.uppercased())\n"
+        )
 
         XCTAssertEqual(
-            EventPersistencePolicy.wispPersistedKinds,
+            EventPersistence.persistedKinds,
             Set([0, 1, 6, 7, 20, 21, 22, 1_068, 6_969, 9_735, 30_023])
         )
 
-        for kind in EventPersistencePolicy.wispPersistedKinds {
-            XCTAssertTrue(
-                policy.shouldPersist(makeEvent(id: hex("1"), pubkey: hex("b"), kind: kind, content: "wisp"))
+        for kind in EventPersistence.persistedKinds {
+            let shouldPersist = await persistence.shouldPersist(
+                makeEvent(id: hex("1"), pubkey: hex("b"), kind: kind, content: "wisp")
             )
+            XCTAssertTrue(shouldPersist)
         }
 
         let ownEphemeral = makeEvent(id: hex("2"), pubkey: ownPubkey, kind: 40_000, content: "own")
         let remoteEphemeral = makeEvent(id: hex("3"), pubkey: hex("c"), kind: 40_000, content: "drop")
+        let shouldPersistOwnEphemeral = await persistence.shouldPersist(ownEphemeral)
+        let shouldPersistRemoteEphemeral = await persistence.shouldPersist(remoteEphemeral)
 
-        XCTAssertTrue(policy.shouldPersist(ownEphemeral))
-        XCTAssertFalse(policy.shouldPersist(remoteEphemeral))
+        XCTAssertTrue(shouldPersistOwnEphemeral)
+        XCTAssertFalse(shouldPersistRemoteEphemeral)
     }
 
-    func testPersistenceCoordinatorFlushesOnlyPersistableEvents() async throws {
-        let rootURL = try makeRootURL(prefix: "EventPersistenceCoordinator")
+    func testEventPersistenceFlushesOnlyPersistableEvents() async throws {
+        let rootURL = try makeRootURL(prefix: "EventPersistence")
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         let archive = EventArchiveStore(
@@ -37,22 +46,20 @@ final class EventArchiveStoreTests: XCTestCase {
                 minimumFreeDiskBytes: 0
             )
         )
-        let coordinator = EventPersistenceCoordinator(
+        let persistence = EventPersistence(
             archiveStore: archive,
             batchLimit: 50,
             flushDelayNanoseconds: 20_000_000
         )
         let ownPubkey = hex("a")
+        await persistence.setCurrentUserPubkey(ownPubkey)
         let duplicateID = hex("4")
         let staleDuplicate = makeEvent(id: duplicateID.uppercased(), kind: 1, content: "stale")
         let persistable = makeEvent(id: duplicateID, kind: 1, content: "keep")
         let ownEphemeral = makeEvent(id: hex("5"), pubkey: ownPubkey, kind: 40_000, content: "own")
         let dropped = makeEvent(id: hex("6"), pubkey: hex("b"), kind: 40_000, content: "drop")
 
-        await coordinator.enqueue(
-            events: [staleDuplicate, dropped, ownEphemeral, persistable],
-            policy: EventPersistencePolicy(currentUserPubkey: ownPubkey)
-        )
+        await persistence.persistEvents([staleDuplicate, dropped, ownEphemeral, persistable])
         try await Task.sleep(nanoseconds: 80_000_000)
 
         let restored = await archive.events(ids: [persistable.id, ownEphemeral.id, dropped.id])
@@ -61,6 +68,65 @@ final class EventArchiveStoreTests: XCTestCase {
         XCTAssertEqual(restored[ownEphemeral.id.lowercased()]?.content, "own")
         XCTAssertNil(restored[dropped.id.lowercased()])
         XCTAssertEqual(restored.count, 2)
+    }
+
+    func testEventRepositoryReadsThroughPersistenceAndCachesResult() async throws {
+        let rootURL = try makeRootURL(prefix: "EventRepository")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let archive = EventArchiveStore(fileManager: EventArchiveTestFileManager(rootURL: rootURL))
+        let persistence = EventPersistence(archiveStore: archive, flushDelayNanoseconds: 0)
+        let repository = EventRepository(
+            persistence: persistence,
+            archiveBudget: .init(hotIndexTargetEventCount: 4)
+        )
+        let event = makeEvent(id: hex("8"), kind: 1, content: "persisted")
+
+        await archive.store(events: [event])
+
+        let cacheSizeBeforeReadThrough = await repository.getCacheSize()
+        XCTAssertEqual(cacheSizeBeforeReadThrough, 0)
+
+        let resolved = await repository.getEvent(id: event.id.uppercased())
+        let cacheSizeAfterReadThrough = await repository.getCacheSize()
+
+        XCTAssertEqual(resolved?.content, "persisted")
+        XCTAssertEqual(cacheSizeAfterReadThrough, 1)
+    }
+
+    func testEventPersistenceNotificationSeedMatchesWispRelevantKinds() async throws {
+        let rootURL = try makeRootURL(prefix: "EventPersistenceNotifications")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let archive = EventArchiveStore(fileManager: EventArchiveTestFileManager(rootURL: rootURL))
+        let persistence = EventPersistence(archiveStore: archive, flushDelayNanoseconds: 0)
+        let newestNotificationKind = makeEvent(
+            id: hex("9"),
+            pubkey: hex("f"),
+            kind: 1,
+            content: "newest note",
+            createdAt: 1_700_000_200
+        )
+        let olderNotificationKind = makeEvent(
+            id: hex("8"),
+            pubkey: hex("a"),
+            kind: 1,
+            content: "older note",
+            createdAt: 1_700_000_100
+        )
+        let ignoredKind = makeEvent(
+            id: hex("7"),
+            pubkey: hex("b"),
+            kind: 42,
+            content: "not notification seed material",
+            createdAt: 1_700_000_300
+        )
+
+        await archive.store(events: [newestNotificationKind, olderNotificationKind, ignoredKind])
+
+        let notifications = await persistence.getRecentNotificationEvents(limit: 10)
+
+        XCTAssertEqual(notifications.map(\.id), [newestNotificationKind.id, olderNotificationKind.id])
     }
 
     func testArchiveStoreRoundTripsEventsAndPrunesByByteBudget() async throws {
@@ -317,6 +383,7 @@ final class EventArchiveStoreTests: XCTestCase {
         id: String,
         pubkey: String = String(repeating: "a", count: 64),
         kind: Int = 1,
+        tags: [[String]] = [],
         content: String,
         createdAt: Int = 1_700_000_000
     ) -> NostrEvent {
@@ -325,7 +392,7 @@ final class EventArchiveStoreTests: XCTestCase {
             pubkey: pubkey,
             createdAt: createdAt,
             kind: kind,
-            tags: [],
+            tags: tags,
             content: content,
             sig: String(repeating: "f", count: 128)
         )

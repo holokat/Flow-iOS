@@ -135,7 +135,7 @@ private struct HashtagFeedViewModelTestHarness {
         let fileManager = HashtagFeedTestFileManager(rootURL: rootURL)
         let profileSnapshotStore = ProfileSnapshotStore(fileManager: fileManager)
         let followListCache = FollowListSnapshotCache(fileManager: fileManager)
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
 
         relayClient = RecordingRelayClient()
         service = NostrFeedService(
@@ -144,7 +144,7 @@ private struct HashtagFeedViewModelTestHarness {
             profileCache: ProfileCache(snapshotStore: profileSnapshotStore),
             relayHintCache: ProfileRelayHintCache(),
             followListCache: followListCache,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             presentationCache: FeedPresentationCache()
         )
     }

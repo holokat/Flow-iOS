@@ -3,7 +3,7 @@ import Foundation
 struct ActivityRowBuilder {
     private let relayTimelineFetcher: RelayTimelineFetcher
     private let profileCache: any ProfileCaching
-    private let seenEventStore: any SeenEventStoring
+    private let eventRepository: any EventRepositoryStoring
     private let resolveReferences: (
         [ActivityTargetReference: NostrEventReferencePointer],
         [URL],
@@ -14,7 +14,7 @@ struct ActivityRowBuilder {
     init(
         relayTimelineFetcher: RelayTimelineFetcher,
         profileCache: any ProfileCaching,
-        seenEventStore: any SeenEventStoring,
+        eventRepository: any EventRepositoryStoring,
         resolveReferences: @escaping (
             [ActivityTargetReference: NostrEventReferencePointer],
             [URL],
@@ -24,7 +24,7 @@ struct ActivityRowBuilder {
     ) {
         self.relayTimelineFetcher = relayTimelineFetcher
         self.profileCache = profileCache
-        self.seenEventStore = seenEventStore
+        self.eventRepository = eventRepository
         self.resolveReferences = resolveReferences
     }
 
@@ -317,7 +317,7 @@ struct ActivityRowBuilder {
         }
 
         if !missingEventIDs.isEmpty {
-            let cachedByID = await seenEventStore.events(ids: Array(missingEventIDs))
+            let cachedByID = await eventRepository.events(ids: Array(missingEventIDs))
             if !cachedByID.isEmpty {
                 for eventID in Array(missingEventIDs) {
                     if let event = cachedByID[eventID] {

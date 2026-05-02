@@ -6,7 +6,7 @@ struct NostrFeedService: Sendable {
     private let profileCache: any ProfileCaching
     private let relayHintCache: any ProfileRelayHintCaching
     private let followListCache: any FollowListSnapshotStoring
-    private let seenEventStore: any SeenEventStoring
+    private let eventRepository: any EventRepositoryStoring
     private let presentationCache: FeedPresentationCache
     private let outboxDiagnosticsStore: OutboxRecoveryDiagnosticsStore
     private let relayTimelineFetcher: RelayTimelineFetcher
@@ -30,7 +30,7 @@ struct NostrFeedService: Sendable {
         profileCache: any ProfileCaching = ProfileCache.shared,
         relayHintCache: any ProfileRelayHintCaching = ProfileRelayHintCache.shared,
         followListCache: any FollowListSnapshotStoring = FollowListSnapshotCache.shared,
-        seenEventStore: any SeenEventStoring = SeenEventStore.shared,
+        eventRepository: any EventRepositoryStoring = EventRepository.shared,
         presentationCache: FeedPresentationCache = .shared,
         outboxDiagnosticsStore: OutboxRecoveryDiagnosticsStore = .shared
     ) {
@@ -39,20 +39,20 @@ struct NostrFeedService: Sendable {
         self.profileCache = profileCache
         self.relayHintCache = relayHintCache
         self.followListCache = followListCache
-        self.seenEventStore = seenEventStore
+        self.eventRepository = eventRepository
         self.presentationCache = presentationCache
         self.outboxDiagnosticsStore = outboxDiagnosticsStore
         self.relayTimelineFetcher = RelayTimelineFetcher(
             relayClient: relayClient,
             timelineCache: timelineCache,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
     }
 
     private var feedItemBuilder: FeedItemBuilder {
         FeedItemBuilder(
             profileCache: profileCache,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             presentationCache: presentationCache,
             fetchProfiles: { relayURLs, pubkeys, fetchTimeout, relayFetchMode in
                 await self.profileResolver.fetchProfiles(
@@ -99,7 +99,7 @@ struct NostrFeedService: Sendable {
             relayTimelineFetcher: relayTimelineFetcher,
             followListCache: followListCache,
             relayHintCache: relayHintCache,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             outboxDiagnosticsStore: outboxDiagnosticsStore,
             metadataFallbackRelayURLs: Self.metadataFallbackRelayURLs,
             followListFreshCacheAge: Self.followListFreshCacheAge
@@ -139,7 +139,7 @@ struct NostrFeedService: Sendable {
     private var referenceResolver: NostrReferenceResolver {
         NostrReferenceResolver(
             relayTimelineFetcher: relayTimelineFetcher,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             resolveOutboxRelayPlan: { authors, baseReadRelayURLs, seedHintRelayURLsByPubkey in
                 await self.followResolver.outboxBackedRelayPlan(
                     authors: authors,
@@ -162,7 +162,7 @@ struct NostrFeedService: Sendable {
         ActivityRowBuilder(
             relayTimelineFetcher: relayTimelineFetcher,
             profileCache: profileCache,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             resolveReferences: { pointersByReference, baseReadRelayURLs, fetchTimeout, relayFetchMode in
                 await self.referenceResolver.fetchResolvedReferenceEvents(
                     pointersByKey: pointersByReference,
@@ -180,7 +180,7 @@ struct NostrFeedService: Sendable {
 
     func ingestLiveEvents(_ events: [NostrEvent]) async {
         guard !events.isEmpty else { return }
-        await seenEventStore.store(events: events)
+        await eventRepository.store(events: events)
     }
 
     func fetchLiveCatchUpEvents(
@@ -480,7 +480,7 @@ struct NostrFeedService: Sendable {
             }
 
             if !collected.isEmpty {
-                await seenEventStore.store(events: deduplicateEvents(collected))
+                await eventRepository.store(events: deduplicateEvents(collected))
             }
 
             return windowsByAuthor
@@ -1355,7 +1355,7 @@ struct NostrFeedService: Sendable {
             return []
         }
 
-        await seenEventStore.store(events: selected)
+        await eventRepository.store(events: selected)
         await hydrateReplaceableSideEffects(events: selected)
         return selected
     }

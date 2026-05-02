@@ -2,7 +2,7 @@ import Foundation
 
 struct FeedItemBuilder {
     private let profileCache: any ProfileCaching
-    private let seenEventStore: any SeenEventStoring
+    private let eventRepository: any EventRepositoryStoring
     private let presentationCache: FeedPresentationCache
     private let fetchProfiles: ([URL], [String], TimeInterval, RelayFetchMode) async -> [String: NostrProfile]
     private let resolveReferences: ([String: NostrEventReferencePointer], [URL]) async -> [String: NostrEvent]
@@ -11,7 +11,7 @@ struct FeedItemBuilder {
 
     init(
         profileCache: any ProfileCaching,
-        seenEventStore: any SeenEventStoring,
+        eventRepository: any EventRepositoryStoring,
         presentationCache: FeedPresentationCache,
         fetchProfiles: @escaping ([URL], [String], TimeInterval, RelayFetchMode) async -> [String: NostrProfile],
         resolveReferences: @escaping ([String: NostrEventReferencePointer], [URL]) async -> [String: NostrEvent],
@@ -19,7 +19,7 @@ struct FeedItemBuilder {
         makeReplyReferencePointer: @escaping (String, NostrEvent) -> NostrEventReferencePointer
     ) {
         self.profileCache = profileCache
-        self.seenEventStore = seenEventStore
+        self.eventRepository = eventRepository
         self.presentationCache = presentationCache
         self.fetchProfiles = fetchProfiles
         self.resolveReferences = resolveReferences
@@ -352,7 +352,7 @@ struct FeedItemBuilder {
 
         guard !missingTargetIDs.isEmpty else { return displayEventsBySourceID }
 
-        let cachedByID = await seenEventStore.events(ids: Array(missingTargetIDs))
+        let cachedByID = await eventRepository.events(ids: Array(missingTargetIDs))
         if !cachedByID.isEmpty {
             var remainingSourceToTargetIDs: [String: String] = [:]
             for (sourceID, targetID) in missingSourceToTargetIDs {
@@ -411,7 +411,7 @@ struct FeedItemBuilder {
 
         guard !missingTargetIDs.isEmpty else { return displayEventsBySourceID }
 
-        let cachedByID = await seenEventStore.events(ids: Array(missingTargetIDs))
+        let cachedByID = await eventRepository.events(ids: Array(missingTargetIDs))
         for (sourceID, targetID) in missingSourceToTargetIDs {
             guard let targetEvent = cachedByID[targetID] else { continue }
             displayEventsBySourceID[sourceID] = targetEvent.resolvedRepostContentEvent ?? targetEvent
@@ -449,7 +449,7 @@ struct FeedItemBuilder {
 
         guard !missingTargetIDs.isEmpty else { return resolvedBySourceID }
 
-        let cachedByID = await seenEventStore.events(ids: Array(missingTargetIDs))
+        let cachedByID = await eventRepository.events(ids: Array(missingTargetIDs))
         for (sourceID, targetID) in missingSourceToTargetIDs {
             guard let targetEvent = cachedByID[targetID] else { continue }
             resolvedBySourceID[sourceID] = targetEvent.resolvedRepostContentEvent ?? targetEvent
@@ -489,7 +489,7 @@ struct FeedItemBuilder {
 
         guard !missingTargetIDs.isEmpty else { return resolvedBySourceID }
 
-        let cachedByID = await seenEventStore.events(ids: Array(missingTargetIDs))
+        let cachedByID = await eventRepository.events(ids: Array(missingTargetIDs))
         if !cachedByID.isEmpty {
             var remainingSourceToTargetIDs: [String: String] = [:]
             for (sourceID, targetID) in missingSourceToTargetIDs {

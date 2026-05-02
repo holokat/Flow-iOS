@@ -14,7 +14,7 @@ protocol TimelineEventCaching: Actor, Sendable {
     ) async throws -> [NostrEvent]
 }
 
-protocol SeenEventStoring: Actor, Sendable {
+protocol EventRepositoryStoring: Actor, Sendable {
     func store(events: [NostrEvent]) async
     func storeRecentFeed(key: String, events: [NostrEvent]) async
     func recentFeed(key: String) async -> [NostrEvent]?
@@ -22,7 +22,7 @@ protocol SeenEventStoring: Actor, Sendable {
     func flushPersistence() async
 }
 
-extension SeenEventStoring {
+extension EventRepositoryStoring {
     func flushPersistence() async {}
 }
 

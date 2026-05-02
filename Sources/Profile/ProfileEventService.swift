@@ -59,14 +59,14 @@ struct ProfileRelayConnectionsSnapshot: Sendable, Equatable {
 
 struct ProfileEventService {
     private let relayClient: any NostrRelayEventFetching
-    private let seenEventStore: any SeenEventStoring
+    private let eventRepository: any EventRepositoryStoring
 
     init(
         relayClient: any NostrRelayEventFetching = NostrRelayClient(),
-        seenEventStore: any SeenEventStoring = SeenEventStore.shared
+        eventRepository: any EventRepositoryStoring = EventRepository.shared
     ) {
         self.relayClient = relayClient
-        self.seenEventStore = seenEventStore
+        self.eventRepository = eventRepository
     }
 
     func fetchProfileMetadataSnapshot(relayURL: URL, pubkey: String) async throws -> ProfileMetadataSnapshot? {
@@ -205,7 +205,7 @@ struct ProfileEventService {
 
         let matchingEvents = result.mergedEvents.filter { $0.kind == kind }
         if !matchingEvents.isEmpty {
-            await seenEventStore.store(events: matchingEvents)
+            await eventRepository.store(events: matchingEvents)
         }
 
         return matchingEvents

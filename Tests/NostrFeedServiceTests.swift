@@ -34,7 +34,7 @@ final class NostrFeedServiceTests: XCTestCase {
 
         await harness.service.ingestLiveEvents([event])
 
-        let resolved = await harness.seenEventStore.events(ids: [event.id])
+        let resolved = await harness.eventRepository.events(ids: [event.id])
         XCTAssertEqual(resolved[event.id.lowercased()]?.id.lowercased(), event.id.lowercased())
     }
 
@@ -187,7 +187,7 @@ final class NostrFeedServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         let fileManager = TestFileManager(rootURL: rootURL)
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
         let pubkey = hex("a")
         let older = makeEvent(
             id: hex("b"),
@@ -209,7 +209,7 @@ final class NostrFeedServiceTests: XCTestCase {
             relayURL: [older],
             relayURL2: [newer]
         ])
-        let service = ProfileEventService(relayClient: relayClient, seenEventStore: seenEventStore)
+        let service = ProfileEventService(relayClient: relayClient, eventRepository: eventRepository)
 
         let snapshot = try await service.fetchProfileMetadataSnapshot(
             relayURLs: [relayURL, relayURL2],
@@ -217,7 +217,7 @@ final class NostrFeedServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(snapshot?.content, newer.content)
-        let resolved = await seenEventStore.events(ids: [newer.id])
+        let resolved = await eventRepository.events(ids: [newer.id])
         XCTAssertEqual(resolved[newer.id.lowercased()]?.content, newer.content)
     }
 
@@ -256,7 +256,7 @@ final class NostrFeedServiceTests: XCTestCase {
             profileCache: ProfileCache(snapshotStore: ProfileSnapshotStore(fileManager: fileManager)),
             relayHintCache: relayHintCache,
             followListCache: FollowListSnapshotCache(fileManager: fileManager),
-            seenEventStore: SeenEventStore(fileManager: fileManager),
+            eventRepository: EventRepository(fileManager: fileManager),
             presentationCache: FeedPresentationCache()
         )
 
@@ -321,14 +321,14 @@ final class NostrFeedServiceTests: XCTestCase {
             authorReadRelayURL: [authoredEvent],
             authorWriteRelayURL: [authoredEvent]
         ])
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
         let service = NostrFeedService(
             relayClient: relayClient,
             timelineCache: TimelineEventCache(),
             profileCache: ProfileCache(snapshotStore: ProfileSnapshotStore(fileManager: fileManager)),
             relayHintCache: relayHintCache,
             followListCache: FollowListSnapshotCache(fileManager: fileManager),
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             presentationCache: FeedPresentationCache()
         )
 
@@ -341,7 +341,7 @@ final class NostrFeedServiceTests: XCTestCase {
             hydrationMode: .cachedProfilesOnly
         )
         let requestedRelayURLs = await relayClient.requestedRelayURLs()
-        let storedEvent = await seenEventStore.events(ids: [authoredEvent.id])
+        let storedEvent = await eventRepository.events(ids: [authoredEvent.id])
 
         XCTAssertEqual(items.map(\.id), [authoredEvent.id])
         XCTAssertTrue(canonicalRelayStrings(requestedRelayURLs).contains("wss://author-feed-read.example"))
@@ -452,14 +452,14 @@ final class NostrFeedServiceTests: XCTestCase {
             authorWriteRelayURL: [referencedEvent],
             hintedRelayURL: [referencedEvent]
         ])
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
         let service = NostrFeedService(
             relayClient: relayClient,
             timelineCache: TimelineEventCache(),
             profileCache: ProfileCache(snapshotStore: ProfileSnapshotStore(fileManager: fileManager)),
             relayHintCache: relayHintCache,
             followListCache: FollowListSnapshotCache(fileManager: fileManager),
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             presentationCache: FeedPresentationCache()
         )
         let reference = NostrEventReferencePointer(
@@ -474,7 +474,7 @@ final class NostrFeedServiceTests: XCTestCase {
             baseRelayURLs: [relayURL]
         )
         let requestedRelayURLs = await relayClient.requestedRelayURLs()
-        let storedEvent = await seenEventStore.events(ids: [referencedEvent.id])
+        let storedEvent = await eventRepository.events(ids: [referencedEvent.id])
         let requestedRelayURLStrings = canonicalRelayStrings(requestedRelayURLs)
 
         XCTAssertNil(resolved[reference])
@@ -515,14 +515,14 @@ final class NostrFeedServiceTests: XCTestCase {
             relayURL: [relayListEvent],
             authorWriteRelayURL: [referencedEvent]
         ])
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
         let service = NostrFeedService(
             relayClient: relayClient,
             timelineCache: TimelineEventCache(),
             profileCache: ProfileCache(snapshotStore: ProfileSnapshotStore(fileManager: fileManager)),
             relayHintCache: relayHintCache,
             followListCache: FollowListSnapshotCache(fileManager: fileManager),
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             presentationCache: FeedPresentationCache()
         )
         let reference = NostrEventReferencePointer(
@@ -539,7 +539,7 @@ final class NostrFeedServiceTests: XCTestCase {
             fetchTimeout: 0.4
         )
         let requestedRelayURLStrings = canonicalRelayStrings(await relayClient.requestedRelayURLs())
-        let storedEvent = await seenEventStore.events(ids: [referencedEvent.id])
+        let storedEvent = await eventRepository.events(ids: [referencedEvent.id])
 
         XCTAssertEqual(item?.id, referencedEvent.id)
         XCTAssertTrue(requestedRelayURLStrings.contains("wss://author-reference-write.example"))
@@ -694,7 +694,7 @@ final class NostrFeedServiceTests: XCTestCase {
             profileCache: ProfileCache(snapshotStore: ProfileSnapshotStore(fileManager: fileManager)),
             relayHintCache: ProfileRelayHintCache(),
             followListCache: followListCache,
-            seenEventStore: SeenEventStore(fileManager: fileManager)
+            eventRepository: EventRepository(fileManager: fileManager)
         )
 
         let authorPubkey = hex("1")
@@ -725,7 +725,7 @@ final class NostrFeedServiceTests: XCTestCase {
             profileCache: ProfileCache(snapshotStore: ProfileSnapshotStore(fileManager: fileManager)),
             relayHintCache: ProfileRelayHintCache(),
             followListCache: followListCache,
-            seenEventStore: SeenEventStore(fileManager: fileManager)
+            eventRepository: EventRepository(fileManager: fileManager)
         )
 
         let profilePubkey = hex("1")
@@ -780,7 +780,7 @@ final class NostrFeedServiceTests: XCTestCase {
             profileCache: ProfileCache(snapshotStore: ProfileSnapshotStore(fileManager: fileManager)),
             relayHintCache: ProfileRelayHintCache(),
             followListCache: followListCache,
-            seenEventStore: SeenEventStore(fileManager: fileManager)
+            eventRepository: EventRepository(fileManager: fileManager)
         )
         let followStore = FollowStore(
             defaults: defaults,
@@ -860,7 +860,7 @@ final class NostrFeedServiceTests: XCTestCase {
             profileCache: ProfileCache(snapshotStore: ProfileSnapshotStore(fileManager: fileManager)),
             relayHintCache: ProfileRelayHintCache(),
             followListCache: followListCache,
-            seenEventStore: SeenEventStore(fileManager: fileManager)
+            eventRepository: EventRepository(fileManager: fileManager)
         )
         defaults.set(
             [existingPubkeyA, existingPubkeyB],
@@ -942,7 +942,7 @@ final class NostrFeedServiceTests: XCTestCase {
             profileCache: ProfileCache(snapshotStore: ProfileSnapshotStore(fileManager: fileManager)),
             relayHintCache: ProfileRelayHintCache(),
             followListCache: followListCache,
-            seenEventStore: SeenEventStore(fileManager: fileManager)
+            eventRepository: EventRepository(fileManager: fileManager)
         )
         defaults.set(
             [followedPubkeyA, followedPubkeyB],
@@ -1187,7 +1187,7 @@ final class NostrFeedServiceTests: XCTestCase {
             content: "A reply should stay out of reactions"
         )
 
-        await harness.seenEventStore.store(events: [rootEvent])
+        await harness.eventRepository.store(events: [rootEvent])
 
         let rows = await harness.service.buildNoteActivityRows(
             relayURLs: [relayURL],
@@ -1246,7 +1246,7 @@ final class NostrFeedServiceTests: XCTestCase {
             ],
             missed: []
         )
-        await harness.seenEventStore.store(events: [targetEvent])
+        await harness.eventRepository.store(events: [targetEvent])
 
         let rows = await harness.service.buildActivityRows(
             relayURLs: [relayURL],
@@ -1305,7 +1305,7 @@ final class NostrFeedServiceTests: XCTestCase {
             ],
             missed: []
         )
-        await harness.seenEventStore.store(events: [targetEvent])
+        await harness.eventRepository.store(events: [targetEvent])
 
         let rows = await harness.service.buildActivityRows(
             relayURLs: [relayURL],
@@ -1740,7 +1740,7 @@ final class NostrFeedServiceTests: XCTestCase {
             hydrationMode: .full
         )
 
-        await harness.seenEventStore.store(events: [parentEvent])
+        await harness.eventRepository.store(events: [parentEvent])
         let secondItems = await harness.service.buildFeedItems(
             relayURLs: [],
             events: [replyEvent],
@@ -1805,7 +1805,7 @@ final class NostrFeedServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
         let fileManager = TestFileManager(rootURL: rootURL)
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
+        let eventRepository = EventRepository(fileManager: fileManager)
         let parentEvent = makeEvent(
             id: hex("9"),
             pubkey: hex("a"),
@@ -1835,11 +1835,11 @@ final class NostrFeedServiceTests: XCTestCase {
         let service = makeFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             presentationCache: FeedPresentationCache()
         )
 
-        await seenEventStore.store(events: [parentEvent])
+        await eventRepository.store(events: [parentEvent])
 
         let firstItems = await service.buildFeedItems(
             relayURLs: [relayURL],
@@ -2334,7 +2334,7 @@ private final class TestHarness {
     let rootURL: URL
     let relayClient: SpyRelayClient
     let profileCache: ProfileCache
-    let seenEventStore: SeenEventStore
+    let eventRepository: EventRepository
     let service: NostrFeedService
 
     init() throws {
@@ -2349,14 +2349,14 @@ private final class TestHarness {
 
         relayClient = SpyRelayClient()
         profileCache = ProfileCache(snapshotStore: profileSnapshotStore)
-        seenEventStore = SeenEventStore(fileManager: fileManager)
+        eventRepository = EventRepository(fileManager: fileManager)
         service = NostrFeedService(
             relayClient: relayClient,
             timelineCache: TimelineEventCache(),
             profileCache: profileCache,
             relayHintCache: relayHintCache,
             followListCache: followListCache,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             presentationCache: FeedPresentationCache()
         )
     }
@@ -2365,13 +2365,13 @@ private final class TestHarness {
 private func makeFeedService(
     relayClient: any NostrRelayEventFetching,
     fileManager: TestFileManager,
-    seenEventStore customSeenEventStore: SeenEventStore? = nil,
+    eventRepository customEventRepository: EventRepository? = nil,
     presentationCache: FeedPresentationCache = .shared
 ) -> NostrFeedService {
     let profileSnapshotStore = ProfileSnapshotStore(fileManager: fileManager)
     let profileCache = ProfileCache(snapshotStore: profileSnapshotStore)
     let followListCache = FollowListSnapshotCache(fileManager: fileManager)
-    let seenEventStore = customSeenEventStore ?? SeenEventStore(fileManager: fileManager)
+    let eventRepository = customEventRepository ?? EventRepository(fileManager: fileManager)
 
     return NostrFeedService(
         relayClient: relayClient,
@@ -2379,7 +2379,7 @@ private func makeFeedService(
         profileCache: profileCache,
         relayHintCache: ProfileRelayHintCache(),
         followListCache: followListCache,
-        seenEventStore: seenEventStore,
+        eventRepository: eventRepository,
         presentationCache: presentationCache
     )
 }

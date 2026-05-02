@@ -1333,7 +1333,7 @@ private final class HomeFeedViewModelHarness {
 
     private let relayClient: HomeFeedTestRelayClient
     private let service: NostrFeedService
-    private let seenEventStore: SeenEventStore
+    private let eventRepository: EventRepository
     private var itemCommitCancellable: AnyCancellable?
     private(set) var itemCommitCount = 0
 
@@ -1354,7 +1354,7 @@ private final class HomeFeedViewModelHarness {
         let profileSnapshotStore = ProfileSnapshotStore(fileManager: fileManager)
         let relayHintCache = ProfileRelayHintCache()
         let followListCache = FollowListSnapshotCache(fileManager: fileManager)
-        seenEventStore = SeenEventStore(fileManager: fileManager)
+        eventRepository = EventRepository(fileManager: fileManager)
         let profileCache = ProfileCache(snapshotStore: profileSnapshotStore)
 
         let authorPubkey = hex("a")
@@ -1383,7 +1383,7 @@ private final class HomeFeedViewModelHarness {
             profileCache: profileCache,
             relayHintCache: relayHintCache,
             followListCache: followListCache,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
 
         viewModel = HomeFeedViewModel(
@@ -1422,7 +1422,7 @@ private final class HomeFeedViewModelHarness {
     }
 
     func storeLocalEvents(_ events: [NostrEvent]) async {
-        await seenEventStore.store(events: events)
+        await eventRepository.store(events: events)
     }
 
     func storeFollowingSnapshot(

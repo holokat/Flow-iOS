@@ -3,18 +3,18 @@ import Foundation
 struct RelayTimelineFetcher: Sendable {
     private let relayClient: any NostrRelayEventFetching
     private let timelineCache: any TimelineEventCaching
-    private let seenEventStore: any SeenEventStoring
+    private let eventRepository: any EventRepositoryStoring
     private let dittoEOSEGraceTimeout: TimeInterval
 
     init(
         relayClient: any NostrRelayEventFetching,
         timelineCache: any TimelineEventCaching,
-        seenEventStore: any SeenEventStoring,
+        eventRepository: any EventRepositoryStoring,
         dittoEOSEGraceTimeout: TimeInterval = 0.3
     ) {
         self.relayClient = relayClient
         self.timelineCache = timelineCache
-        self.seenEventStore = seenEventStore
+        self.eventRepository = eventRepository
         self.dittoEOSEGraceTimeout = dittoEOSEGraceTimeout
     }
 
@@ -42,7 +42,7 @@ struct RelayTimelineFetcher: Sendable {
         }
 
         if !events.isEmpty {
-            await seenEventStore.store(events: events)
+            await eventRepository.store(events: events)
         }
         return events
     }
