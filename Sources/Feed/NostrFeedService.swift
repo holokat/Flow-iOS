@@ -6,9 +6,10 @@ struct NostrFeedService: Sendable {
     private let profileCache: any ProfileCaching
     private let relayHintCache: any ProfileRelayHintCaching
     private let followListCache: any FollowListSnapshotStoring
-    private let seenEventStore: any SeenEventStoring
+    private let eventRepository: any EventRepositoryStoring
     private let presentationCache: FeedPresentationCache
     private let outboxDiagnosticsStore: OutboxRecoveryDiagnosticsStore
+    private let metadataRequestCoordinator: MetadataRequestCoordinator
     private let relayTimelineFetcher: RelayTimelineFetcher
     nonisolated static let nostrArchivesSearchRelayURL = URL(string: "wss://search.nostrarchives.com")!
     nonisolated static let nostrArchivesTrendingRelayURL = URL(string: "wss://feeds.nostrarchives.com/notes/trending/reactions/today")!
@@ -30,29 +31,31 @@ struct NostrFeedService: Sendable {
         profileCache: any ProfileCaching = ProfileCache.shared,
         relayHintCache: any ProfileRelayHintCaching = ProfileRelayHintCache.shared,
         followListCache: any FollowListSnapshotStoring = FollowListSnapshotCache.shared,
-        seenEventStore: any SeenEventStoring = SeenEventStore.shared,
+        eventRepository: any EventRepositoryStoring = EventRepository.shared,
         presentationCache: FeedPresentationCache = .shared,
-        outboxDiagnosticsStore: OutboxRecoveryDiagnosticsStore = .shared
+        outboxDiagnosticsStore: OutboxRecoveryDiagnosticsStore = .shared,
+        metadataRequestCoordinator: MetadataRequestCoordinator = .shared
     ) {
         self.relayClient = relayClient
         self.timelineCache = timelineCache
         self.profileCache = profileCache
         self.relayHintCache = relayHintCache
         self.followListCache = followListCache
-        self.seenEventStore = seenEventStore
+        self.eventRepository = eventRepository
         self.presentationCache = presentationCache
         self.outboxDiagnosticsStore = outboxDiagnosticsStore
+        self.metadataRequestCoordinator = metadataRequestCoordinator
         self.relayTimelineFetcher = RelayTimelineFetcher(
             relayClient: relayClient,
             timelineCache: timelineCache,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
     }
 
     private var feedItemBuilder: FeedItemBuilder {
         FeedItemBuilder(
             profileCache: profileCache,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             presentationCache: presentationCache,
             fetchProfiles: { relayURLs, pubkeys, fetchTimeout, relayFetchMode in
                 await self.profileResolver.fetchProfiles(
@@ -89,7 +92,8 @@ struct NostrFeedService: Sendable {
             relayHintCache: relayHintCache,
             relayTimelineFetcher: relayTimelineFetcher,
             nostrArchivesSearchRelayURL: Self.nostrArchivesSearchRelayURL,
-            metadataFallbackRelayURLs: Self.metadataFallbackRelayURLs
+            metadataFallbackRelayURLs: Self.metadataFallbackRelayURLs,
+            metadataRequestCoordinator: metadataRequestCoordinator
         )
     }
 
@@ -99,7 +103,7 @@ struct NostrFeedService: Sendable {
             relayTimelineFetcher: relayTimelineFetcher,
             followListCache: followListCache,
             relayHintCache: relayHintCache,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             outboxDiagnosticsStore: outboxDiagnosticsStore,
             metadataFallbackRelayURLs: Self.metadataFallbackRelayURLs,
             followListFreshCacheAge: Self.followListFreshCacheAge
@@ -139,7 +143,7 @@ struct NostrFeedService: Sendable {
     private var referenceResolver: NostrReferenceResolver {
         NostrReferenceResolver(
             relayTimelineFetcher: relayTimelineFetcher,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             resolveOutboxRelayPlan: { authors, baseReadRelayURLs, seedHintRelayURLsByPubkey in
                 await self.followResolver.outboxBackedRelayPlan(
                     authors: authors,
@@ -162,7 +166,7 @@ struct NostrFeedService: Sendable {
         ActivityRowBuilder(
             relayTimelineFetcher: relayTimelineFetcher,
             profileCache: profileCache,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             resolveReferences: { pointersByReference, baseReadRelayURLs, fetchTimeout, relayFetchMode in
                 await self.referenceResolver.fetchResolvedReferenceEvents(
                     pointersByKey: pointersByReference,
@@ -180,7 +184,7 @@ struct NostrFeedService: Sendable {
 
     func ingestLiveEvents(_ events: [NostrEvent]) async {
         guard !events.isEmpty else { return }
-        await seenEventStore.store(events: events)
+        await eventRepository.store(events: events)
     }
 
     func fetchLiveCatchUpEvents(
@@ -395,6 +399,7 @@ struct NostrFeedService: Sendable {
     func fetchFollowingFeedRecoveringWithOutbox(
         baseReadRelayURLs: [URL],
         authors: [String],
+        relayPlan: AuthorRelayPlan? = nil,
         kinds: [Int],
         limit: Int,
         until: Int?,
@@ -406,6 +411,7 @@ struct NostrFeedService: Sendable {
         try await fetchOutboxBackedFollowingFeed(
             baseReadRelayURLs: baseReadRelayURLs,
             authors: authors,
+            relayPlan: relayPlan,
             kinds: kinds,
             limit: limit,
             until: until,
@@ -480,7 +486,7 @@ struct NostrFeedService: Sendable {
             }
 
             if !collected.isEmpty {
-                await seenEventStore.store(events: deduplicateEvents(collected))
+                await eventRepository.store(events: deduplicateEvents(collected))
             }
 
             return windowsByAuthor
@@ -723,6 +729,7 @@ struct NostrFeedService: Sendable {
     func fetchOutboxBackedFollowingFeed(
         baseReadRelayURLs: [URL],
         authors: [String],
+        relayPlan: AuthorRelayPlan? = nil,
         kinds: [Int],
         limit: Int,
         until: Int?,
@@ -736,15 +743,20 @@ struct NostrFeedService: Sendable {
         let normalizedAuthors = normalizedUniquePubkeys(authors)
         guard !normalizedAuthors.isEmpty else { return [] }
 
-        let relayPlan = await outboxBackedRelayPlan(
-            authors: normalizedAuthors,
-            baseReadRelayURLs: baseReadRelayURLs
-        )
+        let effectiveRelayPlan: AuthorRelayPlan
+        if let providedRelayPlan = relayPlan {
+            effectiveRelayPlan = providedRelayPlan
+        } else {
+            effectiveRelayPlan = await outboxBackedRelayPlan(
+                authors: normalizedAuthors,
+                baseReadRelayURLs: baseReadRelayURLs
+            )
+        }
         let effectiveRelayFetchMode: RelayFetchMode =
             relayFetchMode == .firstRelayWithEvents ? .firstNonEmptyRelay : relayFetchMode
 
         let groupedAuthors = Dictionary(grouping: normalizedAuthors) { author in
-            relayGroupKey(for: relayPlan.relayURLs(for: author))
+            relayGroupKey(for: effectiveRelayPlan.relayURLs(for: author))
         }
 
         let groupResults: (results: [(items: [FeedItem], relayURLs: [URL])], firstError: Error?) = await withTaskGroup(
@@ -1355,7 +1367,7 @@ struct NostrFeedService: Sendable {
             return []
         }
 
-        await seenEventStore.store(events: selected)
+        await eventRepository.store(events: selected)
         await hydrateReplaceableSideEffects(events: selected)
         return selected
     }

@@ -1171,7 +1171,7 @@ struct SignupOnboardingView: View {
             content: event.content,
             sig: event.signature ?? ""
         )
-        await SeenEventStore.shared.store(events: [localEvent])
+        await EventRepository.shared.store(events: [localEvent])
 
         if let profile = NostrProfile.decode(from: content) {
             await ProfileCache.shared.store(profiles: [account.pubkey.lowercased(): profile], missed: [])

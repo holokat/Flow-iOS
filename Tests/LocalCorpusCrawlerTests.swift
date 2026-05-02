@@ -241,7 +241,7 @@ final class LocalCorpusCrawlerTests: XCTestCase {
         XCTAssertEqual(
             authorRequest.relayURLs.map(\.absoluteString),
             [
-                "wss://author-read.example/",
+                "wss://author-write.example/",
                 "wss://hint.example/",
                 "wss://relay.example.com/",
                 "wss://fallback.example/"

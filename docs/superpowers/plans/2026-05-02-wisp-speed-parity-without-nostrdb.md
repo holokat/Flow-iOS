@@ -4,7 +4,7 @@
 
 **Goal:** Remove the `nostrdb` implementation and move Flow toward Wisp's fast path: targeted outbox reads, bounded relay health, selective write-behind persistence, hot in-memory indexes, batched metadata, and coalesced UI updates.
 
-**Architecture:** Use `EventArchiveStore` plus `SeenEventStore` as the local event layer instead of `FlowNostrDB`. Persist only Wisp-style useful kinds and own-user events through a small write-behind coordinator, keep recent feed IDs pinned, route author content through write relays, and reduce UI churn by batching live event hydration and metadata work.
+**Architecture:** Use `EventRepository` plus `EventPersistence` over `EventArchiveStore` as the local event layer instead of `FlowNostrDB`. `EventRepository` owns the in-memory event cache, dedup set, and recent feed state; `EventPersistence` owns Wisp-style selective write-behind persistence for useful kinds and own-user events. Keep recent feed IDs pinned, route author content through write relays, and reduce UI churn by batching live event hydration and metadata work.
 
 **Tech Stack:** Swift 5, SwiftUI, Combine, SQLite3, XCTest, XcodeGen, xcodebuild
 
@@ -15,7 +15,7 @@
 - Delete `Sources/NostrDB` and remove `Vendor/nostrdb` from the build.
 - Do not replace `nostrdb` with ObjectBox. Wisp's transferable idea is selective persistence and bounded caches, not the Android database choice.
 - Keep `EventArchiveStore` as the durable store because it is already SQLite-backed, byte-budgeted, and tested.
-- Make `SeenEventStore` the hot index and read-through facade over `EventArchiveStore`.
+- Make `EventRepository` the in-memory event repository and read-through facade over `EventPersistence`/`EventArchiveStore`.
 - Prioritize author write relays for fetching author-authored events, matching Wisp's outbox behavior.
 - Keep broad read relays and metadata fallback relays only as safety nets.
 
@@ -46,10 +46,9 @@
 
 ### Wisp-Style Event Storage
 
-- Create: `Sources/Feed/EventPersistencePolicy.swift`
-- Create: `Sources/Feed/EventPersistenceCoordinator.swift`
+- Create: `Sources/Feed/EventPersistence.swift`
 - Modify: `Sources/Feed/EventArchiveStore.swift`
-- Modify: `Sources/Feed/SeenEventStore.swift`
+- Modify: `Sources/Feed/EventRepository.swift`
 - Modify: `Sources/Feed/RecentFeedStore.swift`
 - Test: `Tests/EventArchiveStoreTests.swift`
 - Test: `Tests/NostrFeedServiceTests.swift`
@@ -163,7 +162,7 @@ Replace `NOSTRDB_MIGRATION.md` with:
 
 The NostrDB migration was retired on 2026-05-02.
 
-Flow now follows the Wisp-style architecture in `docs/superpowers/plans/2026-05-02-wisp-speed-parity-without-nostrdb.md`: selective SQLite event persistence, a hot `SeenEventStore` index, bounded relay health, outbox-first routing, and batched UI/metadata work.
+Flow now follows the Wisp-style architecture in `docs/superpowers/plans/2026-05-02-wisp-speed-parity-without-nostrdb.md`: selective SQLite event persistence, a hot `EventRepository` index, bounded relay health, outbox-first routing, and batched UI/metadata work.
 ```
 
 - [ ] **Step 5: Verify no production references remain**
@@ -201,13 +200,13 @@ In `Tests/NostrFeedServiceTests.swift`, replace the helper with:
 private func makeFeedService(
     relayClient: any NostrRelayEventFetching,
     fileManager: TestFileManager,
-    seenEventStore customSeenEventStore: SeenEventStore? = nil,
+    eventRepository customEventRepository: EventRepository? = nil,
     presentationCache: FeedPresentationCache = .shared
 ) -> NostrFeedService {
     let profileSnapshotStore = ProfileSnapshotStore(fileManager: fileManager)
     let profileCache = ProfileCache(snapshotStore: profileSnapshotStore)
     let followListCache = FollowListSnapshotCache(fileManager: fileManager)
-    let seenEventStore = customSeenEventStore ?? SeenEventStore(fileManager: fileManager)
+    let eventRepository = customEventRepository ?? EventRepository(fileManager: fileManager)
 
     return NostrFeedService(
         relayClient: relayClient,
@@ -215,7 +214,7 @@ private func makeFeedService(
         profileCache: profileCache,
         relayHintCache: ProfileRelayHintCache(),
         followListCache: followListCache,
-        seenEventStore: seenEventStore,
+        eventRepository: eventRepository,
         presentationCache: presentationCache
     )
 }
@@ -233,7 +232,7 @@ extension NostrFeedService {
         profileCache: any ProfileCaching = ProfileCache.shared,
         relayHintCache: any ProfileRelayHintCaching = ProfileRelayHintCache.shared,
         followListCache: any FollowListSnapshotStoring = FollowListSnapshotCache.shared,
-        seenEventStore: any SeenEventStoring = SeenEventStore.shared,
+        eventRepository: any EventRepositoryStoring = EventRepository.shared,
         nostrDatabase: FlowNostrDB,
         presentationCache: FeedPresentationCache = .shared,
         outboxDiagnosticsStore: OutboxRecoveryDiagnosticsStore = .shared,
@@ -247,7 +246,7 @@ extension NostrFeedService {
             profileCache: profileCache,
             relayHintCache: relayHintCache,
             followListCache: followListCache,
-            seenEventStore: seenEventStore,
+            eventRepository: eventRepository,
             presentationCache: presentationCache,
             outboxDiagnosticsStore: outboxDiagnosticsStore
         )
@@ -314,63 +313,20 @@ git commit -m "test: remove nostrdb harness dependencies"
 ### Task 3: Add Wisp-Style Selective Event Persistence
 
 **Files:**
-- Create: `Sources/Feed/EventPersistencePolicy.swift`
-- Create: `Sources/Feed/EventPersistenceCoordinator.swift`
+- Create: `Sources/Feed/EventPersistence.swift`
 - Modify: `Sources/Feed/FeedStorageProtocols.swift`
-- Modify: `Sources/Feed/SeenEventStore.swift`
+- Modify: `Sources/Feed/EventRepository.swift`
 - Test: `Tests/EventArchiveStoreTests.swift`
 
-- [ ] **Step 1: Add the persistence policy**
+- [ ] **Step 1: Add the write-behind persistence actor**
 
-Create `Sources/Feed/EventPersistencePolicy.swift`:
-
-```swift
-import Foundation
-
-struct EventPersistencePolicy: Sendable {
-    static let wispPersistedKinds: Set<Int> = [
-        0,
-        1,
-        6,
-        7,
-        20,
-        21,
-        22,
-        1_068,
-        6_969,
-        9_735,
-        30_023
-    ]
-
-    let currentUserPubkey: String?
-
-    init(currentUserPubkey: String? = nil) {
-        self.currentUserPubkey = currentUserPubkey?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-    }
-
-    func shouldPersist(_ event: NostrEvent) -> Bool {
-        let author = event.pubkey
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if let currentUserPubkey, !currentUserPubkey.isEmpty, author == currentUserPubkey {
-            return true
-        }
-        return Self.wispPersistedKinds.contains(event.kind)
-    }
-}
-```
-
-- [ ] **Step 2: Add the write-behind coordinator**
-
-Create `Sources/Feed/EventPersistenceCoordinator.swift`:
+Create `Sources/Feed/EventPersistence.swift` with the persisted-kind set, normalized current-user pubkey, `shouldPersist(_:)`, deduped 50-event/200ms write-behind batching, `flush()`, and read-through wrappers backed by `EventArchiveStore`.
 
 ```swift
 import Foundation
 
-actor EventPersistenceCoordinator {
-    static let shared = EventPersistenceCoordinator()
+actor EventPersistence {
+    static let shared = EventPersistence()
 
     private let archiveStore: EventArchiveStore
     private let batchLimit: Int
@@ -388,10 +344,7 @@ actor EventPersistenceCoordinator {
         self.flushDelayNanoseconds = flushDelayNanoseconds
     }
 
-    func enqueue(
-        events: [NostrEvent],
-        policy: EventPersistencePolicy = EventPersistencePolicy()
-    ) {
+    func persistEvents(_ events: [NostrEvent]) {
         for event in events where policy.shouldPersist(event) {
             let id = event.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             guard !id.isEmpty else { continue }
@@ -430,12 +383,12 @@ actor EventPersistenceCoordinator {
 }
 ```
 
-- [ ] **Step 3: Extend `SeenEventStoring` for explicit flushes**
+- [ ] **Step 2: Extend `EventRepositoryStoring` for explicit flushes**
 
 In `Sources/Feed/FeedStorageProtocols.swift`, update the protocol:
 
 ```swift
-protocol SeenEventStoring: Actor, Sendable {
+protocol EventRepositoryStoring: Actor, Sendable {
     func store(events: [NostrEvent]) async
     func storeRecentFeed(key: String, events: [NostrEvent]) async
     func recentFeed(key: String) async -> [NostrEvent]?
@@ -447,7 +400,7 @@ protocol SeenEventStoring: Actor, Sendable {
 Add the default implementation:
 
 ```swift
-extension SeenEventStoring {
+extension EventRepositoryStoring {
     func flushPersistence() async {}
 }
 ```
@@ -457,9 +410,9 @@ extension SeenEventStoring {
 Append to `Tests/EventArchiveStoreTests.swift`:
 
 ```swift
-func testEventPersistencePolicyKeepsWispKindsAndOwnEventsOnly() {
+func testEventPersistenceKeepsWispKindsAndOwnEventsOnly() {
     let ownPubkey = hex("a")
-    let policy = EventPersistencePolicy(currentUserPubkey: ownPubkey)
+    let persistence = EventPersistence(currentUserPubkey: ownPubkey)
     let ownEphemeral = makeEvent(id: hex("1"), pubkey: ownPubkey, kind: 40_000, content: "own")
     let remoteNote = makeEvent(id: hex("2"), pubkey: hex("b"), kind: 1, content: "note")
     let remoteEphemeral = makeEvent(id: hex("3"), pubkey: hex("c"), kind: 40_000, content: "drop")
@@ -470,7 +423,7 @@ func testEventPersistencePolicyKeepsWispKindsAndOwnEventsOnly() {
 }
 
 func testPersistenceCoordinatorFlushesOnlyPersistableEvents() async throws {
-    let rootURL = try makeRootURL(prefix: "EventPersistenceCoordinator")
+    let rootURL = try makeRootURL(prefix: "EventPersistence")
     defer { try? FileManager.default.removeItem(at: rootURL) }
 
     let archive = EventArchiveStore(
@@ -482,7 +435,7 @@ func testPersistenceCoordinatorFlushesOnlyPersistableEvents() async throws {
             minimumFreeDiskBytes: 0
         )
     )
-    let coordinator = EventPersistenceCoordinator(
+    let coordinator = EventPersistence(
         archiveStore: archive,
         batchLimit: 50,
         flushDelayNanoseconds: 20_000_000
@@ -512,28 +465,28 @@ Expected: all `EventArchiveStoreTests` pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Sources/Feed/EventPersistencePolicy.swift Sources/Feed/EventPersistenceCoordinator.swift Sources/Feed/FeedStorageProtocols.swift Tests/EventArchiveStoreTests.swift
+git add Sources/Feed/EventPersistence.swift Sources/Feed/FeedStorageProtocols.swift Tests/EventArchiveStoreTests.swift
 git commit -m "feat: add selective event persistence"
 ```
 
 ---
 
-### Task 4: Make SeenEventStore A Hot Index Over EventArchiveStore
+### Task 4: Make EventRepository Own The Wisp-Style Event Cache
 
 **Files:**
-- Modify: `Sources/Feed/SeenEventStore.swift`
+- Modify: `Sources/Feed/EventRepository.swift`
 - Modify: `Sources/Feed/RecentFeedStore.swift`
 - Test: `Tests/EventArchiveStoreTests.swift`
 - Test: `Tests/NostrFeedServiceTests.swift`
 
-- [ ] **Step 1: Replace the `SeenEventStore` initializer state**
+- [ ] **Step 1: Replace `EventRepository` state with in-memory cache/dedup/recent-feed ownership**
 
 Use these stored properties:
 
 ```swift
 private let maxStoredEvents: Int
 private let archiveStore: EventArchiveStore
-private let persistenceCoordinator: EventPersistenceCoordinator
+private let persistenceCoordinator: EventPersistence
 private var eventsByID: [String: NostrEvent] = [:]
 private var recency: [String] = []
 private var recentFeedEventIDsByKey: [String: [String]] = [:]
@@ -542,14 +495,14 @@ init(
     fileManager: FileManager = .default,
     archiveBudget: EventArchiveBudget = EventArchiveBudget(),
     archiveStore: EventArchiveStore? = nil,
-    persistenceCoordinator: EventPersistenceCoordinator? = nil
+    persistenceCoordinator: EventPersistence? = nil
 ) {
     let resolvedArchiveStore = archiveStore ?? EventArchiveStore(
         fileManager: fileManager,
         budget: archiveBudget
     )
     self.archiveStore = resolvedArchiveStore
-    self.persistenceCoordinator = persistenceCoordinator ?? EventPersistenceCoordinator(
+    self.persistenceCoordinator = persistenceCoordinator ?? EventPersistence(
         archiveStore: resolvedArchiveStore
     )
     self.maxStoredEvents = max(archiveBudget.hotIndexTargetEventCount, 4_000)
@@ -649,8 +602,8 @@ func flushPersistence() async {
 Append to `Tests/EventArchiveStoreTests.swift`:
 
 ```swift
-func testSeenEventStoreReadsThroughArchiveForColdEvents() async throws {
-    let rootURL = try makeRootURL(prefix: "SeenEventReadThrough")
+func testEventRepositoryReadsThroughArchiveForColdEvents() async throws {
+    let rootURL = try makeRootURL(prefix: "EventRepositoryReadThrough")
     defer { try? FileManager.default.removeItem(at: rootURL) }
 
     let fileManager = EventArchiveTestFileManager(rootURL: rootURL)
@@ -658,10 +611,10 @@ func testSeenEventStoreReadsThroughArchiveForColdEvents() async throws {
     let event = makeEvent(id: hex("8"), kind: 1, content: "archived")
     await archive.store(events: [event])
 
-    let store = SeenEventStore(
+    let store = EventRepository(
         fileManager: fileManager,
         archiveStore: archive,
-        persistenceCoordinator: EventPersistenceCoordinator(archiveStore: archive)
+        persistenceCoordinator: EventPersistence(archiveStore: archive)
     )
 
     let restored = await store.events(ids: [event.id])
@@ -682,7 +635,7 @@ Expected: all `EventArchiveStoreTests` pass.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add Sources/Feed/SeenEventStore.swift Sources/Feed/RecentFeedStore.swift Tests/EventArchiveStoreTests.swift
+git add Sources/Feed/EventRepository.swift Sources/Feed/RecentFeedStore.swift Tests/EventArchiveStoreTests.swift
 git commit -m "feat: make seen events archive backed"
 ```
 
@@ -1419,7 +1372,7 @@ Task {
 
 - [ ] **Step 3: Record persistence queue counts**
 
-In `EventPersistenceCoordinator.enqueue`, after adding persistable events, call:
+In `EventPersistence.enqueue`, after adding persistable events, call:
 
 ```swift
 let queuedCount = pendingByID.count
@@ -1555,4 +1508,4 @@ git commit -m "feat: align nostr feed performance with wisp"
 
 - Spec coverage: The plan removes `nostrdb`, adopts Wisp-style selective persistence, switches following feeds to outbox routing, prioritizes write relays, adds bounded relay health, coalesces live UI updates, enlarges presentation caching, and adds diagnostics.
 - Placeholder scan: No task depends on unspecified files or unnamed behavior. Each code-changing task includes concrete files, code shapes, test commands, and expected results.
-- Type consistency: New types are `EventPersistencePolicy`, `EventPersistenceCoordinator`, `RelayHealthStore`, `MetadataRequestCoordinator`, and `WispParityDiagnosticsStore`; later tasks use the same names.
+- Type consistency: New types are `EventRepository`, `EventPersistence`, `RelayHealthStore`, `MetadataRequestCoordinator`, and `WispParityDiagnosticsStore`; later tasks use the same names.

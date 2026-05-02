@@ -171,6 +171,7 @@ final class SourcePublishStatsStore: ObservableObject {
 enum RelayClientError: LocalizedError {
     case invalidRelayURL(String)
     case closed(String)
+    case poolEvicted
     case publishRejected(String)
     case publishTimedOut
 
@@ -180,6 +181,8 @@ enum RelayClientError: LocalizedError {
             return "Invalid source URL: \(value)"
         case .closed(let reason):
             return "Source closed the subscription: \(reason)"
+        case .poolEvicted:
+            return "Source connection was evicted from the relay pool."
         case .publishRejected(let reason):
             return "Source rejected the event: \(reason)"
         case .publishTimedOut:
@@ -224,7 +227,18 @@ public final class RelaySingleResumeContinuationBox<Success>: @unchecked Sendabl
 actor NostrRelayPool {
     static let shared = NostrRelayPool()
 
+    private let healthStore: RelayHealthStore
+    private let maxConnections: Int
     private var connections: [String: NostrRelaySocketConnection] = [:]
+    private var lastUsedAtByKey: [String: Date] = [:]
+
+    init(
+        healthStore: RelayHealthStore = .shared,
+        maxConnections: Int = RelayHealthStore.Configuration().maxEphemeralConnections
+    ) {
+        self.healthStore = healthStore
+        self.maxConnections = max(maxConnections, 1)
+    }
 
     func fetchEvents(
         relayURL: URL,
@@ -232,8 +246,19 @@ actor NostrRelayPool {
         timeout: TimeInterval,
         session: URLSession
     ) async throws -> [NostrEvent] {
-        let connection = connection(for: relayURL, session: session)
-        return try await connection.fetchEvents(filter: filter, timeout: timeout)
+        guard await healthStore.isAvailable(relayURL) else {
+            throw RelayClientError.closed("Relay is cooling down after recent failures.")
+        }
+        let connection = await connection(for: relayURL, session: session)
+        do {
+            let events = try await connection.fetchEvents(filter: filter, timeout: timeout)
+            await healthStore.clearCooldown(relayURL)
+            return events
+        } catch {
+            await healthStore.recordFailure(error, relayURL: relayURL)
+            await removeConnection(connection, for: relayURL)
+            throw error
+        }
     }
 
     func publishEvent(
@@ -243,12 +268,22 @@ actor NostrRelayPool {
         timeout: TimeInterval,
         session: URLSession
     ) async throws {
-        let connection = connection(for: relayURL, session: session)
-        try await connection.publishEvent(
-            eventObject: eventObject,
-            eventID: eventID,
-            timeout: timeout
-        )
+        guard await healthStore.isAvailable(relayURL) else {
+            throw RelayClientError.closed("Relay is cooling down after recent failures.")
+        }
+        let connection = await connection(for: relayURL, session: session)
+        do {
+            try await connection.publishEvent(
+                eventObject: eventObject,
+                eventID: eventID,
+                timeout: timeout
+            )
+            await healthStore.clearCooldown(relayURL)
+        } catch {
+            await healthStore.recordFailure(error, relayURL: relayURL)
+            await removeConnection(connection, for: relayURL)
+            throw error
+        }
     }
 
     func streamEvents(
@@ -256,16 +291,45 @@ actor NostrRelayPool {
         filter: NostrFilter,
         session: URLSession
     ) async -> AsyncThrowingStream<NostrEvent, Error> {
-        let connection = connection(for: relayURL, session: session)
-        return await connection.streamEvents(filter: filter)
+        guard await healthStore.isAvailable(relayURL) else {
+            return AsyncThrowingStream { continuation in
+                continuation.finish(
+                    throwing: RelayClientError.closed("Relay is cooling down after recent failures.")
+                )
+            }
+        }
+        let connection = await connection(for: relayURL, session: session)
+        let healthStore = self.healthStore
+        let pool = self
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                let upstream = await connection.streamEvents(filter: filter)
+                do {
+                    for try await event in upstream {
+                        await healthStore.clearCooldown(relayURL)
+                        continuation.yield(event)
+                    }
+                    continuation.finish()
+                } catch {
+                    await healthStore.recordFailure(error, relayURL: relayURL)
+                    await pool.removeConnection(connection, for: relayURL)
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
     }
 
     private func connection(
         for relayURL: URL,
         session: URLSession
-    ) -> NostrRelaySocketConnection {
-        let key = RelayURLSupport.normalizedRelayURLString(relayURL)
-            ?? relayURL.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    ) async -> NostrRelaySocketConnection {
+        let key = relayKey(relayURL)
+        lastUsedAtByKey[key] = Date()
         if let existing = connections[key] {
             return existing
         }
@@ -275,7 +339,33 @@ actor NostrRelayPool {
             session: session
         )
         connections[key] = created
+        await evictIdleConnectionsIfNeeded()
         return created
+    }
+
+    private func removeConnection(
+        _ connection: NostrRelaySocketConnection,
+        for relayURL: URL
+    ) async {
+        let key = relayKey(relayURL)
+        guard let current = connections[key], current === connection else { return }
+        let removed = connections.removeValue(forKey: key)
+        lastUsedAtByKey[key] = nil
+        await removed?.close()
+    }
+
+    private func evictIdleConnectionsIfNeeded() async {
+        while connections.count > maxConnections,
+              let oldestKey = lastUsedAtByKey.min(by: { $0.value < $1.value })?.key {
+            let removed = connections.removeValue(forKey: oldestKey)
+            lastUsedAtByKey[oldestKey] = nil
+            await removed?.close()
+        }
+    }
+
+    private func relayKey(_ relayURL: URL) -> String {
+        RelayURLSupport.normalizedRelayURLString(relayURL)
+            ?? relayURL.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 
@@ -403,6 +493,35 @@ private actor NostrRelaySocketConnection {
                     await self.cancelLiveSubscription(subscriptionID: subscriptionID)
                 }
             }
+        }
+    }
+
+    func close() {
+        let queryContinuations = querySubscriptions.values.map(\.continuation)
+        let liveContinuations = liveSubscriptions.values.map(\.continuation)
+        let publishContinuations = pendingPublishes.values.map(\.continuation)
+
+        querySubscriptions.removeAll()
+        liveSubscriptions.removeAll()
+        pendingPublishes.removeAll()
+
+        receiveTask?.cancel()
+        receiveTask = nil
+        pingTask?.cancel()
+        pingTask = nil
+
+        socket?.cancel(with: .goingAway, reason: nil)
+        socket = nil
+
+        let error = RelayClientError.poolEvicted
+        for continuation in queryContinuations {
+            continuation.resume(throwing: error)
+        }
+        for continuation in liveContinuations {
+            continuation.finish(throwing: error)
+        }
+        for continuation in publishContinuations {
+            continuation.resume(throwing: error)
         }
     }
 
@@ -980,7 +1099,7 @@ private enum SourcePublishFailureClassifier {
             switch relayError {
             case .publishRejected(let reason):
                 return isRateLimitMessage(reason)
-            case .invalidRelayURL, .closed, .publishTimedOut:
+            case .invalidRelayURL, .closed, .poolEvicted, .publishTimedOut:
                 break
             }
         }

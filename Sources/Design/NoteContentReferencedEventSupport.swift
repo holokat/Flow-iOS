@@ -296,7 +296,7 @@ private enum EmbeddedReferencedNoteResolver {
 
     private static func fetchEventByID(_ eventID: String, relayURLs: [URL]) async -> NostrEvent? {
         let normalizedEventID = eventID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if let cached = await SeenEventStore.shared.events(ids: [normalizedEventID])[normalizedEventID] {
+        if let cached = await EventRepository.shared.events(ids: [normalizedEventID])[normalizedEventID] {
             return cached
         }
 

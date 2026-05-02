@@ -265,6 +265,97 @@ actor EventArchiveStore {
         }.map(\.event)
     }
 
+    func searchEvents(query: String, kinds: [Int], limit: Int) async -> [NostrEvent] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cappedLimit = max(limit, 0)
+        guard !normalizedQuery.isEmpty, cappedLimit > 0 else { return [] }
+
+        let normalizedKinds = Array(Set(kinds))
+        let kindFilter = normalizedKinds.isEmpty
+            ? ""
+            : "AND kind IN (\(sqlPlaceholders(count: normalizedKinds.count)))"
+        guard let statement = prepareStatement(
+            """
+            SELECT event_json
+            FROM archived_events
+            WHERE event_json LIKE ? \(kindFilter)
+            ORDER BY created_at DESC, seen_at DESC, id DESC
+            LIMIT ?;
+            """
+        ) else {
+            return []
+        }
+        defer { sqlite3_finalize(statement) }
+
+        bindText("%\(normalizedQuery)%", to: statement, index: 1)
+        for (index, kind) in normalizedKinds.enumerated() {
+            sqlite3_bind_int64(statement, Int32(index + 2), Int64(kind))
+        }
+        sqlite3_bind_int64(statement, Int32(normalizedKinds.count + 2), Int64(cappedLimit))
+
+        return decodeEvents(from: statement, column: 0)
+    }
+
+    func events(author: String, kinds: [Int], limit: Int) async -> [NostrEvent] {
+        let normalizedAuthor = author.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cappedLimit = max(limit, 0)
+        guard !normalizedAuthor.isEmpty, cappedLimit > 0 else { return [] }
+
+        let normalizedKinds = Array(Set(kinds))
+        let kindFilter = normalizedKinds.isEmpty
+            ? ""
+            : "AND kind IN (\(sqlPlaceholders(count: normalizedKinds.count)))"
+        guard let statement = prepareStatement(
+            """
+            SELECT event_json
+            FROM archived_events
+            WHERE lower(pubkey) = ? \(kindFilter)
+            ORDER BY created_at DESC, seen_at DESC, id DESC
+            LIMIT ?;
+            """
+        ) else {
+            return []
+        }
+        defer { sqlite3_finalize(statement) }
+
+        bindText(normalizedAuthor, to: statement, index: 1)
+        for (index, kind) in normalizedKinds.enumerated() {
+            sqlite3_bind_int64(statement, Int32(index + 2), Int64(kind))
+        }
+        sqlite3_bind_int64(statement, Int32(normalizedKinds.count + 2), Int64(cappedLimit))
+
+        return decodeEvents(from: statement, column: 0)
+    }
+
+    func events(kinds: [Int], limit: Int) async -> [NostrEvent] {
+        let cappedLimit = max(limit, 0)
+        guard cappedLimit > 0 else { return [] }
+
+        let normalizedKinds = Array(Set(kinds))
+        let kindFilter = normalizedKinds.isEmpty
+            ? ""
+            : "WHERE kind IN (\(sqlPlaceholders(count: normalizedKinds.count)))"
+        guard let statement = prepareStatement(
+            """
+            SELECT event_json
+            FROM archived_events
+            \(kindFilter)
+            ORDER BY created_at DESC, seen_at DESC, id DESC
+            LIMIT ?;
+            """
+        ) else {
+            return []
+        }
+        defer { sqlite3_finalize(statement) }
+
+        for (index, kind) in normalizedKinds.enumerated() {
+            sqlite3_bind_int64(statement, Int32(index + 1), Int64(kind))
+        }
+        sqlite3_bind_int64(statement, Int32(normalizedKinds.count + 1), Int64(cappedLimit))
+
+        return decodeEvents(from: statement, column: 0)
+    }
+
     func diagnosticsSnapshot() async -> Diagnostics {
         syncDiagnosticsSnapshot()
     }
@@ -684,6 +775,15 @@ actor EventArchiveStore {
         }
         let data = Data(bytes: rawBytes, count: Int(length))
         return try? decoder.decode(NostrEvent.self, from: data)
+    }
+
+    private func decodeEvents(from statement: OpaquePointer?, column: Int32) -> [NostrEvent] {
+        var events: [NostrEvent] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let event = decodeEvent(from: statement, column: column) else { continue }
+            events.append(event)
+        }
+        return events
     }
 
     private func columnText(_ statement: OpaquePointer?, column: Int32) -> String? {

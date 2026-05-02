@@ -2,7 +2,7 @@ import XCTest
 @testable import Flow
 
 final class AuthorRelayPlannerTests: XCTestCase {
-    func testPlannerPrefersAuthorReadRelaysBeforeAppReadRelays() {
+    func testPlannerPrefersAuthorWriteRelaysBeforeReadAndAppRelays() {
         let planner = AuthorRelayPlanner()
         let author = String(repeating: "a", count: 64)
 
@@ -23,14 +23,14 @@ final class AuthorRelayPlannerTests: XCTestCase {
         XCTAssertEqual(
             plan.relayURLs(for: author).map(\.absoluteString),
             [
-                "wss://author-read.example/",
+                "wss://author-write.example/",
                 "wss://relay.damus.io/",
                 "wss://relay.primal.net/"
             ]
         )
     }
 
-    func testPlannerFallsBackToWriteRelaysWhenReadRelaysAreMissing() {
+    func testPlannerFallsBackToReadRelaysWhenWriteRelaysAreMissing() {
         let planner = AuthorRelayPlanner()
         let author = String(repeating: "b", count: 64)
 
@@ -39,8 +39,8 @@ final class AuthorRelayPlannerTests: XCTestCase {
             baseReadRelayURLs: [URL(string: "wss://relay.damus.io/")!],
             directoryEntriesByPubkey: [
                 author: AuthorRelayDirectoryEntry(
-                    readRelayURLs: [],
-                    writeRelayURLs: [URL(string: "wss://author-write.example/")!],
+                    readRelayURLs: [URL(string: "wss://author-read.example/")!],
+                    writeRelayURLs: [],
                     hintRelayURLs: [],
                     refreshedAt: nil
                 )
@@ -51,7 +51,7 @@ final class AuthorRelayPlannerTests: XCTestCase {
         XCTAssertEqual(
             plan.relayURLs(for: author).map(\.absoluteString),
             [
-                "wss://author-write.example/",
+                "wss://author-read.example/",
                 "wss://relay.damus.io/"
             ]
         )

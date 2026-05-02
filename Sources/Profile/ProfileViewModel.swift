@@ -68,7 +68,7 @@ final class ProfileViewModel: ObservableObject {
     private let service: NostrFeedService
     private let profileEventService: ProfileEventService
     private let relayClient: any NostrRelayEventPublishing
-    private let seenEventStore: any SeenEventStoring
+    private let eventRepository: any EventRepositoryStoring
     private let mediaUploadService: ProfileMediaUploadService
     static let requestedFeedKinds = [
         FeedKindFilters.shortTextNote,
@@ -103,7 +103,7 @@ final class ProfileViewModel: ObservableObject {
         service: NostrFeedService = NostrFeedService(),
         profileEventService: ProfileEventService = ProfileEventService(),
         relayClient: any NostrRelayEventPublishing = NostrRelayClient(),
-        seenEventStore: any SeenEventStoring = SeenEventStore.shared,
+        eventRepository: any EventRepositoryStoring = EventRepository.shared,
         mediaUploadService: ProfileMediaUploadService = .shared
     ) {
         self.pubkey = pubkey
@@ -124,7 +124,7 @@ final class ProfileViewModel: ObservableObject {
         self.service = service
         self.profileEventService = profileEventService
         self.relayClient = relayClient
-        self.seenEventStore = seenEventStore
+        self.eventRepository = eventRepository
         self.mediaUploadService = mediaUploadService
     }
 
@@ -586,7 +586,7 @@ final class ProfileViewModel: ObservableObject {
             }
 
             let localEvent = Self.localEvent(from: event)
-            await seenEventStore.store(events: [localEvent])
+            await eventRepository.store(events: [localEvent])
 
             let updatedProfile = NostrProfile.decode(from: content)
             metadataSnapshot = ProfileMetadataSnapshot(

@@ -204,8 +204,7 @@ private enum EncodedSpamContentHeuristic {
         var whitespaceCount = 0
         var currentRunLength = 0
         var longestNonWhitespaceRun = 0
-        var compactScalars: [Unicode.Scalar] = []
-        compactScalars.reserveCapacity(scalars.count)
+        var compactScalarCount = 0
 
         for scalar in scalars {
             if isWhitespace(scalar) {
@@ -213,11 +212,19 @@ private enum EncodedSpamContentHeuristic {
                 longestNonWhitespaceRun = max(longestNonWhitespaceRun, currentRunLength)
                 currentRunLength = 0
             } else {
-                compactScalars.append(scalar)
+                compactScalarCount += 1
                 currentRunLength += 1
             }
         }
         longestNonWhitespaceRun = max(longestNonWhitespaceRun, currentRunLength)
+
+        let whitespaceRatio = Double(whitespaceCount) / Double(max(scalars.count, 1))
+        let lacksNaturalSpacing = whitespaceRatio <= maximumWhitespaceRatio ||
+            longestNonWhitespaceRun >= max(minimumTokenLength, Int(Double(compactScalarCount) * 0.82))
+
+        if !lacksNaturalSpacing, longestNonWhitespaceRun < minimumTokenLength {
+            return false
+        }
 
         for token in trimmed.split(whereSeparator: { character in
             character.unicodeScalars.allSatisfy(isWhitespace)
@@ -227,12 +234,14 @@ private enum EncodedSpamContentHeuristic {
             }
         }
 
-        let whitespaceRatio = Double(whitespaceCount) / Double(max(scalars.count, 1))
-        let lacksNaturalSpacing = whitespaceRatio <= maximumWhitespaceRatio ||
-            longestNonWhitespaceRun >= max(minimumTokenLength, Int(Double(compactScalars.count) * 0.82))
-
         guard lacksNaturalSpacing else {
             return false
+        }
+
+        var compactScalars: [Unicode.Scalar] = []
+        compactScalars.reserveCapacity(compactScalarCount)
+        for scalar in scalars where !isWhitespace(scalar) {
+            compactScalars.append(scalar)
         }
 
         return looksLikeEncodedRun(compactScalars, minimumLength: minimumCompactLength)

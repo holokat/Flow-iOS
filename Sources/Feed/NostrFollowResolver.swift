@@ -5,7 +5,7 @@ struct NostrFollowResolver: Sendable {
     private let relayTimelineFetcher: RelayTimelineFetcher
     private let followListCache: any FollowListSnapshotStoring
     private let relayHintCache: any ProfileRelayHintCaching
-    private let seenEventStore: any SeenEventStoring
+    private let eventRepository: any EventRepositoryStoring
     private let outboxDiagnosticsStore: OutboxRecoveryDiagnosticsStore
     private let metadataFallbackRelayURLs: [URL]
     private let followListFreshCacheAge: TimeInterval
@@ -15,7 +15,7 @@ struct NostrFollowResolver: Sendable {
         relayTimelineFetcher: RelayTimelineFetcher,
         followListCache: any FollowListSnapshotStoring,
         relayHintCache: any ProfileRelayHintCaching,
-        seenEventStore: any SeenEventStoring,
+        eventRepository: any EventRepositoryStoring,
         outboxDiagnosticsStore: OutboxRecoveryDiagnosticsStore,
         metadataFallbackRelayURLs: [URL],
         followListFreshCacheAge: TimeInterval
@@ -24,7 +24,7 @@ struct NostrFollowResolver: Sendable {
         self.relayTimelineFetcher = relayTimelineFetcher
         self.followListCache = followListCache
         self.relayHintCache = relayHintCache
-        self.seenEventStore = seenEventStore
+        self.eventRepository = eventRepository
         self.outboxDiagnosticsStore = outboxDiagnosticsStore
         self.metadataFallbackRelayURLs = metadataFallbackRelayURLs
         self.followListFreshCacheAge = followListFreshCacheAge
@@ -414,7 +414,7 @@ struct NostrFollowResolver: Sendable {
 
         let profileEventService = ProfileEventService(
             relayClient: relayClient,
-            seenEventStore: seenEventStore
+            eventRepository: eventRepository
         )
         let normalizedBaseReadRelayURLs = normalizedRelayURLs(baseReadRelayURLs)
 

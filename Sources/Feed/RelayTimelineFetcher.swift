@@ -3,18 +3,18 @@ import Foundation
 struct RelayTimelineFetcher: Sendable {
     private let relayClient: any NostrRelayEventFetching
     private let timelineCache: any TimelineEventCaching
-    private let seenEventStore: any SeenEventStoring
+    private let eventRepository: any EventRepositoryStoring
     private let dittoEOSEGraceTimeout: TimeInterval
 
     init(
         relayClient: any NostrRelayEventFetching,
         timelineCache: any TimelineEventCaching,
-        seenEventStore: any SeenEventStoring,
+        eventRepository: any EventRepositoryStoring,
         dittoEOSEGraceTimeout: TimeInterval = 0.3
     ) {
         self.relayClient = relayClient
         self.timelineCache = timelineCache
-        self.seenEventStore = seenEventStore
+        self.eventRepository = eventRepository
         self.dittoEOSEGraceTimeout = dittoEOSEGraceTimeout
     }
 
@@ -26,7 +26,8 @@ struct RelayTimelineFetcher: Sendable {
     ) async throws -> [NostrEvent] {
         let events: [NostrEvent]
         let fetchOperation = {
-            try await fetchEventsEnforcingTimeout(
+            await WispParityDiagnosticsStore.shared.recordRelayRequest()
+            return try await fetchEventsEnforcingTimeout(
                 relayURL: relayURL,
                 filter: filter,
                 timeout: timeout
@@ -42,7 +43,7 @@ struct RelayTimelineFetcher: Sendable {
         }
 
         if !events.isEmpty {
-            await seenEventStore.store(events: events)
+            await eventRepository.store(events: events)
         }
         return events
     }
@@ -380,11 +381,18 @@ struct RelayTimelineFetcher: Sendable {
     }
 
     private func mergedTimelineEvents(_ events: [NostrEvent], filter: NostrFilter) -> [NostrEvent] {
+        let receivedCount = events.count
         let merged = deduplicateEvents(events).sorted { lhs, rhs in
             if lhs.createdAt == rhs.createdAt {
                 return lhs.id > rhs.id
             }
             return lhs.createdAt > rhs.createdAt
+        }
+        Task {
+            await WispParityDiagnosticsStore.shared.recordRelayEvents(
+                received: receivedCount,
+                duplicatesDropped: max(receivedCount - merged.count, 0)
+            )
         }
 
         if let limit = filter.limit {

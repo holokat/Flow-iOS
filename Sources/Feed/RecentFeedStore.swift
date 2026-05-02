@@ -12,21 +12,21 @@ actor RecentFeedStore {
     private let fileManager: FileManager
     private let directoryURL: URL
     private let decoder = JSONDecoder()
-    private let seenEventStore: SeenEventStore
+    private let eventRepository: EventRepository
 
     init(
         fileManager: FileManager = .default,
-        seenEventStore: SeenEventStore = .shared
+        eventRepository: EventRepository = .shared
     ) {
         self.fileManager = fileManager
-        self.seenEventStore = seenEventStore
+        self.eventRepository = eventRepository
         let root = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         self.directoryURL = root.appendingPathComponent("x21-recent-feeds", isDirectory: true)
     }
 
     func getRecentFeed(key: String) async -> [NostrEvent]? {
-        if let cached = await seenEventStore.recentFeed(key: key), !cached.isEmpty {
+        if let cached = await eventRepository.recentFeed(key: key), !cached.isEmpty {
             return cached
         }
 
@@ -43,13 +43,13 @@ actor RecentFeedStore {
         }
 
         if !payload.events.isEmpty {
-            await seenEventStore.storeRecentFeed(key: key, events: payload.events)
+            await eventRepository.storeRecentFeed(key: key, events: payload.events)
         }
         return payload.events
     }
 
     func putRecentFeed(key: String, events: [NostrEvent]) async {
-        await seenEventStore.storeRecentFeed(key: key, events: events)
+        await eventRepository.storeRecentFeed(key: key, events: events)
 
         ensureDirectory()
         let legacyURL = fileURL(for: key)

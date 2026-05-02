@@ -146,7 +146,7 @@ final class ThreadReplyPublishService {
             sig: event.signature ?? ""
         )
 
-        await SeenEventStore.shared.store(events: [localEvent])
+        await EventRepository.shared.store(events: [localEvent])
         let resolvedProfile = await ProfileCache.shared.resolve(pubkeys: [localEvent.pubkey]).hits[localEvent.pubkey]
         let replyTargetProfile = await ProfileCache.shared
             .resolve(pubkeys: [rootEvent.pubkey.lowercased()])

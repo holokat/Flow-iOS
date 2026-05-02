@@ -14,36 +14,6 @@ targets:
       - path: Sources
         excludes:
           - ShareExtension/**
-      - path: Vendor/nostrdb/src
-        includes:
-          - "*.c"
-          - "bolt11/amount.c"
-          - "bolt11/bech32.c"
-          - "bolt11/bech32_util.c"
-          - "bolt11/bolt11.c"
-          - "bolt11/error.c"
-          - "bolt11/hash_u5.c"
-      - path: Vendor/nostrdb/flatcc
-        includes:
-          - builder.c
-          - emitter.c
-          - json_parser.c
-          - refmap.c
-          - verifier.c
-      - path: Vendor/nostrdb/ccan/ccan
-        includes:
-          - crypto/sha256/sha256.c
-          - list/list.c
-          - mem/mem.c
-          - str/str.c
-          - tal/str/str.c
-          - tal/tal.c
-          - take/take.c
-          - utf8/utf8.c
-      - path: Vendor/nostrdb/mdb.c
-        compilerFlags: -w
-      - path: Vendor/nostrdb/midl.c
-        compilerFlags: -w
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.21media.haloapp
@@ -58,19 +28,6 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic
         GCC_C_LANGUAGE_STANDARD: gnu11
-        SWIFT_OBJC_BRIDGING_HEADER: Sources/NostrDB/Flow-Bridging-Header.h
-        HEADER_SEARCH_PATHS:
-          - $(inherited)
-          - $(PROJECT_DIR)/Vendor/nostrdb
-          - $(PROJECT_DIR)/Vendor/nostrdb/src
-          - $(PROJECT_DIR)/Vendor/nostrdb/ccan
-          - $(PROJECT_DIR)/Vendor/nostrdb/ccan/ccan/short_types
-          - $(PROJECT_DIR)/Vendor/nostrdb/ccan/ccan/compiler
-          - $(PROJECT_DIR)/Vendor/nostrdb/flatcc
-        GCC_PREPROCESSOR_DEFINITIONS:
-          - $(inherited)
-          - MDB_SHORT_SEMNAMES=1
-          - MDB_SEM_NAME_PREFIX=flow
     dependencies:
       - package: NostrSDK
       - target: FlowShareExtension

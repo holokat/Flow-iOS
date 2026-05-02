@@ -71,6 +71,10 @@ final class HomeFeedViewModel: ObservableObject {
     private var liveSubscriptionConfigurationSignature: String?
     private var liveUpdatesTask: Task<Void, Never>?
     private var liveCatchUpTask: Task<Void, Never>?
+    private var pendingLiveEventsByID: [String: NostrEvent] = [:]
+    private var liveEventFlushTask: Task<Void, Never>?
+    private var hydrationUpgradeTasks: [UUID: Task<Void, Never>] = [:]
+    private var liveEventGeneration = 0
     private var liveCatchUpToken = 0
     private var lastLiveCatchUpBySignature: [String: Date] = [:]
     private var resetFeedTask: Task<Void, Never>?
@@ -79,6 +83,7 @@ final class HomeFeedViewModel: ObservableObject {
     private var trendingPaginationState: TrendingPaginationState?
     private var hasRetriedEmptyTrendingLoad = false
     private var trendingEmptyRetryTask: Task<Void, Never>?
+    private static let liveEventFlushDelayNanoseconds: UInt64 = 50_000_000
 
     init(
         relayURL: URL,
@@ -108,6 +113,9 @@ final class HomeFeedViewModel: ObservableObject {
     deinit {
         liveUpdatesTask?.cancel()
         liveCatchUpTask?.cancel()
+        liveEventFlushTask?.cancel()
+        hydrationUpgradeTasks.values.forEach { $0.cancel() }
+        liveEventGeneration &+= 1
         resetFeedTask?.cancel()
         trendingEmptyRetryTask?.cancel()
     }
@@ -816,43 +824,14 @@ final class HomeFeedViewModel: ObservableObject {
                 fastHydrationMode: fastHydrationMode
             ),
                !stagedHydrationEvents.isEmpty {
-                let upgradedItems = await service.buildFeedItems(
+                scheduleHydrationUpgrade(
                     relayURLs: requestRelayURLs,
                     events: stagedHydrationEvents,
                     hydrationMode: requestHydrationMode,
-                    moderationSnapshot: muteFilterSnapshot
-                )
-                guard !Task.isCancelled else { return }
-
-                if requestSource != feedSource || requestUserPubkey != currentUserPubkey {
-                    guard latestRefreshRequestID == refreshRequestID else { return }
-                    needsRefreshAfterCurrentRequest = true
-                    return
-                }
-
-                if requestSource != .news,
-                   requestSource != .trending,
-                   requestSource != .articles,
-                   requestSource != .polls,
-                   !FeedKindFilters.isSameSelection(requestKinds, showKinds) {
-                    guard latestRefreshRequestID == refreshRequestID else { return }
-                    needsRefreshAfterCurrentRequest = true
-                    return
-                }
-
-                guard latestRefreshRequestID == refreshRequestID else { return }
-                applyRefreshResults(
-                    fetched: upgradedItems,
                     requestSource: requestSource,
-                    sourcePageResult: sourcePageResult,
-                    publishFetchedItems: publishFetchedItems,
-                    startedWithEmptyItems: startedWithEmptyItems
-                )
-                scheduleTrendingRetryAfterEmptyInitialLoadIfNeeded(
-                    fetched: upgradedItems,
-                    requestSource: requestSource,
-                    publishFetchedItems: publishFetchedItems,
-                    startedWithEmptyItems: startedWithEmptyItems
+                    requestUserPubkey: requestUserPubkey,
+                    requestKinds: requestKinds,
+                    requestID: refreshRequestID
                 )
             }
 
@@ -1167,26 +1146,15 @@ final class HomeFeedViewModel: ObservableObject {
                 fastHydrationMode: fastHydrationMode
             ),
                !stagedHydrationEvents.isEmpty {
-                let upgradedItems = await service.buildFeedItems(
+                scheduleHydrationUpgrade(
                     relayURLs: requestRelayURLs,
                     events: stagedHydrationEvents,
                     hydrationMode: requestHydrationMode,
-                    moderationSnapshot: muteFilterSnapshot
+                    requestSource: requestSource,
+                    requestUserPubkey: currentUserPubkey,
+                    requestKinds: requestKinds,
+                    requestID: requestRefreshID
                 )
-                guard !Task.isCancelled else { return }
-                guard requestRefreshID == latestRefreshRequestID, requestSource == feedSource else {
-                    return
-                }
-
-                if requestSource != .news,
-                   requestSource != .trending,
-                   requestSource != .articles,
-                   requestSource != .polls,
-                   !FeedKindFilters.isSameSelection(requestKinds, showKinds) {
-                    return
-                }
-
-                mergeKeepingNewest(itemsToMerge: upgradedItems)
             }
         } catch {
             errorMessage = "Couldn't load more posts."
@@ -1216,6 +1184,7 @@ final class HomeFeedViewModel: ObservableObject {
             self.liveUpdatesTask = nil
             self.liveCatchUpTask?.cancel()
             self.liveCatchUpTask = nil
+            self.clearPendingLiveEvents()
             self.lastLiveCatchUpBySignature.removeAll()
             self.liveSubscriptionKinds = []
             self.liveSubscriptionSource = nil
@@ -1246,6 +1215,9 @@ final class HomeFeedViewModel: ObservableObject {
         liveUpdatesTask = nil
         liveCatchUpTask?.cancel()
         liveCatchUpTask = nil
+        hydrationUpgradeTasks.values.forEach { $0.cancel() }
+        hydrationUpgradeTasks.removeAll()
+        clearPendingLiveEvents()
         lastLiveCatchUpBySignature.removeAll()
         liveSubscriptionKinds = []
         liveSubscriptionSource = nil
@@ -1260,7 +1232,14 @@ final class HomeFeedViewModel: ObservableObject {
 
     private func startLiveUpdatesIfNeeded(forceRestart: Bool = false) {
         let liveKinds = feedKinds(for: feedSource)
-        guard !liveKinds.isEmpty else { return }
+        guard !liveKinds.isEmpty else {
+            liveUpdatesTask?.cancel()
+            liveUpdatesTask = nil
+            liveCatchUpTask?.cancel()
+            liveCatchUpTask = nil
+            clearPendingLiveEvents()
+            return
+        }
         let source = feedSource
         let targets = liveSubscriptionTargets(for: source, kinds: liveKinds)
         guard !targets.isEmpty else {
@@ -1268,6 +1247,7 @@ final class HomeFeedViewModel: ObservableObject {
             liveUpdatesTask = nil
             liveCatchUpTask?.cancel()
             liveCatchUpTask = nil
+            clearPendingLiveEvents()
             lastLiveCatchUpBySignature.removeAll()
             liveSubscriptionKinds = []
             liveSubscriptionSource = source
@@ -1292,6 +1272,7 @@ final class HomeFeedViewModel: ObservableObject {
         liveUpdatesTask = nil
         liveCatchUpTask?.cancel()
         liveCatchUpTask = nil
+        clearPendingLiveEvents()
         liveSubscriptionKinds = liveKinds
         liveSubscriptionSource = source
         liveSubscriptionConfigurationSignature = configurationSignature
@@ -1321,6 +1302,52 @@ final class HomeFeedViewModel: ObservableObject {
         }
 
         scheduleLiveCatchUp(for: targets, force: true)
+    }
+
+    private func scheduleHydrationUpgrade(
+        relayURLs: [URL],
+        events: [NostrEvent],
+        hydrationMode: FeedItemHydrationMode,
+        requestSource: HomePrimaryFeedSource,
+        requestUserPubkey: String?,
+        requestKinds: [Int],
+        requestID: Int
+    ) {
+        let taskID = UUID()
+        let service = service
+        let moderationSnapshot = muteFilterSnapshot
+
+        hydrationUpgradeTasks[taskID] = Task(priority: .utility) { [weak self] in
+            let upgradedItems = await service.buildFeedItems(
+                relayURLs: relayURLs,
+                events: events,
+                hydrationMode: hydrationMode,
+                moderationSnapshot: moderationSnapshot
+            )
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                defer { self.hydrationUpgradeTasks[taskID] = nil }
+
+                guard self.latestRefreshRequestID == requestID,
+                      self.feedSource == requestSource,
+                      self.currentUserPubkey == requestUserPubkey else { return }
+
+                if requestSource != .news,
+                   requestSource != .trending,
+                   requestSource != .articles,
+                   requestSource != .polls,
+                   !FeedKindFilters.isSameSelection(requestKinds, self.showKinds) {
+                    return
+                }
+
+                self.applyHydrationUpgrade(
+                    fetched: upgradedItems,
+                    requestSource: requestSource
+                )
+            }
+        }
     }
 
     private func handleLiveStatus(target: HomeFeedLiveSubscriptionTarget) async {
@@ -1388,27 +1415,73 @@ final class HomeFeedViewModel: ObservableObject {
         guard feedKinds(for: feedSource).contains(event.kind) else { return }
         guard !normalizedEventID.isEmpty, !knownEventIDs.contains(normalizedEventID) else { return }
 
-        await service.ingestLiveEvents([event])
+        pendingLiveEventsByID[normalizedEventID] = event
+        guard liveEventFlushTask == nil else { return }
 
-        let hydrated = await service.buildFeedItems(
-            relayURLs: hydrationRelayURLs(for: feedSource),
-            events: [event],
-            moderationSnapshot: muteFilterSnapshot
-        )
-        guard let item = hydrated.first else { return }
-        guard !knownEventIDs.contains(item.id) else { return }
-        guard itemIsAllowedForCurrentSource(item) else { return }
+        liveEventFlushTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.liveEventFlushDelayNanoseconds)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                self?.flushPendingLiveEvents()
+            }
+        }
+    }
 
-        knownEventIDs.insert(item.id)
+    private func flushPendingLiveEvents() {
+        let events = pendingLiveEventsByID.values.sorted { lhs, rhs in
+            if lhs.createdAt == rhs.createdAt {
+                return lhs.id > rhs.id
+            }
+            return lhs.createdAt > rhs.createdAt
+        }
+        pendingLiveEventsByID.removeAll()
+        liveEventFlushTask = nil
+        guard !events.isEmpty else { return }
+        Task {
+            await WispParityDiagnosticsStore.shared.recordLiveBatchFlushed()
+        }
+
+        let service = service
+        let relayURLs = hydrationRelayURLs(for: feedSource)
+        let moderationSnapshot = muteFilterSnapshot
+        let source = feedSource
+        let generation = liveEventGeneration
+
+        Task { [weak self, events, relayURLs, moderationSnapshot, service, source, generation] in
+            await service.ingestLiveEvents(events)
+
+            let hydrated = await service.buildFeedItems(
+                relayURLs: relayURLs,
+                events: events,
+                moderationSnapshot: moderationSnapshot
+            )
+
+            await MainActor.run { [weak self] in
+                guard let self,
+                      self.liveEventGeneration == generation,
+                      self.feedSource == source else { return }
+                self.applyLiveItems(hydrated)
+            }
+        }
+    }
+
+    private func applyLiveItems(_ hydrated: [FeedItem]) {
+        let liveItems = hydrated.filter { item in
+            !knownEventIDs.contains(item.id) && itemIsAllowedForCurrentSource(item)
+        }
+        guard !liveItems.isEmpty else { return }
+
         let currentArticleReplacementKeys = feedSource == .articles
             ? Self.articleReplacementKeys(in: items)
             : []
-        if feedSource == .articles,
-           Self.containsArticleReplacement(for: item, in: currentArticleReplacementKeys) {
+        let articleReplacementItems = feedSource == .articles
+            ? liveItems.filter { Self.containsArticleReplacement(for: $0, in: currentArticleReplacementKeys) }
+            : []
+        if feedSource == .articles, !articleReplacementItems.isEmpty {
             items = pruneItemsForSource(
                 pruneMutedItems(
                     mergeItemArrays(
-                        primary: [item],
+                        primary: articleReplacementItems,
                         secondary: items,
                         feedSource: feedSource
                     )
@@ -1426,16 +1499,29 @@ final class HomeFeedViewModel: ObservableObject {
             }
             knownEventIDs = visibleItemIDs
             knownEventIDs.formUnion(bufferedNewItems.map(\.id))
-            scheduleAssetPrefetch(for: [item])
-            return
+            scheduleAssetPrefetch(for: articleReplacementItems)
         }
 
+        let bufferedItems = liveItems.filter { item in
+            !(feedSource == .articles &&
+                Self.containsArticleReplacement(for: item, in: currentArticleReplacementKeys))
+        }
+        guard !bufferedItems.isEmpty else { return }
+
         bufferedNewItems = mergeItemArrays(
-            primary: [item],
+            primary: bufferedItems,
             secondary: bufferedNewItems,
             feedSource: feedSource
         )
-        scheduleAssetPrefetch(for: [item])
+        knownEventIDs.formUnion(bufferedNewItems.map(\.id))
+        scheduleAssetPrefetch(for: bufferedItems)
+    }
+
+    private func clearPendingLiveEvents() {
+        liveEventFlushTask?.cancel()
+        liveEventFlushTask = nil
+        pendingLiveEventsByID.removeAll()
+        liveEventGeneration &+= 1
     }
 
     private func mergeKeepingNewest(itemsToMerge: [FeedItem]) {
@@ -1461,6 +1547,80 @@ final class HomeFeedViewModel: ObservableObject {
 
         knownEventIDs = currentlyVisibleIDs
         knownEventIDs.formUnion(bufferedNewItems.map(\.id))
+    }
+
+    private func applyHydrationUpgrade(
+        fetched: [FeedItem],
+        requestSource: HomePrimaryFeedSource
+    ) {
+        guard !fetched.isEmpty else { return }
+
+        LocalPublicationStore.shared.mergeFetchedItems(fetched)
+        let normalizedFetched = mergeItemArrays(
+            primary: fetched,
+            secondary: [],
+            feedSource: requestSource
+        )
+
+        let existingVisibleItems = items
+        let existingVisibleIDs = Set(existingVisibleItems.map(\.id))
+        let existingVisibleArticleReplacementKeys = Self.articleReplacementKeys(in: existingVisibleItems)
+        let refreshedVisibleCandidates = normalizedFetched.filter { item in
+            existingVisibleIDs.contains(item.id) ||
+                (requestSource == .articles &&
+                    Self.containsArticleReplacement(
+                        for: item,
+                        in: existingVisibleArticleReplacementKeys
+                    ))
+        }
+        let refreshedVisibleItems = pruneItemsForSource(
+            pruneMutedItems(
+                mergeItemArrays(
+                    primary: refreshedVisibleCandidates,
+                    secondary: existingVisibleItems,
+                    feedSource: requestSource
+                )
+            ),
+            feedSource: requestSource,
+            followingPubkeys: sourceUsesFollowingAuthors(requestSource) ? followingPubkeys : nil
+        )
+        let didUpdateVisibleItems = refreshedVisibleItems != existingVisibleItems
+        if didUpdateVisibleItems {
+            items = refreshedVisibleItems
+        }
+
+        let visibleItemIDs = Set(refreshedVisibleItems.map(\.id))
+        let refreshedVisibleArticleReplacementKeys = Self.articleReplacementKeys(in: refreshedVisibleItems)
+        let existingBufferedItems = bufferedNewItems
+        let existingBufferedIDs = Set(existingBufferedItems.map(\.id))
+        let existingBufferedArticleReplacementKeys = Self.articleReplacementKeys(in: existingBufferedItems)
+        let refreshedBufferedCandidates = normalizedFetched.filter { item in
+            existingBufferedIDs.contains(item.id) ||
+                (requestSource == .articles &&
+                    Self.containsArticleReplacement(
+                        for: item,
+                        in: existingBufferedArticleReplacementKeys
+                    ))
+        }
+        bufferedNewItems = mergeItemArrays(
+            primary: refreshedBufferedCandidates,
+            secondary: existingBufferedItems,
+            feedSource: requestSource
+        ).filter {
+            !visibleItemIDs.contains($0.id) &&
+                !(requestSource == .articles &&
+                    Self.containsArticleReplacement(
+                        for: $0,
+                        in: refreshedVisibleArticleReplacementKeys
+                    ))
+        }
+
+        knownEventIDs = visibleItemIDs
+        knownEventIDs.formUnion(bufferedNewItems.map(\.id))
+        let prefetchedVisibleItems = didUpdateVisibleItems
+            ? refreshedVisibleItems.filter { existingVisibleIDs.contains($0.id) }
+            : []
+        scheduleAssetPrefetch(for: prefetchedVisibleItems + refreshedBufferedCandidates)
     }
 
     private func applyRefreshResults(
@@ -1926,3 +2086,17 @@ final class HomeFeedViewModel: ObservableObject {
         }
     }
 }
+
+#if DEBUG
+extension HomeFeedViewModel {
+    func handleLiveEventForTesting(_ event: NostrEvent) async {
+        await handleLiveEvent(event)
+    }
+
+    func flushLiveEventsForTesting() {
+        liveEventFlushTask?.cancel()
+        liveEventFlushTask = nil
+        flushPendingLiveEvents()
+    }
+}
+#endif

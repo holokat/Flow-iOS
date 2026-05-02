@@ -193,7 +193,7 @@ final class ComposeNotePublishService {
 
         let eventData = try JSONEncoder().encode(event)
         let localEvent = Self.localEvent(from: event)
-        await SeenEventStore.shared.store(events: [localEvent])
+        await EventRepository.shared.store(events: [localEvent])
         let profile = await ProfileCache.shared.cachedProfile(pubkey: localEvent.pubkey)
         let item = FeedItem(event: localEvent, profile: profile)
 

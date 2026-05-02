@@ -640,6 +640,62 @@ final class HomeFeedViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testLiveEventsAreHydratedAsSingleBufferedBatch() async throws {
+        let harness = try HomeFeedViewModelHarness()
+        let firstNote = makeEvent(
+            id: hex("3"),
+            pubkey: hex("4"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "First live note",
+            createdAt: 1_700_000_300
+        )
+        let secondNote = makeEvent(
+            id: hex("5"),
+            pubkey: hex("6"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Second live note",
+            createdAt: 1_700_000_301
+        )
+
+        harness.viewModel.feedSource = .network
+        await harness.viewModel.handleLiveEventForTesting(firstNote)
+        await harness.viewModel.handleLiveEventForTesting(secondNote)
+        harness.viewModel.flushLiveEventsForTesting()
+        try await harness.waitForBufferedItems(ids: [firstNote.id, secondNote.id])
+
+        XCTAssertEqual(
+            Set(harness.viewModel.bufferedNewItems.map(\.id)),
+            [firstNote.id, secondNote.id]
+        )
+    }
+
+    @MainActor
+    func testFlushedLiveEventsDoNotApplyAfterSourceSwitch() async throws {
+        let harness = try HomeFeedViewModelHarness()
+        let staleNote = makeEvent(
+            id: hex("7"),
+            pubkey: hex("8"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Stale live note",
+            createdAt: 1_700_000_302
+        )
+
+        harness.viewModel.feedSource = .network
+        await harness.setRelayDelay(500_000_000, forKind: 0)
+        await harness.viewModel.handleLiveEventForTesting(staleNote)
+        harness.viewModel.flushLiveEventsForTesting()
+
+        harness.viewModel.selectFeedSource(.trending)
+        try await Task.sleep(nanoseconds: 700_000_000)
+
+        XCTAssertFalse(harness.viewModel.bufferedNewItems.contains { $0.id == staleNote.id })
+        XCTAssertFalse(harness.viewModel.visibleItems.contains { $0.id == staleNote.id })
+    }
+
+    @MainActor
     func testLoadIfNeededDoesNotPublishRecentSnapshotBeforeRelayResponse() async throws {
         let harness = try HomeFeedViewModelHarness()
         let remoteNote = makeEvent(
@@ -826,31 +882,32 @@ final class HomeFeedViewModelTests: XCTestCase {
         harness.selectFollowingFeed(for: currentUserPubkey)
 
         let deadline = Date().addingTimeInterval(1)
-        var sawFastPaintWhileLoading = false
+        var sawFastPaintBeforeProfile = false
         while Date() < deadline {
             if harness.viewModel.visibleItems.contains(where: { $0.id == remoteNote.id }),
-               harness.viewModel.isLoading {
-                sawFastPaintWhileLoading = true
+               harness.viewModel.visibleItems.first?.profile == nil {
+                sawFastPaintBeforeProfile = true
                 break
             }
             try await Task.sleep(nanoseconds: 25_000_000)
         }
 
-        XCTAssertTrue(sawFastPaintWhileLoading)
+        XCTAssertTrue(sawFastPaintBeforeProfile)
         XCTAssertNil(harness.viewModel.visibleItems.first?.profile)
 
         try await harness.waitUntilIdle(timeout: 4)
         XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [remoteNote.id])
+        try await harness.waitForVisibleProfile(id: remoteNote.id, displayName: "Bob", timeout: 4)
         XCTAssertEqual(harness.viewModel.visibleItems.first?.profile?.displayName, "Bob")
         XCTAssertGreaterThanOrEqual(harness.itemCommitCount, 2)
     }
 
     @MainActor
-    func testFollowingFeedUsesConfiguredReadRelaysDirectlyInsteadOfOutboxRecovery() async throws {
+    func testFollowingFeedUsesAuthorOutboxRelaysForFollowedAuthors() async throws {
         let harness = try HomeFeedViewModelHarness()
         let currentUserPubkey = hex("9")
         let authorPubkey = hex("8")
-        let authorReadRelayURL = URL(string: "wss://following-author-read.example")!
+        let authorWriteRelayURL = URL(string: "wss://following-author-write.example")!
         let relayFollowList = makeEvent(
             id: hex("5"),
             pubkey: currentUserPubkey,
@@ -863,7 +920,7 @@ final class HomeFeedViewModelTests: XCTestCase {
             id: hex("7"),
             pubkey: authorPubkey,
             kind: 10_002,
-            tags: [["r", authorReadRelayURL.absoluteString, "read"]],
+            tags: [["r", authorWriteRelayURL.absoluteString, "write"]],
             content: "",
             createdAt: 1_700_000_330
         )
@@ -877,12 +934,13 @@ final class HomeFeedViewModelTests: XCTestCase {
         )
 
         await harness.setRemoteEvents([relayFollowList, relayListEvent], for: defaultHomeRelayURL)
-        await harness.setRemoteEvents([outboxNote], for: authorReadRelayURL)
+        await harness.setRemoteEvents([outboxNote], for: authorWriteRelayURL)
 
         harness.selectFollowingFeed(for: currentUserPubkey)
         await harness.viewModel.refresh()
+        try await harness.waitForVisibleItem(id: outboxNote.id, timeout: 3)
 
-        XCTAssertTrue(harness.viewModel.visibleItems.isEmpty)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [outboxNote.id])
     }
 
     @MainActor
@@ -1333,7 +1391,7 @@ private final class HomeFeedViewModelHarness {
 
     private let relayClient: HomeFeedTestRelayClient
     private let service: NostrFeedService
-    private let seenEventStore: SeenEventStore
+    private let eventRepository: EventRepository
     private var itemCommitCancellable: AnyCancellable?
     private(set) var itemCommitCount = 0
 
@@ -1351,11 +1409,11 @@ private final class HomeFeedViewModelHarness {
         let fileManager = HomeFeedTestFileManager(rootURL: rootURL)
         let defaults = UserDefaults(suiteName: "HomeFeedViewModelTests-\(UUID().uuidString)")!
         let filterStore = HomeFeedFilterStore(defaults: defaults)
-        let nostrDatabase = FlowNostrDB(fileManager: fileManager)
         let profileSnapshotStore = ProfileSnapshotStore(fileManager: fileManager)
         let relayHintCache = ProfileRelayHintCache()
         let followListCache = FollowListSnapshotCache(fileManager: fileManager)
-        seenEventStore = SeenEventStore(fileManager: fileManager)
+        let metadataRequestCoordinator = MetadataRequestCoordinator()
+        eventRepository = EventRepository(fileManager: fileManager)
         let profileCache = ProfileCache(snapshotStore: profileSnapshotStore)
 
         let authorPubkey = hex("a")
@@ -1384,8 +1442,8 @@ private final class HomeFeedViewModelHarness {
             profileCache: profileCache,
             relayHintCache: relayHintCache,
             followListCache: followListCache,
-            seenEventStore: seenEventStore,
-            nostrDatabase: nostrDatabase
+            eventRepository: eventRepository,
+            metadataRequestCoordinator: metadataRequestCoordinator
         )
 
         viewModel = HomeFeedViewModel(
@@ -1424,7 +1482,7 @@ private final class HomeFeedViewModelHarness {
     }
 
     func storeLocalEvents(_ events: [NostrEvent]) async {
-        await seenEventStore.store(events: events)
+        await eventRepository.store(events: events)
     }
 
     func storeFollowingSnapshot(
@@ -1495,6 +1553,23 @@ private final class HomeFeedViewModelHarness {
         XCTFail("Timed out waiting for visible item \(id)")
     }
 
+    func waitForVisibleProfile(
+        id: String,
+        displayName: String,
+        timeout: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let item = viewModel.visibleItems.first(where: { $0.id == id })
+            if item?.profile?.displayName == displayName {
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        XCTFail("Timed out waiting for profile \(displayName) on visible item \(id)")
+    }
+
     func waitUntilIdle(timeout: TimeInterval = 2) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -1505,6 +1580,22 @@ private final class HomeFeedViewModelHarness {
         }
 
         XCTFail("Timed out waiting for feed view model to become idle")
+    }
+
+    func waitForBufferedItems(
+        ids: Set<String>,
+        timeout: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let bufferedIDs = Set(viewModel.bufferedNewItems.map(\.id))
+            if ids.isSubset(of: bufferedIDs) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        XCTFail("Timed out waiting for buffered items \(ids.sorted())")
     }
 
     func finishBackgroundHydration() async throws {
