@@ -39,6 +39,8 @@
 		0CB3D4E5F60718293A4B5C6E /* FeedEngagementViewportCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB3D4E5F60718293A4B5C70 /* FeedEngagementViewportCoordinatorTests.swift */; };
 		0CB3D4E5F60718293A4B5C71 /* EventArchiveStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB3D4E5F60718293A4B5C72 /* EventArchiveStore.swift */; };
 		0CB3D4E5F60718293A4B5C73 /* EventArchiveStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB3D4E5F60718293A4B5C74 /* EventArchiveStoreTests.swift */; };
+		0CB3D4E5F60718293A4B5C77 /* EventPersistencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB3D4E5F60718293A4B5C78 /* EventPersistencePolicy.swift */; };
+		0CB3D4E5F60718293A4B5C79 /* EventPersistenceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB3D4E5F60718293A4B5C7A /* EventPersistenceCoordinator.swift */; };
 		0CB3D4E5F60718293A4B5C75 /* LocalCorpusCrawlPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB3D4E5F60718293A4B5C76 /* LocalCorpusCrawlPolicyTests.swift */; };
 		0E23BAC793C3C26E9546124E /* AuthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFEC568C11975A59AEBD528D /* AuthModels.swift */; };
 		1282B309527C91A9738A850A /* ComposeKlipyGIFPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8264623494917B38C1140FFF /* ComposeKlipyGIFPickerSheet.swift */; };
@@ -319,6 +321,8 @@
 		0CB3D4E5F60718293A4B5C70 /* FeedEngagementViewportCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedEngagementViewportCoordinatorTests.swift; sourceTree = "<group>"; };
 		0CB3D4E5F60718293A4B5C72 /* EventArchiveStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventArchiveStore.swift; sourceTree = "<group>"; };
 		0CB3D4E5F60718293A4B5C74 /* EventArchiveStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventArchiveStoreTests.swift; sourceTree = "<group>"; };
+		0CB3D4E5F60718293A4B5C78 /* EventPersistencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventPersistencePolicy.swift; sourceTree = "<group>"; };
+		0CB3D4E5F60718293A4B5C7A /* EventPersistenceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventPersistenceCoordinator.swift; sourceTree = "<group>"; };
 		0CB3D4E5F60718293A4B5C76 /* LocalCorpusCrawlPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalCorpusCrawlPolicyTests.swift; sourceTree = "<group>"; };
 		0A1B2C3D4E5F60718293A4B7 /* LocalCorpusCrawler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalCorpusCrawler.swift; sourceTree = "<group>"; };
 		0A1B2C3D4E5F60718293A4B8 /* LocalCorpusCrawlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalCorpusCrawlerTests.swift; sourceTree = "<group>"; };
@@ -663,6 +667,8 @@
 				0E1A2B3C4D5E6F708192A3B5 /* CrawlCursorStore.swift */,
 				0A1B2C3D4E5F60718293A4B7 /* LocalCorpusCrawler.swift */,
 				0CB3D4E5F60718293A4B5C72 /* EventArchiveStore.swift */,
+				0CB3D4E5F60718293A4B5C7A /* EventPersistenceCoordinator.swift */,
+				0CB3D4E5F60718293A4B5C78 /* EventPersistencePolicy.swift */,
 				06FF81777B1A43EA5BB4D808 /* FeedCaches.swift */,
 				0CB3D4E5F60718293A4B5C6F /* FeedEngagementViewportCoordinator.swift */,
 				F2D7134364255C06EB5B710C /* FeedFilterConfig.swift */,
@@ -1125,6 +1131,8 @@
 				99843C2501BBE53CC7640FA4 /* FeedCaches.swift in Sources */,
 				0CB3D4E5F60718293A4B5C6D /* FeedEngagementViewportCoordinator.swift in Sources */,
 				0CB3D4E5F60718293A4B5C71 /* EventArchiveStore.swift in Sources */,
+				0CB3D4E5F60718293A4B5C79 /* EventPersistenceCoordinator.swift in Sources */,
+				0CB3D4E5F60718293A4B5C77 /* EventPersistencePolicy.swift in Sources */,
 				1AB2153C6FDB413EFBA7B844 /* FeedFilterConfig.swift in Sources */,
 				FADAB31E8F6C736D855C84D2 /* FeedRowView.swift in Sources */,
 				16B4C8F585E531A97EAA1618 /* FeedStorageProtocols.swift in Sources */,

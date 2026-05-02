@@ -2,6 +2,67 @@ import XCTest
 @testable import Flow
 
 final class EventArchiveStoreTests: XCTestCase {
+    func testEventPersistencePolicyKeepsWispKindsAndOwnEventsOnly() {
+        let ownPubkey = hex("a")
+        let policy = EventPersistencePolicy(currentUserPubkey: "  \(ownPubkey.uppercased())\n")
+
+        XCTAssertEqual(
+            EventPersistencePolicy.wispPersistedKinds,
+            Set([0, 1, 6, 7, 20, 21, 22, 1_068, 6_969, 9_735, 30_023])
+        )
+
+        for kind in EventPersistencePolicy.wispPersistedKinds {
+            XCTAssertTrue(
+                policy.shouldPersist(makeEvent(id: hex("1"), pubkey: hex("b"), kind: kind, content: "wisp"))
+            )
+        }
+
+        let ownEphemeral = makeEvent(id: hex("2"), pubkey: ownPubkey, kind: 40_000, content: "own")
+        let remoteEphemeral = makeEvent(id: hex("3"), pubkey: hex("c"), kind: 40_000, content: "drop")
+
+        XCTAssertTrue(policy.shouldPersist(ownEphemeral))
+        XCTAssertFalse(policy.shouldPersist(remoteEphemeral))
+    }
+
+    func testPersistenceCoordinatorFlushesOnlyPersistableEvents() async throws {
+        let rootURL = try makeRootURL(prefix: "EventPersistenceCoordinator")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let archive = EventArchiveStore(
+            fileManager: EventArchiveTestFileManager(rootURL: rootURL),
+            budget: .init(
+                archiveSoftLimitBytes: 1_000_000,
+                archiveHardLimitBytes: 1_200_000,
+                hotIndexTargetEventCount: 100,
+                minimumFreeDiskBytes: 0
+            )
+        )
+        let coordinator = EventPersistenceCoordinator(
+            archiveStore: archive,
+            batchLimit: 50,
+            flushDelayNanoseconds: 20_000_000
+        )
+        let ownPubkey = hex("a")
+        let duplicateID = hex("4")
+        let staleDuplicate = makeEvent(id: duplicateID.uppercased(), kind: 1, content: "stale")
+        let persistable = makeEvent(id: duplicateID, kind: 1, content: "keep")
+        let ownEphemeral = makeEvent(id: hex("5"), pubkey: ownPubkey, kind: 40_000, content: "own")
+        let dropped = makeEvent(id: hex("6"), pubkey: hex("b"), kind: 40_000, content: "drop")
+
+        await coordinator.enqueue(
+            events: [staleDuplicate, dropped, ownEphemeral, persistable],
+            policy: EventPersistencePolicy(currentUserPubkey: ownPubkey)
+        )
+        try await Task.sleep(nanoseconds: 80_000_000)
+
+        let restored = await archive.events(ids: [persistable.id, ownEphemeral.id, dropped.id])
+
+        XCTAssertEqual(restored[persistable.id.lowercased()]?.content, "keep")
+        XCTAssertEqual(restored[ownEphemeral.id.lowercased()]?.content, "own")
+        XCTAssertNil(restored[dropped.id.lowercased()])
+        XCTAssertEqual(restored.count, 2)
+    }
+
     func testArchiveStoreRoundTripsEventsAndPrunesByByteBudget() async throws {
         let rootURL = try makeRootURL(prefix: "EventArchiveStore")
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -254,14 +315,16 @@ final class EventArchiveStoreTests: XCTestCase {
 
     private func makeEvent(
         id: String,
+        pubkey: String = String(repeating: "a", count: 64),
+        kind: Int = 1,
         content: String,
-        createdAt: Int
+        createdAt: Int = 1_700_000_000
     ) -> NostrEvent {
         NostrEvent(
             id: id,
-            pubkey: hex("a"),
+            pubkey: pubkey,
             createdAt: createdAt,
-            kind: 1,
+            kind: kind,
             tags: [],
             content: content,
             sig: String(repeating: "f", count: 128)
