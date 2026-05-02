@@ -1672,6 +1672,20 @@ final class NostrFeedServiceTests: XCTestCase {
         XCTAssertEqual(cached[third.id]?.id, third.id)
     }
 
+    func testMetadataRequestCoordinatorDrainsProfilesAtBatchLimit() async {
+        let coordinator = MetadataRequestCoordinator(
+            profileBatchLimit: 2,
+            profileFlushDelayNanoseconds: 1_000_000_000
+        )
+
+        async let first = coordinator.collectProfiles([hex("a")])
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        let second = await coordinator.collectProfiles([hex("b")])
+        let firstResult = await first
+
+        XCTAssertEqual(Set(firstResult + second), Set([hex("a"), hex("b")]))
+    }
+
     func testBuildFeedItemsReusesPresentationCacheForRepeatedFullHydration() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FlowPresentationCache-\(UUID().uuidString)", isDirectory: true)

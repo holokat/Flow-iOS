@@ -116,6 +116,7 @@
 		5EAF61B91665BD4813E38368 /* NostrSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 5F7308D9FA71E781FAE528E2 /* NostrSDK */; };
 		5F992FBFE1651B29293B6234 /* NostrRelayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB5DA9CD86A2BCCAA2A6947D /* NostrRelayClient.swift */; };
 		5FA0E4B48ACF4A3CBFA74C9E /* RelayHealthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FA0E4B38ACF4A3CBFA74C9E /* RelayHealthStore.swift */; };
+		5FA0E4B68ACF4A3CBFA74C9E /* MetadataRequestCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FA0E4B58ACF4A3CBFA74C9E /* MetadataRequestCoordinator.swift */; };
 		63D7A2B933ABCC7066E7029B /* ProfileMediaSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE21CAC755326BB710119CE6 /* ProfileMediaSupport.swift */; };
 		6569AD819B9B491AAFB8F0C6 /* ProfileRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EDAF1E82A260C359E4D827B /* ProfileRoute.swift */; };
 		679EE6C0E5E8931989A28074 /* aura.json in Resources */ = {isa = PBXBuildFile; fileRef = 34E0E4C03AE499A85957C356 /* aura.json */; };
@@ -492,6 +493,7 @@
 		EDE66A5BBD34930A34D3923F /* NostrFeedService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrFeedService.swift; sourceTree = "<group>"; };
 		B2F001000000000000000002 /* FeedItemBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedItemBuilder.swift; sourceTree = "<group>"; };
 		B1A000000000000000000006 /* FeedPresentationSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedPresentationSupport.swift; sourceTree = "<group>"; };
+		5FA0E4B58ACF4A3CBFA74C9E /* MetadataRequestCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataRequestCoordinator.swift; sourceTree = "<group>"; };
 		B1A000000000000000000008 /* NostrFeedServiceTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrFeedServiceTypes.swift; sourceTree = "<group>"; };
 		B1A00000000000000000000A /* ProfileSearchSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSearchSupport.swift; sourceTree = "<group>"; };
 		B1A00000000000000000000C /* VertexProfileSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VertexProfileSearchService.swift; sourceTree = "<group>"; };
@@ -682,6 +684,7 @@
 				A2B3C4D5E6F708192A3B4C8D /* NostrArchivesSearchService.swift */,
 				B2F001000000000000000002 /* FeedItemBuilder.swift */,
 				B1A000000000000000000006 /* FeedPresentationSupport.swift */,
+				5FA0E4B58ACF4A3CBFA74C9E /* MetadataRequestCoordinator.swift */,
 				EDE66A5BBD34930A34D3923F /* NostrFeedService.swift */,
 				B2F00100000000000000000C /* NostrDiscoveryFeedResolver.swift */,
 				B2F00100000000000000000A /* NostrFollowResolver.swift */,
@@ -1238,6 +1241,7 @@
 				B17E68CEA9136EFC8EA69BC0 /* RelayMessageParser.swift in Sources */,
 				1311B4BE4FDA659FCFE75042 /* RelaySettingsStore.swift in Sources */,
 				5FA0E4B48ACF4A3CBFA74C9E /* RelayHealthStore.swift in Sources */,
+				5FA0E4B68ACF4A3CBFA74C9E /* MetadataRequestCoordinator.swift in Sources */,
 				B7FF9B2A1598892EDDBA9917 /* RelaySettingsView.swift in Sources */,
 				1AF4090ACE97647DDAFDB6F7 /* ReshareActionSheetView.swift in Sources */,
 				6C97A187B541004D4E7965D0 /* ResharePublishService.swift in Sources */,

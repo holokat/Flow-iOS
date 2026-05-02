@@ -7,7 +7,7 @@ actor FeedPresentationCache {
     private var itemsByEventID: [String: FeedItem] = [:]
     private var accessOrder: [String] = []
 
-    init(capacity: Int = 512) {
+    init(capacity: Int = 15_000) {
         self.capacity = max(capacity, 1)
     }
 

@@ -230,16 +230,25 @@ struct NostrProfileResolver: Sendable {
             return profilesByPubkey
         }
 
+        let requestedPubkeys = await MetadataRequestCoordinator.shared.collectProfiles(Array(unresolvedPubkeys))
+        unresolvedPubkeys = Set(
+            requestedPubkeys
+                .map(normalizePubkey)
+                .filter { !$0.isEmpty }
+        )
+        guard !unresolvedPubkeys.isEmpty else {
+            return profilesByPubkey
+        }
+
         let primaryRelayTargets = normalizedRelayURLs(relayURLs)
         let prioritizedRelayTargets = await relayHintCache.prioritizedRelayURLs(
             for: Array(unresolvedPubkeys),
             baseRelayURLs: primaryRelayTargets
         )
 
-        let requestedPubkeys = Array(unresolvedPubkeys)
         var fetchedProfiles = await fetchProfilesForPubkeys(
             relayURLs: prioritizedRelayTargets,
-            pubkeys: requestedPubkeys,
+            pubkeys: Array(unresolvedPubkeys),
             timeout: fetchTimeout,
             relayFetchMode: relayFetchMode
         )
