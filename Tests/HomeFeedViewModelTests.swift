@@ -640,6 +640,62 @@ final class HomeFeedViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testLiveEventsAreHydratedAsSingleBufferedBatch() async throws {
+        let harness = try HomeFeedViewModelHarness()
+        let firstNote = makeEvent(
+            id: hex("3"),
+            pubkey: hex("4"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "First live note",
+            createdAt: 1_700_000_300
+        )
+        let secondNote = makeEvent(
+            id: hex("5"),
+            pubkey: hex("6"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Second live note",
+            createdAt: 1_700_000_301
+        )
+
+        harness.viewModel.feedSource = .network
+        await harness.viewModel.handleLiveEventForTesting(firstNote)
+        await harness.viewModel.handleLiveEventForTesting(secondNote)
+        harness.viewModel.flushLiveEventsForTesting()
+        try await harness.waitForBufferedItems(ids: [firstNote.id, secondNote.id])
+
+        XCTAssertEqual(
+            Set(harness.viewModel.bufferedNewItems.map(\.id)),
+            [firstNote.id, secondNote.id]
+        )
+    }
+
+    @MainActor
+    func testFlushedLiveEventsDoNotApplyAfterSourceSwitch() async throws {
+        let harness = try HomeFeedViewModelHarness()
+        let staleNote = makeEvent(
+            id: hex("7"),
+            pubkey: hex("8"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Stale live note",
+            createdAt: 1_700_000_302
+        )
+
+        harness.viewModel.feedSource = .network
+        await harness.setRelayDelay(500_000_000, forKind: 0)
+        await harness.viewModel.handleLiveEventForTesting(staleNote)
+        harness.viewModel.flushLiveEventsForTesting()
+
+        harness.viewModel.selectFeedSource(.trending)
+        try await Task.sleep(nanoseconds: 700_000_000)
+
+        XCTAssertFalse(harness.viewModel.bufferedNewItems.contains { $0.id == staleNote.id })
+        XCTAssertFalse(harness.viewModel.visibleItems.contains { $0.id == staleNote.id })
+    }
+
+    @MainActor
     func testLoadIfNeededDoesNotPublishRecentSnapshotBeforeRelayResponse() async throws {
         let harness = try HomeFeedViewModelHarness()
         let remoteNote = makeEvent(
@@ -1504,6 +1560,22 @@ private final class HomeFeedViewModelHarness {
         }
 
         XCTFail("Timed out waiting for feed view model to become idle")
+    }
+
+    func waitForBufferedItems(
+        ids: Set<String>,
+        timeout: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let bufferedIDs = Set(viewModel.bufferedNewItems.map(\.id))
+            if ids.isSubset(of: bufferedIDs) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        XCTFail("Timed out waiting for buffered items \(ids.sorted())")
     }
 
     func finishBackgroundHydration() async throws {

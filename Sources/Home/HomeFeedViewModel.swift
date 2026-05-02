@@ -71,6 +71,9 @@ final class HomeFeedViewModel: ObservableObject {
     private var liveSubscriptionConfigurationSignature: String?
     private var liveUpdatesTask: Task<Void, Never>?
     private var liveCatchUpTask: Task<Void, Never>?
+    private var pendingLiveEventsByID: [String: NostrEvent] = [:]
+    private var liveEventFlushTask: Task<Void, Never>?
+    private var liveEventGeneration = 0
     private var liveCatchUpToken = 0
     private var lastLiveCatchUpBySignature: [String: Date] = [:]
     private var resetFeedTask: Task<Void, Never>?
@@ -79,6 +82,7 @@ final class HomeFeedViewModel: ObservableObject {
     private var trendingPaginationState: TrendingPaginationState?
     private var hasRetriedEmptyTrendingLoad = false
     private var trendingEmptyRetryTask: Task<Void, Never>?
+    private static let liveEventFlushDelayNanoseconds: UInt64 = 50_000_000
 
     init(
         relayURL: URL,
@@ -108,6 +112,8 @@ final class HomeFeedViewModel: ObservableObject {
     deinit {
         liveUpdatesTask?.cancel()
         liveCatchUpTask?.cancel()
+        liveEventFlushTask?.cancel()
+        liveEventGeneration &+= 1
         resetFeedTask?.cancel()
         trendingEmptyRetryTask?.cancel()
     }
@@ -1216,6 +1222,7 @@ final class HomeFeedViewModel: ObservableObject {
             self.liveUpdatesTask = nil
             self.liveCatchUpTask?.cancel()
             self.liveCatchUpTask = nil
+            self.clearPendingLiveEvents()
             self.lastLiveCatchUpBySignature.removeAll()
             self.liveSubscriptionKinds = []
             self.liveSubscriptionSource = nil
@@ -1246,6 +1253,7 @@ final class HomeFeedViewModel: ObservableObject {
         liveUpdatesTask = nil
         liveCatchUpTask?.cancel()
         liveCatchUpTask = nil
+        clearPendingLiveEvents()
         lastLiveCatchUpBySignature.removeAll()
         liveSubscriptionKinds = []
         liveSubscriptionSource = nil
@@ -1260,7 +1268,14 @@ final class HomeFeedViewModel: ObservableObject {
 
     private func startLiveUpdatesIfNeeded(forceRestart: Bool = false) {
         let liveKinds = feedKinds(for: feedSource)
-        guard !liveKinds.isEmpty else { return }
+        guard !liveKinds.isEmpty else {
+            liveUpdatesTask?.cancel()
+            liveUpdatesTask = nil
+            liveCatchUpTask?.cancel()
+            liveCatchUpTask = nil
+            clearPendingLiveEvents()
+            return
+        }
         let source = feedSource
         let targets = liveSubscriptionTargets(for: source, kinds: liveKinds)
         guard !targets.isEmpty else {
@@ -1268,6 +1283,7 @@ final class HomeFeedViewModel: ObservableObject {
             liveUpdatesTask = nil
             liveCatchUpTask?.cancel()
             liveCatchUpTask = nil
+            clearPendingLiveEvents()
             lastLiveCatchUpBySignature.removeAll()
             liveSubscriptionKinds = []
             liveSubscriptionSource = source
@@ -1292,6 +1308,7 @@ final class HomeFeedViewModel: ObservableObject {
         liveUpdatesTask = nil
         liveCatchUpTask?.cancel()
         liveCatchUpTask = nil
+        clearPendingLiveEvents()
         liveSubscriptionKinds = liveKinds
         liveSubscriptionSource = source
         liveSubscriptionConfigurationSignature = configurationSignature
@@ -1388,27 +1405,70 @@ final class HomeFeedViewModel: ObservableObject {
         guard feedKinds(for: feedSource).contains(event.kind) else { return }
         guard !normalizedEventID.isEmpty, !knownEventIDs.contains(normalizedEventID) else { return }
 
-        await service.ingestLiveEvents([event])
+        pendingLiveEventsByID[normalizedEventID] = event
+        guard liveEventFlushTask == nil else { return }
 
-        let hydrated = await service.buildFeedItems(
-            relayURLs: hydrationRelayURLs(for: feedSource),
-            events: [event],
-            moderationSnapshot: muteFilterSnapshot
-        )
-        guard let item = hydrated.first else { return }
-        guard !knownEventIDs.contains(item.id) else { return }
-        guard itemIsAllowedForCurrentSource(item) else { return }
+        liveEventFlushTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.liveEventFlushDelayNanoseconds)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                self?.flushPendingLiveEvents()
+            }
+        }
+    }
 
-        knownEventIDs.insert(item.id)
+    private func flushPendingLiveEvents() {
+        let events = pendingLiveEventsByID.values.sorted { lhs, rhs in
+            if lhs.createdAt == rhs.createdAt {
+                return lhs.id > rhs.id
+            }
+            return lhs.createdAt > rhs.createdAt
+        }
+        pendingLiveEventsByID.removeAll()
+        liveEventFlushTask = nil
+        guard !events.isEmpty else { return }
+
+        let service = service
+        let relayURLs = hydrationRelayURLs(for: feedSource)
+        let moderationSnapshot = muteFilterSnapshot
+        let source = feedSource
+        let generation = liveEventGeneration
+
+        Task { [weak self, events, relayURLs, moderationSnapshot, service, source, generation] in
+            await service.ingestLiveEvents(events)
+
+            let hydrated = await service.buildFeedItems(
+                relayURLs: relayURLs,
+                events: events,
+                moderationSnapshot: moderationSnapshot
+            )
+
+            await MainActor.run { [weak self] in
+                guard let self,
+                      self.liveEventGeneration == generation,
+                      self.feedSource == source else { return }
+                self.applyLiveItems(hydrated)
+            }
+        }
+    }
+
+    private func applyLiveItems(_ hydrated: [FeedItem]) {
+        let liveItems = hydrated.filter { item in
+            !knownEventIDs.contains(item.id) && itemIsAllowedForCurrentSource(item)
+        }
+        guard !liveItems.isEmpty else { return }
+
         let currentArticleReplacementKeys = feedSource == .articles
             ? Self.articleReplacementKeys(in: items)
             : []
-        if feedSource == .articles,
-           Self.containsArticleReplacement(for: item, in: currentArticleReplacementKeys) {
+        let articleReplacementItems = feedSource == .articles
+            ? liveItems.filter { Self.containsArticleReplacement(for: $0, in: currentArticleReplacementKeys) }
+            : []
+        if feedSource == .articles, !articleReplacementItems.isEmpty {
             items = pruneItemsForSource(
                 pruneMutedItems(
                     mergeItemArrays(
-                        primary: [item],
+                        primary: articleReplacementItems,
                         secondary: items,
                         feedSource: feedSource
                     )
@@ -1426,16 +1486,29 @@ final class HomeFeedViewModel: ObservableObject {
             }
             knownEventIDs = visibleItemIDs
             knownEventIDs.formUnion(bufferedNewItems.map(\.id))
-            scheduleAssetPrefetch(for: [item])
-            return
+            scheduleAssetPrefetch(for: articleReplacementItems)
         }
 
+        let bufferedItems = liveItems.filter { item in
+            !(feedSource == .articles &&
+                Self.containsArticleReplacement(for: item, in: currentArticleReplacementKeys))
+        }
+        guard !bufferedItems.isEmpty else { return }
+
         bufferedNewItems = mergeItemArrays(
-            primary: [item],
+            primary: bufferedItems,
             secondary: bufferedNewItems,
             feedSource: feedSource
         )
-        scheduleAssetPrefetch(for: [item])
+        knownEventIDs.formUnion(bufferedNewItems.map(\.id))
+        scheduleAssetPrefetch(for: bufferedItems)
+    }
+
+    private func clearPendingLiveEvents() {
+        liveEventFlushTask?.cancel()
+        liveEventFlushTask = nil
+        pendingLiveEventsByID.removeAll()
+        liveEventGeneration &+= 1
     }
 
     private func mergeKeepingNewest(itemsToMerge: [FeedItem]) {
@@ -1926,3 +1999,17 @@ final class HomeFeedViewModel: ObservableObject {
         }
     }
 }
+
+#if DEBUG
+extension HomeFeedViewModel {
+    func handleLiveEventForTesting(_ event: NostrEvent) async {
+        await handleLiveEvent(event)
+    }
+
+    func flushLiveEventsForTesting() {
+        liveEventFlushTask?.cancel()
+        liveEventFlushTask = nil
+        flushPendingLiveEvents()
+    }
+}
+#endif
