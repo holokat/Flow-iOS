@@ -51,7 +51,78 @@ final class NostrRelayClientTests: XCTestCase {
     }
 
     func testFetchEventsRespectsRelayCooldownBeforeOpeningSocket() async throws {
-        throw XCTSkip("Ditto relay pool keeps relays hot instead of locally cooling them down.")
+        CountingURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CountingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let healthStore = RelayHealthStore()
+        let relayURL = URL(string: "wss://cooled-relay.example.com")!
+        await healthStore.recordFailure(
+            RelayClientError.publishRejected("restricted"),
+            relayURL: relayURL
+        )
+        let client = NostrRelayClient(
+            session: session,
+            connectionPool: NostrRelayPool(healthStore: healthStore)
+        )
+
+        do {
+            _ = try await client.fetchEvents(
+                relayURL: relayURL,
+                filter: NostrFilter(limit: 1),
+                timeout: 0.01
+            )
+            XCTFail("Expected relay cooldown error")
+        } catch let error as RelayClientError {
+            guard case .closed(let reason) = error else {
+                return XCTFail("Unexpected relay client error: \(error)")
+            }
+            XCTAssertTrue(reason.contains("cooling down"))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(CountingURLProtocol.startLoadingCount, 0)
+    }
+
+    func testTransportFailureUsesLongCooldownEvenWhenErrorCodeContainsFour() async {
+        var configuration = RelayHealthStore.Configuration()
+        configuration.rejectionCooldown = 60
+        configuration.transportFailureCooldown = 600
+        let healthStore = RelayHealthStore(configuration: configuration)
+        let relayURL = URL(string: "wss://down-relay.example.com")!
+        let now = Date()
+
+        await healthStore.recordFailure(
+            URLError(.cannotConnectToHost),
+            relayURL: relayURL,
+            now: now
+        )
+
+        let afterRejectionWindow = await healthStore.isAvailable(
+            relayURL,
+            now: now.addingTimeInterval(61)
+        )
+        let afterTransportWindow = await healthStore.isAvailable(
+            relayURL,
+            now: now.addingTimeInterval(601)
+        )
+
+        XCTAssertFalse(afterRejectionWindow)
+        XCTAssertTrue(afterTransportWindow)
+    }
+
+    func testPoolEvictionDoesNotCooldownRelay() async {
+        let healthStore = RelayHealthStore()
+        let relayURL = URL(string: "wss://evicted-relay.example.com")!
+
+        await healthStore.recordFailure(
+            RelayClientError.poolEvicted,
+            relayURL: relayURL
+        )
+
+        let isAvailable = await healthStore.isAvailable(relayURL)
+        XCTAssertTrue(isAvailable)
     }
 
     func testPublishEventToSourcesPublishesConcurrently() async {
@@ -121,6 +192,40 @@ final class NostrRelayClientTests: XCTestCase {
         XCTAssertNil(outcome.firstFailureMessage)
         XCTAssertLessThan(elapsed, 0.35)
     }
+}
+
+private final class CountingURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var count = 0
+
+    static var startLoadingCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    static func reset() {
+        lock.lock()
+        count = 0
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.lock.lock()
+        Self.count += 1
+        Self.lock.unlock()
+        client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost))
+    }
+
+    override func stopLoading() {}
 }
 
 private actor StubRelayPublisher: NostrRelayEventPublishing {

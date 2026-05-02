@@ -115,6 +115,7 @@
 		5CE21FBD402B779884AC8EC8 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EADAAC1F003B015CDB20E50F /* SearchView.swift */; };
 		5EAF61B91665BD4813E38368 /* NostrSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 5F7308D9FA71E781FAE528E2 /* NostrSDK */; };
 		5F992FBFE1651B29293B6234 /* NostrRelayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB5DA9CD86A2BCCAA2A6947D /* NostrRelayClient.swift */; };
+		5FA0E4B48ACF4A3CBFA74C9E /* RelayHealthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FA0E4B38ACF4A3CBFA74C9E /* RelayHealthStore.swift */; };
 		63D7A2B933ABCC7066E7029B /* ProfileMediaSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE21CAC755326BB710119CE6 /* ProfileMediaSupport.swift */; };
 		6569AD819B9B491AAFB8F0C6 /* ProfileRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EDAF1E82A260C359E4D827B /* ProfileRoute.swift */; };
 		679EE6C0E5E8931989A28074 /* aura.json in Resources */ = {isa = PBXBuildFile; fileRef = 34E0E4C03AE499A85957C356 /* aura.json */; };
@@ -505,6 +506,7 @@
 		F79B3D104E32A2F61E6771B2 /* PollNoteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollNoteView.swift; sourceTree = "<group>"; };
 		F7D8015688B1D51344FFFCB7 /* TimelineKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineKey.swift; sourceTree = "<group>"; };
 		FB5DA9CD86A2BCCAA2A6947D /* NostrRelayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrRelayClient.swift; sourceTree = "<group>"; };
+		5FA0E4B38ACF4A3CBFA74C9E /* RelayHealthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayHealthStore.swift; sourceTree = "<group>"; };
 		FB8E0B2EBA2BA6A0BA1C44D8 /* ImageRemixEditorControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRemixEditorControls.swift; sourceTree = "<group>"; };
 		FDD34AFC463D6093EDDBD992 /* SearchViewComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViewComponents.swift; sourceTree = "<group>"; };
 		FE1CA57053B9FBB868AB0B71 /* ComposeNotePublishServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeNotePublishServiceTests.swift; sourceTree = "<group>"; };
@@ -704,6 +706,7 @@
 				8B5C4629D9580FC17B515E35 /* RecentFeedStore.swift */,
 				93F2DE09E60173B3EF41F370 /* RelayMessageParser.swift */,
 				4326CEACDA9C72B3A03BEC11 /* RelaySettingsStore.swift */,
+				5FA0E4B38ACF4A3CBFA74C9E /* RelayHealthStore.swift */,
 				9B77D47257479D0532CE896A /* EventRepository.swift */,
 				F7D8015688B1D51344FFFCB7 /* TimelineKey.swift */,
 			);
@@ -1234,6 +1237,7 @@
 				3C4DFAEC138587F151EE579D /* RelativeTimestampFormatter.swift in Sources */,
 				B17E68CEA9136EFC8EA69BC0 /* RelayMessageParser.swift in Sources */,
 				1311B4BE4FDA659FCFE75042 /* RelaySettingsStore.swift in Sources */,
+				5FA0E4B48ACF4A3CBFA74C9E /* RelayHealthStore.swift in Sources */,
 				B7FF9B2A1598892EDDBA9917 /* RelaySettingsView.swift in Sources */,
 				1AF4090ACE97647DDAFDB6F7 /* ReshareActionSheetView.swift in Sources */,
 				6C97A187B541004D4E7965D0 /* ResharePublishService.swift in Sources */,
