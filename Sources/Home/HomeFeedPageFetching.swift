@@ -88,17 +88,18 @@ struct HomeFeedPageFetching {
                 break
             }
 
-            let fetchedEvents = try await service.fetchFollowingEvents(
-                relayURLs: relayURLs,
+            let fetched = try await service.fetchFollowingFeedRecoveringWithOutbox(
+                baseReadRelayURLs: relayURLs,
                 authors: authors,
                 kinds: kinds,
                 limit: probeLimit,
                 until: cursor,
+                hydrationMode: hydrationMode,
                 fetchTimeout: fetchTimeout,
                 relayFetchMode: relayFetchMode,
-                relayOnly: true,
                 moderationSnapshot: moderationSnapshot
             )
+            let fetchedEvents = fetched.map(\.event)
             lastBatchCount = fetchedEvents.count
 
             guard !fetchedEvents.isEmpty else {
@@ -109,12 +110,6 @@ struct HomeFeedPageFetching {
                 nextPageCursor = paginationCursor
             }
 
-            let fetched = await service.buildFeedItems(
-                relayURLs: relayURLs,
-                events: fetchedEvents,
-                hydrationMode: hydrationMode,
-                moderationSnapshot: moderationSnapshot
-            )
             collected = mergeItemArrays(
                 primary: collected,
                 secondary: fetched,

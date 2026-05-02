@@ -846,11 +846,11 @@ final class HomeFeedViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testFollowingFeedUsesConfiguredReadRelaysDirectlyInsteadOfOutboxRecovery() async throws {
+    func testFollowingFeedUsesAuthorOutboxRelaysForFollowedAuthors() async throws {
         let harness = try HomeFeedViewModelHarness()
         let currentUserPubkey = hex("9")
         let authorPubkey = hex("8")
-        let authorReadRelayURL = URL(string: "wss://following-author-read.example")!
+        let authorWriteRelayURL = URL(string: "wss://following-author-write.example")!
         let relayFollowList = makeEvent(
             id: hex("5"),
             pubkey: currentUserPubkey,
@@ -863,7 +863,7 @@ final class HomeFeedViewModelTests: XCTestCase {
             id: hex("7"),
             pubkey: authorPubkey,
             kind: 10_002,
-            tags: [["r", authorReadRelayURL.absoluteString, "read"]],
+            tags: [["r", authorWriteRelayURL.absoluteString, "write"]],
             content: "",
             createdAt: 1_700_000_330
         )
@@ -877,12 +877,13 @@ final class HomeFeedViewModelTests: XCTestCase {
         )
 
         await harness.setRemoteEvents([relayFollowList, relayListEvent], for: defaultHomeRelayURL)
-        await harness.setRemoteEvents([outboxNote], for: authorReadRelayURL)
+        await harness.setRemoteEvents([outboxNote], for: authorWriteRelayURL)
 
         harness.selectFollowingFeed(for: currentUserPubkey)
         await harness.viewModel.refresh()
+        try await harness.waitForVisibleItem(id: outboxNote.id, timeout: 3)
 
-        XCTAssertTrue(harness.viewModel.visibleItems.isEmpty)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [outboxNote.id])
     }
 
     @MainActor

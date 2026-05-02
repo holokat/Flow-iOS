@@ -348,6 +348,55 @@ final class NostrFeedServiceTests: XCTestCase {
         XCTAssertEqual(storedEvent[authoredEvent.id.lowercased()]?.id.lowercased(), authoredEvent.id.lowercased())
     }
 
+    func testFetchOutboxBackedFollowingFeedGroupsAuthorsByWriteRelay() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FlowOutboxFollowingGroups-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = TestFileManager(rootURL: rootURL)
+        let authorA = hex("a")
+        let authorB = hex("b")
+        let writeRelayA = URL(string: "wss://author-a-write.example")!
+        let writeRelayB = URL(string: "wss://author-b-write.example")!
+        let eventA = makeEvent(id: hex("1"), pubkey: authorA, kind: 1, tags: [], content: "a")
+        let eventB = makeEvent(id: hex("2"), pubkey: authorB, kind: 1, tags: [], content: "b")
+        let relayListA = makeEvent(
+            id: hex("3"),
+            pubkey: authorA,
+            kind: 10_002,
+            tags: [["r", writeRelayA.absoluteString, "write"]],
+            content: ""
+        )
+        let relayListB = makeEvent(
+            id: hex("4"),
+            pubkey: authorB,
+            kind: 10_002,
+            tags: [["r", writeRelayB.absoluteString, "write"]],
+            content: ""
+        )
+        let relayClient = RecordingOutboxRelayClient(eventsByRelay: [
+            relayURL: [relayListA, relayListB],
+            writeRelayA: [eventA],
+            writeRelayB: [eventB]
+        ])
+        let service = makeFeedService(relayClient: relayClient, fileManager: fileManager)
+
+        let items = try await service.fetchOutboxBackedFollowingFeed(
+            baseReadRelayURLs: [relayURL],
+            authors: [authorA, authorB],
+            kinds: [1],
+            limit: 10,
+            until: nil,
+            hydrationMode: .cachedProfilesOnly
+        )
+
+        XCTAssertEqual(Set(items.map(\.id)), Set([eventA.id, eventB.id]))
+        let requested = Set(await relayClient.requestedRelayURLs().map { canonicalRelayString($0) })
+        XCTAssertTrue(requested.contains("wss://author-a-write.example"))
+        XCTAssertTrue(requested.contains("wss://author-b-write.example"))
+    }
+
     func testFetchOutboxBackedAuthorFeedDoesNotStopAtFirstRelayWithStaleEvent() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FlowOutboxAuthorFeedFreshness-\(UUID().uuidString)", isDirectory: true)
