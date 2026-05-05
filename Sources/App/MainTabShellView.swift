@@ -448,52 +448,12 @@ struct MainTabShellView: View {
 
     @ViewBuilder
     private func composeNoteSheet(for draft: AppComposeSheetDraft) -> some View {
-        ComposeNoteSheet(
-            currentAccountPubkey: auth.currentAccount?.pubkey,
-            currentNsec: auth.currentNsec,
-            writeRelayURLs: effectiveWriteRelayURLs,
-            initialText: draft.initialText,
-            initialAdditionalTags: draft.initialAdditionalTags,
-            initialUploadedAttachments: draft.initialUploadedAttachments,
-            initialSharedAttachments: draft.initialSharedAttachments,
-            initialSelectedMentions: draft.initialSelectedMentions,
-            initialPollDraft: draft.initialPollDraft,
-            replyTargetEvent: draft.replyTargetEvent,
-            replyTargetDisplayNameHint: draft.replyTargetDisplayNameHint,
-            replyTargetHandleHint: draft.replyTargetHandleHint,
-            replyTargetAvatarURLHint: draft.replyTargetAvatarURLHint,
-            quotedEvent: draft.quotedEvent,
-            quotedDisplayNameHint: draft.quotedDisplayNameHint,
-            quotedHandleHint: draft.quotedHandleHint,
-            quotedAvatarURLHint: draft.quotedAvatarURLHint,
-            savedDraftID: draft.savedDraftID,
-            onOptimisticPublished: { item in
-                switch selectedTab {
-                case .home:
-                    animateFeedInsertion {
-                        homeViewModel.insertOptimisticPublishedItem(item)
-                    }
-                case .search:
-                    Task {
-                        await searchViewModel.refresh()
-                    }
-                case .dms, .activity:
-                    break
-                }
-            },
-            onPublished: {
-                Task {
-                    switch selectedTab {
-                    case .home:
-                        await homeViewModel.refresh()
-                    case .search:
-                        await searchViewModel.refresh()
-                    case .dms, .activity:
-                        break
-                    }
-                }
-            }
-        )
+        // Temporarily routed to MinimalComposeSheet for emoji-prediction
+        // debugging. Revert this function (git show compose-pre-stripdown:Sources/App/MainTabShellView.swift)
+        // to restore the full composer once we know whether the issue is
+        // upstream of our app code.
+        _ = draft
+        MinimalComposeSheet()
     }
 
     private func animateFeedInsertion(_ updates: () -> Void) {
