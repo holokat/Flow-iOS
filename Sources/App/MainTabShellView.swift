@@ -447,12 +447,53 @@ struct MainTabShellView: View {
     }
 
     @ViewBuilder
-    private func composeNoteSheet(for _: AppComposeSheetDraft) -> some View {
-        // Temporarily routed to MinimalComposeSheet for emoji-prediction
-        // debugging. Revert this function (git show compose-pre-stripdown:Sources/App/MainTabShellView.swift)
-        // to restore the full composer once we know whether the issue is
-        // upstream of our app code.
-        MinimalComposeSheet()
+    private func composeNoteSheet(for draft: AppComposeSheetDraft) -> some View {
+        ComposeNoteSheet(
+            currentAccountPubkey: auth.currentAccount?.pubkey,
+            currentNsec: auth.currentNsec,
+            writeRelayURLs: effectiveWriteRelayURLs,
+            initialText: draft.initialText,
+            initialAdditionalTags: draft.initialAdditionalTags,
+            initialUploadedAttachments: draft.initialUploadedAttachments,
+            initialSharedAttachments: draft.initialSharedAttachments,
+            initialSelectedMentions: draft.initialSelectedMentions,
+            initialPollDraft: draft.initialPollDraft,
+            replyTargetEvent: draft.replyTargetEvent,
+            replyTargetDisplayNameHint: draft.replyTargetDisplayNameHint,
+            replyTargetHandleHint: draft.replyTargetHandleHint,
+            replyTargetAvatarURLHint: draft.replyTargetAvatarURLHint,
+            quotedEvent: draft.quotedEvent,
+            quotedDisplayNameHint: draft.quotedDisplayNameHint,
+            quotedHandleHint: draft.quotedHandleHint,
+            quotedAvatarURLHint: draft.quotedAvatarURLHint,
+            savedDraftID: draft.savedDraftID,
+            onOptimisticPublished: { item in
+                switch selectedTab {
+                case .home:
+                    animateFeedInsertion {
+                        homeViewModel.insertOptimisticPublishedItem(item)
+                    }
+                case .search:
+                    Task {
+                        await searchViewModel.refresh()
+                    }
+                case .dms, .activity:
+                    break
+                }
+            },
+            onPublished: {
+                Task {
+                    switch selectedTab {
+                    case .home:
+                        await homeViewModel.refresh()
+                    case .search:
+                        await searchViewModel.refresh()
+                    case .dms, .activity:
+                        break
+                    }
+                }
+            }
+        )
     }
 
     private func animateFeedInsertion(_ updates: () -> Void) {
@@ -934,37 +975,5 @@ private struct BottomTabBarHeightPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
-    }
-}
-
-// Bare-minimum compose sheet for isolating iOS QuickType emoji predictions.
-// SwiftUI TextEditor only — no UITextView wrapper, no font override, no
-// appearance overrides, no mention autocomplete, no character limit, no
-// attachments. If emoji predictions don't show here, the suppression is
-// below our app layer.
-private struct MinimalComposeSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        NavigationStack {
-            TextEditor(text: $text)
-                .font(.body)
-                .focused($isFocused)
-                .padding(12)
-                .navigationTitle("Minimal note")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { dismiss() }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Post") { dismiss() }
-                            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
-                .onAppear { isFocused = true }
-        }
     }
 }
