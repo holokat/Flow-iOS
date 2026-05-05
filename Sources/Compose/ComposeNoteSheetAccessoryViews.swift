@@ -286,6 +286,7 @@ struct ComposeComposerCardView: View {
             characterLimit: ComposeNoteTextLimit.maxCharacterCount,
             onMentionQueryChange: onMentionQueryChange
         )
+        .textInputAutocapitalization(.sentences)
         .padding(.horizontal, horizontalPadding)
         .padding(.vertical, verticalPadding)
     }
