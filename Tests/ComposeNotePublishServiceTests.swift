@@ -174,6 +174,30 @@ final class ComposeNotePublishServiceTests: XCTestCase {
         XCTAssertNil(capture.eventData)
         XCTAssertNil(capture.eventID)
     }
+
+    func testQuoteDraftAddsNIP10QuoteTagWithRelayAndAuthorHints() throws {
+        let service = ResharePublishService()
+        let relayURL = try XCTUnwrap(URL(string: "wss://relay.example.com"))
+        let quotedEvent = Flow.NostrEvent(
+            id: String(repeating: "1", count: 64),
+            pubkey: String(repeating: "a", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 1,
+            tags: [],
+            content: "quoted note",
+            sig: String(repeating: "f", count: 128)
+        )
+
+        let draft = service.buildQuoteDraft(
+            for: quotedEvent,
+            relayHintURL: relayURL
+        )
+
+        XCTAssertEqual(
+            draft.additionalTags.first { $0.first == "q" },
+            ["q", quotedEvent.id, relayURL.absoluteString, quotedEvent.pubkey]
+        )
+    }
 }
 
 private actor RecordingRelayPublisher: NostrRelayEventPublishing {

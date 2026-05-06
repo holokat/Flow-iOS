@@ -683,12 +683,14 @@ enum NoteContentParser {
 
             let rawNormalized = normalizeReferenceValue(value)
             let tagRelayHint = relayHintURL(from: tag.count > 2 ? tag[2] : nil)
+            let tagAuthorHint = referencedEventAuthorHint(in: tag, tagName: name)
             let normalized: String
             if let eventID = canonicalEventID(from: rawNormalized),
-               let tagRelayHint,
+               (tagRelayHint != nil || tagAuthorHint != nil),
                let hintedIdentifier = encodedNeventIdentifier(
-                forEventID: eventID,
-                relayHints: [tagRelayHint]
+                    forEventID: eventID,
+                    authorPubkey: tagAuthorHint,
+                    relayHints: [tagRelayHint].compactMap { $0 }
                ) {
                 normalized = hintedIdentifier
             } else {
@@ -963,6 +965,26 @@ enum NoteContentParser {
         }
 
         return relayHints
+    }
+
+    private static func referencedEventAuthorHint(in tag: [String], tagName: String) -> String? {
+        let candidate: String?
+        switch tagName {
+        case "q":
+            candidate = tag.count > 3 ? tag[3] : nil
+        case "e":
+            candidate = tag.count > 4 ? tag[4] : nil
+        default:
+            candidate = nil
+        }
+
+        guard let normalized = candidate?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+              isHex64(normalized) else {
+            return nil
+        }
+        return normalized
     }
 
     private static func isSupportedRelayHint(_ value: String) -> Bool {

@@ -856,6 +856,7 @@ struct NostrFeedService: Sendable {
         relayURLs: [URL],
         hydrationMode: FeedItemHydrationMode = .full,
         fetchTimeout: TimeInterval = 8,
+        relayFetchMode: RelayFetchMode = .firstRelayWithEvents,
         moderationSnapshot: MuteFilterSnapshot? = nil
     ) async -> FeedItem? {
         await referenceResolver.fetchReferencedFeedItem(
@@ -863,6 +864,7 @@ struct NostrFeedService: Sendable {
             relayURLs: relayURLs,
             hydrationMode: hydrationMode,
             fetchTimeout: fetchTimeout,
+            relayFetchMode: relayFetchMode,
             moderationSnapshot: moderationSnapshot
         )
     }

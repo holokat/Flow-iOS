@@ -74,9 +74,17 @@ final class ResharePublishService {
         eventTag.append("mention")
         eventTag.append(normalizedPubkey)
 
+        var quoteTag = ["q", normalizedEventID]
+        if !relayHint.isEmpty {
+            quoteTag.append(relayHint)
+        } else {
+            quoteTag.append("")
+        }
+        quoteTag.append(normalizedPubkey)
+
         let additionalTags = [
             eventTag,
-            ["q", normalizedEventID],
+            quoteTag,
             ["p", normalizedPubkey]
         ]
 

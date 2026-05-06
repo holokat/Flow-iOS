@@ -275,15 +275,16 @@ final class NoteContentLinkResolverTests: XCTestCase {
         XCTAssertEqual(decoded.relays, [relayURL.absoluteString])
     }
 
-    func testQuotedEventTagCarriesRelayHintForReferenceLookup() throws {
+    func testQuotedEventTagCarriesRelayAndAuthorHintsForReferenceLookup() throws {
         let relayURL = try XCTUnwrap(URL(string: "wss://relay.example.com"))
         let eventID = String(repeating: "2", count: 64)
+        let authorPubkey = String(repeating: "b", count: 64)
         let event = NostrEvent(
             id: String(repeating: "1", count: 64),
             pubkey: String(repeating: "a", count: 64),
             createdAt: 1_700_000_000,
             kind: 1,
-            tags: [["q", eventID, relayURL.absoluteString]],
+            tags: [["q", eventID, relayURL.absoluteString, authorPubkey]],
             content: "",
             sig: String(repeating: "f", count: 128)
         )
@@ -294,6 +295,31 @@ final class NoteContentLinkResolverTests: XCTestCase {
         XCTAssertEqual(token.type, .nostrEvent)
         XCTAssertTrue(token.value.hasPrefix("nevent1"))
         XCTAssertEqual(decoded.eventId?.lowercased(), eventID)
+        XCTAssertEqual(decoded.pubkey?.lowercased(), authorPubkey)
+        XCTAssertEqual(decoded.relays, [relayURL.absoluteString])
+    }
+
+    func testMentionEventTagCarriesRelayAndAuthorHintsForReferenceLookup() throws {
+        let relayURL = try XCTUnwrap(URL(string: "wss://relay.example.com"))
+        let eventID = String(repeating: "2", count: 64)
+        let authorPubkey = String(repeating: "b", count: 64)
+        let event = NostrEvent(
+            id: String(repeating: "1", count: 64),
+            pubkey: String(repeating: "a", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 1,
+            tags: [["e", eventID, relayURL.absoluteString, "mention", authorPubkey]],
+            content: "",
+            sig: String(repeating: "f", count: 128)
+        )
+
+        let token = try XCTUnwrap(NoteContentParser.tokenize(event: event).first)
+        let decoded = try ReferenceMetadataDecoder().decodedMetadata(from: token.value)
+
+        XCTAssertEqual(token.type, .nostrEvent)
+        XCTAssertTrue(token.value.hasPrefix("nevent1"))
+        XCTAssertEqual(decoded.eventId?.lowercased(), eventID)
+        XCTAssertEqual(decoded.pubkey?.lowercased(), authorPubkey)
         XCTAssertEqual(decoded.relays, [relayURL.absoluteString])
     }
 

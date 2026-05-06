@@ -33,6 +33,7 @@ struct NostrReferenceResolver: Sendable {
         relayURLs: [URL],
         hydrationMode: FeedItemHydrationMode = .full,
         fetchTimeout: TimeInterval = 8,
+        relayFetchMode: RelayFetchMode = .firstRelayWithEvents,
         moderationSnapshot: MuteFilterSnapshot? = nil
     ) async -> FeedItem? {
         let relayTargets = await referencedFeedItemRelayTargets(
@@ -47,7 +48,8 @@ struct NostrReferenceResolver: Sendable {
             event = await fetchReferencedEventByID(
                 eventID,
                 relayURLs: relayTargets,
-                fetchTimeout: fetchTimeout
+                fetchTimeout: fetchTimeout,
+                relayFetchMode: relayFetchMode
             )
         case .replaceable(let kind, let pubkey, let identifier):
             event = await fetchReplaceableReferencedEvent(
@@ -372,7 +374,8 @@ struct NostrReferenceResolver: Sendable {
     private func fetchReferencedEventByID(
         _ eventID: String,
         relayURLs: [URL],
-        fetchTimeout: TimeInterval
+        fetchTimeout: TimeInterval,
+        relayFetchMode: RelayFetchMode
     ) async -> NostrEvent? {
         let normalizedEventID = eventID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard normalizedEventID.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
@@ -389,7 +392,7 @@ struct NostrReferenceResolver: Sendable {
             filter: filter,
             timeout: fetchTimeout,
             useCache: false,
-            relayFetchMode: .allRelays
+            relayFetchMode: relayFetchMode
         ) else {
             return nil
         }
