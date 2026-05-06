@@ -346,6 +346,9 @@ struct MainTabShellView: View {
             let bottomPadding = floatingComposeBottomPadding(safeAreaBottom: proxy.safeAreaInsets.bottom)
 
             composeFloatingButton
+                .transaction { transaction in
+                    transaction.disablesAnimations = true
+                }
                 .padding(.trailing, FloatingComposeButtonLayout.trailingPadding)
                 .padding(.bottom, bottomPadding)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -668,8 +671,7 @@ struct FloatingComposeButtonLayout {
     private static let hiddenBottomGap: CGFloat = 10
     private static let hiddenVerticalDrop: CGFloat = 12
     private static let visibleVerticalDrop: CGFloat = 60
-    private static let movementAnimationResponse: Double = 0.24
-    private static let movementAnimationDampingFraction: Double = 0.88
+    private static let movementAnimationDuration: TimeInterval = 0.42
 
     static func bottomPadding(
         safeAreaBottom: CGFloat,
@@ -699,10 +701,7 @@ struct FloatingComposeButtonLayout {
 
     static func movementAnimation(reduceMotion: Bool) -> Animation? {
         guard !reduceMotion else { return nil }
-        return .interactiveSpring(
-            response: movementAnimationResponse,
-            dampingFraction: movementAnimationDampingFraction
-        )
+        return .easeInOut(duration: movementAnimationDuration)
     }
 
     private static func clamp(_ value: CGFloat, min minimum: CGFloat, max maximum: CGFloat) -> CGFloat {

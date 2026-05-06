@@ -785,6 +785,7 @@ final class AppThemeOptionTests: XCTestCase {
         let overlaySource = source[overlayRange.lowerBound..<buttonRange.lowerBound]
 
         XCTAssertTrue(overlaySource.contains("let bottomPadding = floatingComposeBottomPadding"))
+        XCTAssertTrue(overlaySource.contains("transaction.disablesAnimations = true"))
         XCTAssertTrue(overlaySource.contains("FloatingComposeButtonLayout.movementAnimation"))
         XCTAssertTrue(overlaySource.contains("value: bottomPadding"))
     }
