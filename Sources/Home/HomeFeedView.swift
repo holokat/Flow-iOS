@@ -7,8 +7,6 @@ struct HomeFeedView: View {
     private static let feedHorizontalInset: CGFloat = 14
     private static let autoMergeTopThreshold: CGFloat = 56
     private static let bufferedRevealDelayNanoseconds: UInt64 = 260_000_000
-    private static let pullToRefreshIndicatorVisibleDistance: CGFloat = 10
-    private static let pullToRefreshIndicatorMaxDistance: CGFloat = 72
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -45,8 +43,6 @@ struct HomeFeedView: View {
     @State private var shouldAutoFocusReplyInThread = false
     @State private var isNearFeedTop = true
     @State private var isRevealingBufferedItems = false
-    @State private var pullToRefreshDistance: CGFloat = 0
-    @State private var isManualRefreshActive = false
     @State private var scrollChromeTracker = ScrollChromeTracker()
 
     var body: some View {
@@ -330,11 +326,6 @@ struct HomeFeedView: View {
         if #available(iOS 18.0, *) {
             scrollView
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                    max(0, -(geometry.contentOffset.y + geometry.contentInsets.top))
-                } action: { _, pullDistance in
-                    updatePullToRefreshDistance(pullDistance)
-                }
-                .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     max(0, geometry.contentOffset.y + geometry.contentInsets.top)
                 } action: { _, scrollY in
                     handleScroll(currentScrollY: scrollY, topBarHeight: topBarHeight, safeAreaBottom: safeAreaBottom)
@@ -344,7 +335,6 @@ struct HomeFeedView: View {
             scrollView
                 .onPreferenceChange(HomeFeedTopOffsetPreferenceKey.self) { newValue in
                     let currentScrollY = max(0, -newValue)
-                    updatePullToRefreshDistance(max(0, newValue))
                     handleScroll(currentScrollY: currentScrollY, topBarHeight: topBarHeight, safeAreaBottom: safeAreaBottom)
                     handleNearTopChange(currentScrollY: currentScrollY)
                 }
@@ -496,23 +486,11 @@ struct HomeFeedView: View {
     }
 
     private func refreshFeed(scrollProxy: ScrollViewProxy) async {
-        isManualRefreshActive = true
-        defer {
-            isManualRefreshActive = false
-            pullToRefreshDistance = 0
-        }
-
         if viewModel.visibleBufferedNewItemsCount > 0 {
             self.revealBufferedNewItems(scrollProxy: scrollProxy)
         } else {
             await viewModel.refresh()
         }
-    }
-
-    private func updatePullToRefreshDistance(_ distance: CGFloat) {
-        let clampedDistance = min(max(0, distance), Self.pullToRefreshIndicatorMaxDistance)
-        guard abs(pullToRefreshDistance - clampedDistance) >= 0.5 else { return }
-        pullToRefreshDistance = clampedDistance
     }
 
     private func revealBufferedNewItems(scrollProxy: ScrollViewProxy) {
@@ -606,52 +584,6 @@ struct HomeFeedView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .overlay(alignment: .bottom) {
-            pullToRefreshIndicator
-                .offset(y: 16)
-        }
-    }
-
-    @ViewBuilder
-    private var pullToRefreshIndicator: some View {
-        let opacity = pullToRefreshIndicatorOpacity
-
-        if opacity > 0 {
-            ProgressView()
-                .controlSize(.small)
-                .tint(appSettings.primaryColor)
-                .scaleEffect(0.82)
-                .padding(7)
-                .background {
-                    Circle()
-                        .fill(appSettings.themePalette.background.opacity(0.94))
-                        .shadow(
-                            color: Color.black.opacity(colorScheme == .dark ? 0.28 : 0.10),
-                            radius: 8,
-                            x: 0,
-                            y: 3
-                        )
-                }
-                .opacity(opacity)
-                .scaleEffect(0.8 + (0.2 * opacity))
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
-    }
-
-    private var pullToRefreshIndicatorOpacity: CGFloat {
-        guard isManualRefreshActive || pullToRefreshDistance > Self.pullToRefreshIndicatorVisibleDistance else {
-            return 0
-        }
-        guard !isManualRefreshActive else { return 1 }
-
-        let visibleRange = Self.pullToRefreshIndicatorMaxDistance - Self.pullToRefreshIndicatorVisibleDistance
-        guard visibleRange > 0 else { return 1 }
-
-        return min(
-            max(0, (pullToRefreshDistance - Self.pullToRefreshIndicatorVisibleDistance) / visibleRange),
-            1
-        )
     }
 
     private var feedSourcePickerLabel: some View {

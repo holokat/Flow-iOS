@@ -1084,18 +1084,14 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("offset: -scrollChromeOffsets.topBarOffset"))
     }
 
-    func testHomePullToRefreshIndicatorRendersAboveTopChrome() throws {
+    func testHomePullToRefreshUsesNativeRefreshControl() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
-        XCTAssertTrue(source.contains("@State private var pullToRefreshDistance: CGFloat = 0"))
-        XCTAssertTrue(source.contains("@State private var isManualRefreshActive = false"))
-        XCTAssertTrue(source.contains("max(0, -(geometry.contentOffset.y + geometry.contentInsets.top))"))
-        XCTAssertTrue(source.contains(".overlay(alignment: .bottom) {\n            pullToRefreshIndicator"))
-        XCTAssertTrue(source.contains("private var pullToRefreshIndicator: some View"))
-        XCTAssertTrue(source.contains("isManualRefreshActive = true"))
-        XCTAssertTrue(source.contains("isManualRefreshActive = false"))
-        XCTAssertTrue(source.contains(".allowsHitTesting(false)"))
         XCTAssertTrue(source.contains(".refreshable {\n            await refreshFeed(scrollProxy: scrollProxy)\n        }"))
+        XCTAssertFalse(source.contains("pullToRefreshIndicator"))
+        XCTAssertFalse(source.contains("pullToRefreshDistance"))
+        XCTAssertFalse(source.contains("isManualRefreshActive"))
+        XCTAssertFalse(source.contains("max(0, -(geometry.contentOffset.y + geometry.contentInsets.top))"))
     }
 
     func testHomeFeedKeepsBottomPaddingStableWhileOverlayChromeMoves() throws {
