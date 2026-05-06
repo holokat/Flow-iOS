@@ -1472,7 +1472,11 @@ struct ComposeMultilineTextView: UIViewRepresentable {
     }
 
     static func makeComposerTextView() -> UITextView {
-        UITextView(usingTextLayoutManager: false)
+        // Keep the composer on UIKit's plain native text-input path. Emoji
+        // QuickType suggestions do not have a public opt-in API; they depend on
+        // default UITextInputTraits and the system text stack, so avoid TextKit
+        // opt-outs or forced prediction traits without device-verifying them.
+        UITextView()
     }
 
     private static func clampedRange(_ range: NSRange, maxLength: Int) -> NSRange {
@@ -1492,6 +1496,11 @@ struct ComposeMultilineTextView: UIViewRepresentable {
         private let onMentionQueryChange: (ComposeMentionQuery?) -> Void
         var isApplyingProgrammaticUpdate = false
         private var lastReportedMentionQuery: ComposeMentionQuery?
+        // Keep selection reconciliation stateful. UITextView reports a new caret
+        // before SwiftUI has necessarily re-rendered with that binding value;
+        // applying the older bound range during that update moves the cursor
+        // backward while typing. Do not replace this with a stateless clamp/set
+        // helper unless you also preserve the stale-echo guard below.
         private var pendingTextViewSelectionReport: NSRange?
         private var staleSelectionEchoes: [NSRange] = []
 
@@ -1574,6 +1583,9 @@ struct ComposeMultilineTextView: UIViewRepresentable {
                 maxLength: textView.text.utf16.count
             )
 
+            // A range we just reported from UITextView is authoritative. Older
+            // SwiftUI echoes are ignored, while explicit external selections
+            // like mention or draft insertion are still allowed through.
             if let pendingTextViewSelectionReport {
                 if clampedRange == pendingTextViewSelectionReport {
                     self.pendingTextViewSelectionReport = nil

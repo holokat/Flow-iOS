@@ -195,6 +195,20 @@ final class ComposeNoteSheetModeTests: XCTestCase {
     }
 
     @MainActor
+    func testComposeTextViewUsesNativeTextKitAndDefaultInputTraits() {
+        let textView = ComposeMultilineTextView.makeComposerTextView()
+
+        if #available(iOS 16.0, *) {
+            XCTAssertNotNil(textView.textLayoutManager)
+        }
+        XCTAssertEqual(textView.keyboardType, .default)
+        XCTAssertEqual(textView.autocapitalizationType, .sentences)
+        XCTAssertEqual(textView.autocorrectionType, .default)
+        XCTAssertEqual(textView.spellCheckingType, .default)
+        XCTAssertNil(textView.textContentType)
+    }
+
+    @MainActor
     func testComposeTextViewCoordinatorIgnoresStaleSelectionEchoAfterTyping() {
         var textValue = ""
         var isFocusedValue = true
