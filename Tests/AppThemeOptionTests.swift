@@ -1087,7 +1087,9 @@ final class AppThemeOptionTests: XCTestCase {
     func testHomePullToRefreshUsesNativeRefreshControl() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
+        XCTAssertTrue(source.contains("let list = List {"))
         XCTAssertTrue(source.contains(".refreshable {\n            await refreshFeed(scrollProxy: scrollProxy)\n        }"))
+        XCTAssertFalse(source.contains("ScrollView(.vertical"))
         XCTAssertFalse(source.contains("pullToRefreshIndicator"))
         XCTAssertFalse(source.contains("pullToRefreshDistance"))
         XCTAssertFalse(source.contains("isManualRefreshActive"))

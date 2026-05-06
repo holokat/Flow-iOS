@@ -291,19 +291,23 @@ struct HomeFeedView: View {
         topBarHeight: CGFloat,
         safeAreaBottom: CGFloat
     ) -> some View {
-        let scrollView = ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: 0) {
-                feedTopPadding(height: topContentPadding)
+        let list = List {
+            feedTopPadding(height: topContentPadding)
+                .homeFeedListRow()
 
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    feedModeHeaderRow
-                    feedRows(visibleItems, visibleReplyCounts: visibleReplyCounts)
-                    loadingMoreRow
-                }
+            feedModeHeaderRow
+                .homeFeedListRow()
 
-                feedBottomPadding(height: bottomContentPadding)
-            }
+            feedRows(visibleItems, visibleReplyCounts: visibleReplyCounts)
+
+            loadingMoreRow
+                .homeFeedListRow()
+
+            feedBottomPadding(height: bottomContentPadding)
+                .homeFeedListRow()
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .background(Color.clear)
         .ignoresSafeArea(edges: [.top, .bottom])
         .coordinateSpace(name: Self.feedScrollCoordinateSpace)
@@ -324,7 +328,7 @@ struct HomeFeedView: View {
         }
 
         if #available(iOS 18.0, *) {
-            scrollView
+            list
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     max(0, geometry.contentOffset.y + geometry.contentInsets.top)
                 } action: { _, scrollY in
@@ -332,7 +336,7 @@ struct HomeFeedView: View {
                     handleNearTopChange(currentScrollY: scrollY)
                 }
         } else {
-            scrollView
+            list
                 .onPreferenceChange(HomeFeedTopOffsetPreferenceKey.self) { newValue in
                     let currentScrollY = max(0, -newValue)
                     handleScroll(currentScrollY: currentScrollY, topBarHeight: topBarHeight, safeAreaBottom: safeAreaBottom)
@@ -400,13 +404,16 @@ struct HomeFeedView: View {
             ForEach(0..<6, id: \.self) { _ in
                 loadingRow
                     .padding(.horizontal, Self.feedHorizontalInset)
+                    .homeFeedListRow()
             }
         } else if visibleItems.isEmpty {
             emptyOrFilteredFeedRow
+                .homeFeedListRow()
         } else {
             ForEach(visibleItems) { item in
                 feedRow(item, visibleReplyCounts: visibleReplyCounts)
                     .transition(FlowTransitionMotion.feedItemInsertionTransition(reduceMotion: accessibilityReduceMotion))
+                    .homeFeedListRow()
             }
         }
     }
@@ -1683,6 +1690,15 @@ private struct HomeFeedSheets: ViewModifier {
             .sheet(isPresented: $isShowingSettings, onDismiss: onSettingsDismiss) {
                 settingsSheet()
             }
+    }
+}
+
+private extension View {
+    func homeFeedListRow() -> some View {
+        self
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 }
 
