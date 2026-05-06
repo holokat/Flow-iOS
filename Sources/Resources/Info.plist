@@ -43,6 +43,10 @@
 	<string>Halo saves remixed images to your photo library when you choose Save.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Halo uses speech recognition to transcribe your voice into note text.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>KLIPYAppKey</key>
 	<string>dX6PP8oWX2kZFBuIq9fBOQOT3LBsniCzMqcNuBe0HksGkNGMdkBY4bgmgdW1uH2R</string>
 	<key>UIApplicationSceneManifest</key>
@@ -58,8 +62,6 @@
 	<array>
 		<string>fetch</string>
 	</array>
-	<key>UIDesignRequiresCompatibility</key>
-	<true/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
