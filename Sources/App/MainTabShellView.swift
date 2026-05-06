@@ -344,7 +344,7 @@ struct MainTabShellView: View {
     private var floatingComposeButtonOverlay: some View {
         GeometryReader { proxy in
             composeFloatingButton
-                .padding(.trailing, 18)
+                .padding(.trailing, FloatingComposeButtonLayout.trailingPadding)
                 .padding(.bottom, floatingComposeBottomPadding(safeAreaBottom: proxy.safeAreaInsets.bottom))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .animation(.interactiveSpring(response: 0.18, dampingFraction: 0.9), value: isBottomTabBarVisible)
@@ -643,9 +643,11 @@ private struct ActivityUnreadBadgeView: View {
 
 struct FloatingComposeButtonLayout {
     static let defaultBottomTabBarHeight: CGFloat = 67
+    static let trailingPadding: CGFloat = 26
     private static let visibleBottomBarGap: CGFloat = 14
     private static let hiddenBottomGap: CGFloat = 10
-    private static let requestedVerticalDrop: CGFloat = 12
+    private static let hiddenVerticalDrop: CGFloat = 12
+    private static let visibleVerticalDrop: CGFloat = 60
 
     static func bottomPadding(
         safeAreaBottom: CGFloat,
@@ -666,9 +668,9 @@ struct FloatingComposeButtonLayout {
     ) -> CGFloat {
         let safeAreaBottom = max(0, safeAreaBottom)
         let visibleFraction = clamp(visibleFraction, min: 0, max: 1)
-        let hiddenPadding = max(0, safeAreaBottom + hiddenBottomGap - requestedVerticalDrop)
+        let hiddenPadding = max(0, safeAreaBottom + hiddenBottomGap - hiddenVerticalDrop)
         let visibleBottomBarHeight = max(bottomTabBarHeight, defaultBottomTabBarHeight)
-        let visiblePadding = max(0, safeAreaBottom + visibleBottomBarHeight + visibleBottomBarGap - requestedVerticalDrop)
+        let visiblePadding = max(0, safeAreaBottom + visibleBottomBarHeight + visibleBottomBarGap - visibleVerticalDrop)
 
         return hiddenPadding + ((visiblePadding - hiddenPadding) * visibleFraction)
     }

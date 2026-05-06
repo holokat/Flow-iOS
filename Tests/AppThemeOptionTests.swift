@@ -733,7 +733,7 @@ final class AppThemeOptionTests: XCTestCase {
             isBottomTabBarVisible: true
         )
 
-        XCTAssertEqual(padding, 103)
+        XCTAssertEqual(padding, 55)
     }
 
     func testFloatingComposePaddingSitsCloserWhenBottomBarIsHidden() {
@@ -751,6 +751,10 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertEqual(hiddenPadding, 32)
         XCTAssertLessThan(hiddenPadding, visiblePadding)
+    }
+
+    func testFloatingComposeButtonUsesRequestedTrailingPadding() {
+        XCTAssertEqual(FloatingComposeButtonLayout.trailingPadding, 26)
     }
 
     func testFloatingComposePaddingMovesContinuouslyWithBottomBarOffset() {
