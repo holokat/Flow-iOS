@@ -669,7 +669,7 @@ struct FloatingComposeButtonLayout {
     static let trailingPadding: CGFloat = 26
     private static let visibleBottomBarGap: CGFloat = 14
     private static let hiddenBottomGap: CGFloat = 10
-    private static let hiddenVerticalDrop: CGFloat = 12
+    private static let hiddenVerticalDrop: CGFloat = 24
     private static let visibleVerticalDrop: CGFloat = 60
     private static let movementAnimationDuration: TimeInterval = 0.42
 

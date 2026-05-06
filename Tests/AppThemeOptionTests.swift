@@ -749,7 +749,7 @@ final class AppThemeOptionTests: XCTestCase {
             isBottomTabBarVisible: true
         )
 
-        XCTAssertEqual(hiddenPadding, 32)
+        XCTAssertEqual(hiddenPadding, 20)
         XCTAssertLessThan(hiddenPadding, visiblePadding)
     }
 
