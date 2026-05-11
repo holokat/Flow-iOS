@@ -528,7 +528,7 @@ final class HomeFeedViewModel: ObservableObject {
                     hydrationRelayURLs: hydrationRelayURLs(for: .trending),
                     limit: pageSize,
                     paginationState: nil,
-                    hydrationMode: requestHydrationMode,
+                    hydrationMode: fastHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
                     moderationSnapshot: muteFilterSnapshot
@@ -536,6 +536,9 @@ final class HomeFeedViewModel: ObservableObject {
                 fetched = trendingPage.page.items
                 sourcePageResult = trendingPage.page
                 trendingPaginationState = trendingPage.nextState
+                if requestHydrationMode != fastHydrationMode {
+                    stagedHydrationEvents = trendingPage.page.items.map(\.event)
+                }
 
             case .news:
                 followingPubkeys = []
@@ -984,7 +987,7 @@ final class HomeFeedViewModel: ObservableObject {
                     hydrationRelayURLs: hydrationRelayURLs(for: .trending),
                     limit: pageSize,
                     paginationState: trendingPaginationState,
-                    hydrationMode: requestHydrationMode,
+                    hydrationMode: fastHydrationMode,
                     fetchTimeout: requestFetchTimeout,
                     relayFetchMode: requestRelayFetchMode,
                     moderationSnapshot: muteFilterSnapshot
@@ -992,6 +995,9 @@ final class HomeFeedViewModel: ObservableObject {
                 fetched = trendingPage.page.items
                 sourcePageResult = trendingPage.page
                 trendingPaginationState = trendingPage.nextState
+                if requestHydrationMode != fastHydrationMode {
+                    stagedHydrationEvents = trendingPage.page.items.map(\.event)
+                }
 
             case .news:
                 let newsPage = try await pageFetcher.fetchNewsFeedPage(

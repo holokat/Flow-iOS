@@ -123,7 +123,7 @@ extension HomeFeedViewModel {
         requestHydrationMode: FeedItemHydrationMode
     ) -> FeedItemHydrationMode {
         switch source {
-        case .following, .articles, .polls, .news:
+        case .following, .articles, .polls, .trending, .news:
             return .cachedProfilesOnly
         default:
             return requestHydrationMode

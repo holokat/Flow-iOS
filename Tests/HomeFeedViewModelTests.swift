@@ -562,6 +562,39 @@ final class HomeFeedViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testTrendingInitialLoadPublishesRowsBeforeProfileHydration() async throws {
+        let trendingNote = makeEvent(
+            id: hex("8"),
+            pubkey: hex("9"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Trending note should not wait for metadata",
+            createdAt: 1_700_000_700
+        )
+        let delayedProfile = makeProfileEvent(
+            id: hex("a"),
+            pubkey: trendingNote.pubkey,
+            displayName: "Slow Profile",
+            createdAt: 1_700_000_701
+        )
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                defaultHomeRelayURL: [delayedProfile],
+                NostrFeedService.nostrArchivesTrendingRelayURL: [trendingNote]
+            ]
+        )
+        await harness.setRelayDelay(2_000_000_000, forKind: 0)
+
+        harness.viewModel.feedSource = .trending
+        let refreshTask = Task { @MainActor in
+            await harness.viewModel.refresh(force: true)
+        }
+
+        try await harness.waitForVisibleItem(id: trendingNote.id, timeout: 1.0)
+        await refreshTask.value
+    }
+
+    @MainActor
     func testTrendingIgnoresHiddenFollowingModeSelection() async throws {
         let trendingNote = makeEvent(
             id: hex("7"),
