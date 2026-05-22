@@ -778,16 +778,17 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertEqual(halfwayPadding, (hiddenPadding + visiblePadding) / 2, accuracy: 0.0001)
     }
 
-    func testFloatingComposeButtonAnimatesAgainstNumericBottomPadding() throws {
+    func testFloatingComposeButtonTracksNumericBottomPaddingWithoutRetargetedAnimation() throws {
         let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
-        let overlayRange = try XCTUnwrap(source.range(of: "private var floatingComposeButtonOverlay: some View"))
-        let buttonRange = try XCTUnwrap(source.range(of: "private var composeFloatingButton: some View"))
+        let overlayRange = try XCTUnwrap(source.range(of: "private struct FloatingComposeButtonChromeOverlay: View"))
+        let buttonRange = try XCTUnwrap(source.range(of: "struct ScrollChromeOffsets"))
         let overlaySource = source[overlayRange.lowerBound..<buttonRange.lowerBound]
 
         XCTAssertTrue(overlaySource.contains("let bottomPadding = floatingComposeBottomPadding"))
         XCTAssertTrue(overlaySource.contains("transaction.disablesAnimations = true"))
-        XCTAssertTrue(overlaySource.contains("FloatingComposeButtonLayout.movementAnimation"))
-        XCTAssertTrue(overlaySource.contains("value: bottomPadding"))
+        XCTAssertFalse(overlaySource.contains("FloatingComposeButtonLayout.movementAnimation"))
+        XCTAssertFalse(overlaySource.contains("value: bottomPadding"))
+        XCTAssertFalse(overlaySource.contains(".animation("))
     }
 
     func testFloatingComposeButtonTracksFullBottomBarHiddenProgress() throws {
@@ -1048,6 +1049,23 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("shouldPublishVisualOffsets"))
     }
 
+    func testHomeScrollChromeStateIsScopedToChromeObservers() throws {
+        let shellSource = try sourceText(at: "Sources/App/MainTabShellView.swift")
+        let homeSource = try sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let profileSource = try sourceText(at: "Sources/Profile/ProfileView.swift")
+
+        XCTAssertTrue(shellSource.contains("@State private var homeScrollChromeStore = ScrollChromeStore()"))
+        XCTAssertFalse(shellSource.contains("@State private var homeScrollChrome = ScrollChromeOffsets()"))
+        XCTAssertTrue(shellSource.contains("scrollChromeStore: homeScrollChromeStore"))
+        XCTAssertTrue(shellSource.contains("private struct BottomTabBarChromeOverlay: View"))
+        XCTAssertTrue(shellSource.contains("@ObservedObject var scrollChromeStore: ScrollChromeStore"))
+        XCTAssertTrue(homeSource.contains("let scrollChromeStore: ScrollChromeStore"))
+        XCTAssertTrue(homeSource.contains("HomeFeedTopNavigationChromeView("))
+        XCTAssertTrue(homeSource.contains("HomeFeedNewNotesChromeOverlay("))
+        XCTAssertTrue(profileSource.contains("@Environment(\\.flowScrollChromeStore)"))
+        XCTAssertFalse(profileSource.contains("@Environment(\\.flowScrollChromeOffsets)"))
+    }
+
     func testScrollChromeTopHiddenOffsetIncludesSafeArea() {
         XCTAssertEqual(
             ScrollChromeLayout.topHiddenOffset(
@@ -1067,7 +1085,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("let topHiddenOffset = ScrollChromeLayout.topHiddenOffset"))
         XCTAssertTrue(source.contains("topBarHeight: topHiddenOffset"))
         XCTAssertTrue(source.contains(".padding(.top, safeAreaTop)"))
-        XCTAssertTrue(source.contains(".offset(y: scrollChromeOffsets.topBarOffset)"))
+        XCTAssertTrue(source.contains(".offset(y: topBarOffset)"))
         XCTAssertTrue(source.contains("hiddenOffset: topHiddenOffset"))
     }
 
@@ -1107,7 +1125,7 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertTrue(source.contains("let topVisibleFraction = topNavigationBarVisibleFraction(topHiddenOffset: topHiddenOffset)"))
         XCTAssertTrue(source.contains(".opacity(topVisibleFraction)"))
-        XCTAssertTrue(source.contains("offset: -scrollChromeOffsets.topBarOffset"))
+        XCTAssertTrue(source.contains("offset: -topBarOffset"))
     }
 
     func testHomePullToRefreshUsesNativeRefreshControl() throws {
@@ -1237,14 +1255,14 @@ final class AppThemeOptionTests: XCTestCase {
 
     func testOverlayBottomTabBarFadesWithScrollChromeVisibility() throws {
         let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
-        let overlayRange = try XCTUnwrap(source.range(of: "private var overlayBottomTabBar: some View"))
+        let overlayRange = try XCTUnwrap(source.range(of: "private struct BottomTabBarChromeOverlay: View"))
         let overlaySource = source[overlayRange.lowerBound...]
         let frameRange = try XCTUnwrap(overlaySource.range(of: ".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)"))
-        let offsetRange = try XCTUnwrap(overlaySource.range(of: ".offset(y: bottomTabBarOffset(safeAreaBottom: safeAreaBottom))"))
+        let offsetRange = try XCTUnwrap(overlaySource.range(of: ".offset(y: offset)"))
 
         XCTAssertTrue(source.contains("if isBottomTabBarVisible {"))
-        XCTAssertTrue(source.contains(".offset(y: bottomTabBarOffset(safeAreaBottom: safeAreaBottom))"))
-        XCTAssertTrue(source.contains(".opacity(bottomTabBarVisibleFraction(safeAreaBottom: safeAreaBottom))"))
+        XCTAssertTrue(source.contains(".offset(y: offset)"))
+        XCTAssertTrue(source.contains(".opacity(bottomTabBarVisibleFraction(offset: offset))"))
         XCTAssertLessThan(frameRange.lowerBound, offsetRange.lowerBound)
     }
 
@@ -1277,16 +1295,17 @@ final class AppThemeOptionTests: XCTestCase {
         let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
         let barRange = try XCTUnwrap(source.range(of: "private var bottomTabBar: some View"))
         let barSource = source[barRange.lowerBound...]
-        let overlayRange = try XCTUnwrap(source.range(of: "private var overlayBottomTabBar: some View"))
-        let overlaySource = source[overlayRange.lowerBound..<barRange.lowerBound]
+        let overlayRange = try XCTUnwrap(source.range(of: "private struct BottomTabBarChromeOverlay: View"))
+        let overlayEndRange = try XCTUnwrap(source.range(of: "private struct FloatingComposeButtonChromeOverlay: View"))
+        let overlaySource = source[overlayRange.lowerBound..<overlayEndRange.lowerBound]
         let visibleFractionRange = try XCTUnwrap(source.range(of: "private func bottomTabBarVisibleFraction"))
-        let nextSectionRange = try XCTUnwrap(source.range(of: "private var composeSheetDraftBinding"))
+        let nextSectionRange = try XCTUnwrap(source.range(of: "private struct FloatingComposeButtonChromeOverlay: View"))
         let visibleFractionSource = source[visibleFractionRange.lowerBound..<nextSectionRange.lowerBound]
 
         XCTAssertFalse(barSource.contains(".frame(height: max(0, safeAreaBottom))"))
         XCTAssertFalse(overlaySource.contains(".padding(.bottom, safeAreaBottom)"))
         XCTAssertTrue(overlaySource.contains(".ignoresSafeArea(edges: .bottom)"))
-        XCTAssertTrue(source.contains(".offset(y: bottomTabBarOffset(safeAreaBottom: safeAreaBottom))"))
+        XCTAssertTrue(source.contains(".offset(y: offset)"))
         XCTAssertTrue(source.contains("ScrollChromeLayout.bottomHiddenOffset"))
         XCTAssertTrue(visibleFractionSource.contains("ScrollChromeLayout.bottomContentVisibleFraction"))
         XCTAssertFalse(visibleFractionSource.contains("hiddenOffset: hiddenOffset"))
@@ -1299,8 +1318,9 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("@State private var isHomeRootVisible = true"))
         XCTAssertTrue(shellSource.contains("isRootVisible: $isHomeRootVisible"))
         XCTAssertTrue(homeSource.contains("@Binding var isRootVisible: Bool"))
-        XCTAssertTrue(shellSource.contains("guard selectedTab == .home, isHomeRootVisible else { return 0 }"))
-        XCTAssertTrue(shellSource.contains("guard selectedTab == .home, isHomeRootVisible else { return 1 }"))
+        XCTAssertTrue(shellSource.contains("isHomeRootVisible: isHomeRootVisible"))
+        XCTAssertTrue(shellSource.contains("selectedTabIsHome: selectedTab == .home"))
+        XCTAssertTrue(shellSource.contains("guard selectedTabIsHome, isHomeRootVisible else { return 0 }"))
     }
 
     func testReservedBottomInsetDoesNotRenderSecondTabBar() throws {
@@ -1317,7 +1337,7 @@ final class AppThemeOptionTests: XCTestCase {
     func testHomeProfileDestinationsReceiveSharedScrollChromeContext() throws {
         let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
 
-        XCTAssertTrue(source.contains(".environment(\\.flowScrollChromeOffsets, $homeScrollChrome)"))
+        XCTAssertTrue(source.contains(".environment(\\.flowScrollChromeStore, homeScrollChromeStore)"))
         XCTAssertTrue(source.contains(".environment(\\.flowBottomTabBarHeight, bottomTabBarHeight)"))
     }
 
@@ -1328,7 +1348,7 @@ final class AppThemeOptionTests: XCTestCase {
         let clearanceSource = source[clearanceRange.lowerBound..<nextSectionRange.lowerBound]
 
         XCTAssertFalse(source.contains("private static let bottomScrollClearance: CGFloat = 110"))
-        XCTAssertTrue(source.contains("@Environment(\\.flowScrollChromeOffsets)"))
+        XCTAssertTrue(source.contains("@Environment(\\.flowScrollChromeStore)"))
         XCTAssertTrue(source.contains("profileBottomScrollClearance("))
         XCTAssertFalse(clearanceSource.contains("ScrollChromeLayout.bottomContentVisibleFraction"))
         XCTAssertTrue(source.contains(".onScrollGeometryChange(for: CGFloat.self)"))

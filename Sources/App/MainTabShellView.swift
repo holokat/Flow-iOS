@@ -48,7 +48,7 @@ struct MainTabShellView: View {
     @State private var isDMRootVisible = true
     @State private var isHomeSideMenuPresented = false
     @State private var bottomTabBarHeight: CGFloat = FloatingComposeButtonLayout.defaultBottomTabBarHeight
-    @State private var homeScrollChrome = ScrollChromeOffsets()
+    @State private var homeScrollChromeStore = ScrollChromeStore()
 
     private static let bottomTabBarIconBottomPadding: CGFloat = 15
     private static let bottomTabBarIconTopPadding: CGFloat = 5
@@ -73,10 +73,10 @@ struct MainTabShellView: View {
                     viewModel: homeViewModel,
                     isShowingSideMenu: $isHomeSideMenuPresented,
                     isRootVisible: $isHomeRootVisible,
-                    scrollChromeOffsets: $homeScrollChrome,
+                    scrollChromeStore: homeScrollChromeStore,
                     bottomTabBarHeight: bottomTabBarHeight
                 )
-                    .environment(\.flowScrollChromeOffsets, $homeScrollChrome)
+                    .environment(\.flowScrollChromeStore, homeScrollChromeStore)
                     .environment(\.flowBottomTabBarHeight, bottomTabBarHeight)
                     .id(homeRootResetID)
                     .tag(Tab.home)
@@ -231,17 +231,13 @@ struct MainTabShellView: View {
     @ViewBuilder
     private var overlayBottomTabBar: some View {
         if isBottomTabBarVisible {
-            GeometryReader { proxy in
-                let safeAreaBottom = max(0, proxy.safeAreaInsets.bottom)
-
-                bottomTabBar
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .offset(y: bottomTabBarOffset(safeAreaBottom: safeAreaBottom))
-                    .opacity(bottomTabBarVisibleFraction(safeAreaBottom: safeAreaBottom))
-                    .allowsHitTesting(bottomTabBarHitTestingEnabled(safeAreaBottom: safeAreaBottom))
-                    .accessibilityHidden(!bottomTabBarHitTestingEnabled(safeAreaBottom: safeAreaBottom))
-            }
-            .ignoresSafeArea(edges: .bottom)
+            BottomTabBarChromeOverlay(
+                scrollChromeStore: homeScrollChromeStore,
+                bottomTabBarHeight: bottomTabBarHeight,
+                selectedTab: selectedTab,
+                isHomeRootVisible: isHomeRootVisible,
+                bottomTabBar: { AnyView(bottomTabBar) }
+            )
         }
     }
 
@@ -342,21 +338,15 @@ struct MainTabShellView: View {
     }
 
     private var floatingComposeButtonOverlay: some View {
-        GeometryReader { proxy in
-            let bottomPadding = floatingComposeBottomPadding(safeAreaBottom: proxy.safeAreaInsets.bottom)
-
-            composeFloatingButton
-                .transaction { transaction in
-                    transaction.disablesAnimations = true
-                }
-                .padding(.trailing, FloatingComposeButtonLayout.trailingPadding)
-                .padding(.bottom, bottomPadding)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .animation(
-                    FloatingComposeButtonLayout.movementAnimation(reduceMotion: accessibilityReduceMotion),
-                    value: bottomPadding
-                )
-        }
+        FloatingComposeButtonChromeOverlay(
+            scrollChromeStore: homeScrollChromeStore,
+            bottomTabBarHeight: bottomTabBarHeight,
+            selectedTab: selectedTab,
+            isHomeRootVisible: isHomeRootVisible,
+            isBottomTabBarVisible: isBottomTabBarVisible,
+            shouldOverlayBottomTabBar: shouldOverlayBottomTabBar,
+            composeFloatingButton: { AnyView(composeFloatingButton) }
+        )
     }
 
     private var composeFloatingButton: some View {
@@ -372,14 +362,6 @@ struct MainTabShellView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Compose note")
-    }
-
-    private func floatingComposeBottomPadding(safeAreaBottom: CGFloat) -> CGFloat {
-        FloatingComposeButtonLayout.bottomPadding(
-            safeAreaBottom: safeAreaBottom,
-            bottomTabBarHeight: bottomTabBarHeight,
-            hiddenProgress: bottomTabBarHiddenProgress(safeAreaBottom: safeAreaBottom)
-        )
     }
 
     private var effectiveWriteRelayURLs: [URL] {
@@ -412,53 +394,6 @@ struct MainTabShellView: View {
         ScrollChromeLayout.usesOverlayBottomTabBar(
             selectedTabIsHome: selectedTab == .home,
             isHomeSideMenuPresented: isHomeSideMenuPresented
-        )
-    }
-
-    private func bottomTabBarOffset(safeAreaBottom: CGFloat) -> CGFloat {
-        guard selectedTab == .home, isHomeRootVisible else { return 0 }
-
-        let hiddenOffset = ScrollChromeLayout.bottomHiddenOffset(
-            bottomBarHeight: bottomTabBarHeight,
-            safeAreaBottom: safeAreaBottom
-        )
-        return min(max(0, homeScrollChrome.bottomBarOffset), hiddenOffset)
-    }
-
-    private func bottomTabBarHitTestingEnabled(safeAreaBottom: CGFloat) -> Bool {
-        let hiddenOffset = ScrollChromeLayout.bottomHiddenOffset(
-            bottomBarHeight: bottomTabBarHeight,
-            safeAreaBottom: safeAreaBottom
-        )
-        return ScrollChromeLayout.chromeHitTestingEnabled(
-            offset: bottomTabBarOffset(safeAreaBottom: safeAreaBottom),
-            hiddenOffset: hiddenOffset
-        )
-    }
-
-    private func bottomTabBarVisibleFraction(safeAreaBottom: CGFloat) -> CGFloat {
-        guard isBottomTabBarVisible else { return 0 }
-        guard selectedTab == .home, isHomeRootVisible else { return 1 }
-        guard shouldOverlayBottomTabBar else { return 1 }
-
-        return ScrollChromeLayout.bottomContentVisibleFraction(
-            offset: bottomTabBarOffset(safeAreaBottom: safeAreaBottom),
-            bottomBarHeight: bottomTabBarHeight
-        )
-    }
-
-    private func bottomTabBarHiddenProgress(safeAreaBottom: CGFloat) -> CGFloat {
-        guard isBottomTabBarVisible else { return 1 }
-        guard selectedTab == .home, isHomeRootVisible else { return 0 }
-        guard shouldOverlayBottomTabBar else { return 0 }
-
-        let hiddenOffset = ScrollChromeLayout.bottomHiddenOffset(
-            bottomBarHeight: bottomTabBarHeight,
-            safeAreaBottom: safeAreaBottom
-        )
-        return ScrollChromeLayout.hiddenProgress(
-            offset: bottomTabBarOffset(safeAreaBottom: safeAreaBottom),
-            hiddenOffset: hiddenOffset
         )
     }
 
@@ -671,7 +606,6 @@ struct FloatingComposeButtonLayout {
     private static let hiddenBottomGap: CGFloat = 10
     private static let hiddenVerticalDrop: CGFloat = 24
     private static let visibleVerticalDrop: CGFloat = 60
-    private static let movementAnimationDuration: TimeInterval = 0.42
 
     static func bottomPadding(
         safeAreaBottom: CGFloat,
@@ -699,13 +633,121 @@ struct FloatingComposeButtonLayout {
         return visiblePadding + ((hiddenPadding - visiblePadding) * hiddenProgress)
     }
 
-    static func movementAnimation(reduceMotion: Bool) -> Animation? {
-        guard !reduceMotion else { return nil }
-        return .easeInOut(duration: movementAnimationDuration)
-    }
-
     private static func clamp(_ value: CGFloat, min minimum: CGFloat, max maximum: CGFloat) -> CGFloat {
         Swift.min(Swift.max(value, minimum), maximum)
+    }
+}
+
+private struct BottomTabBarChromeOverlay: View {
+    @ObservedObject var scrollChromeStore: ScrollChromeStore
+
+    let bottomTabBarHeight: CGFloat
+    let selectedTab: MainTabShellView.Tab
+    let isHomeRootVisible: Bool
+    let bottomTabBar: () -> AnyView
+
+    var body: some View {
+        GeometryReader { proxy in
+            let safeAreaBottom = max(0, proxy.safeAreaInsets.bottom)
+            let offset = bottomTabBarOffset(safeAreaBottom: safeAreaBottom)
+            let hitTestingEnabled = bottomTabBarHitTestingEnabled(
+                offset: offset,
+                safeAreaBottom: safeAreaBottom
+            )
+
+            bottomTabBar()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .offset(y: offset)
+                .opacity(bottomTabBarVisibleFraction(offset: offset))
+                .allowsHitTesting(hitTestingEnabled)
+                .accessibilityHidden(!hitTestingEnabled)
+        }
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    private func bottomTabBarOffset(safeAreaBottom: CGFloat) -> CGFloat {
+        ScrollChromeLayout.bottomBarOffset(
+            from: scrollChromeStore.offsets,
+            selectedTabIsHome: selectedTab == .home,
+            isHomeRootVisible: isHomeRootVisible,
+            bottomBarHeight: bottomTabBarHeight,
+            safeAreaBottom: safeAreaBottom
+        )
+    }
+
+    private func bottomTabBarHitTestingEnabled(
+        offset: CGFloat,
+        safeAreaBottom: CGFloat
+    ) -> Bool {
+        let hiddenOffset = ScrollChromeLayout.bottomHiddenOffset(
+            bottomBarHeight: bottomTabBarHeight,
+            safeAreaBottom: safeAreaBottom
+        )
+        return ScrollChromeLayout.chromeHitTestingEnabled(
+            offset: offset,
+            hiddenOffset: hiddenOffset
+        )
+    }
+
+    private func bottomTabBarVisibleFraction(offset: CGFloat) -> CGFloat {
+        ScrollChromeLayout.bottomContentVisibleFraction(
+            offset: offset,
+            bottomBarHeight: bottomTabBarHeight
+        )
+    }
+}
+
+private struct FloatingComposeButtonChromeOverlay: View {
+    @ObservedObject var scrollChromeStore: ScrollChromeStore
+
+    let bottomTabBarHeight: CGFloat
+    let selectedTab: MainTabShellView.Tab
+    let isHomeRootVisible: Bool
+    let isBottomTabBarVisible: Bool
+    let shouldOverlayBottomTabBar: Bool
+    let composeFloatingButton: () -> AnyView
+
+    var body: some View {
+        GeometryReader { proxy in
+            let bottomPadding = floatingComposeBottomPadding(safeAreaBottom: proxy.safeAreaInsets.bottom)
+
+            composeFloatingButton()
+                .transaction { transaction in
+                    transaction.disablesAnimations = true
+                }
+                .padding(.trailing, FloatingComposeButtonLayout.trailingPadding)
+                .padding(.bottom, bottomPadding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        }
+    }
+
+    private func floatingComposeBottomPadding(safeAreaBottom: CGFloat) -> CGFloat {
+        FloatingComposeButtonLayout.bottomPadding(
+            safeAreaBottom: safeAreaBottom,
+            bottomTabBarHeight: bottomTabBarHeight,
+            hiddenProgress: bottomTabBarHiddenProgress(safeAreaBottom: safeAreaBottom)
+        )
+    }
+
+    private func bottomTabBarHiddenProgress(safeAreaBottom: CGFloat) -> CGFloat {
+        guard isBottomTabBarVisible else { return 1 }
+        guard selectedTab == .home, isHomeRootVisible else { return 0 }
+        guard shouldOverlayBottomTabBar else { return 0 }
+
+        let hiddenOffset = ScrollChromeLayout.bottomHiddenOffset(
+            bottomBarHeight: bottomTabBarHeight,
+            safeAreaBottom: safeAreaBottom
+        )
+        return ScrollChromeLayout.hiddenProgress(
+            offset: ScrollChromeLayout.bottomBarOffset(
+                from: scrollChromeStore.offsets,
+                selectedTabIsHome: selectedTab == .home,
+                isHomeRootVisible: isHomeRootVisible,
+                bottomBarHeight: bottomTabBarHeight,
+                safeAreaBottom: safeAreaBottom
+            ),
+            hiddenOffset: hiddenOffset
+        )
     }
 }
 
@@ -714,6 +756,16 @@ struct ScrollChromeOffsets: Equatable {
     var topBarOffset: CGFloat = 0
     var bottomBarOffset: CGFloat = 0
     var hasMeasuredScrollY = false
+}
+
+@MainActor
+final class ScrollChromeStore: ObservableObject {
+    @Published private(set) var offsets = ScrollChromeOffsets()
+
+    func publishVisualOffsetsIfNeeded(_ updated: ScrollChromeOffsets) {
+        guard ScrollChromeLayout.shouldPublishVisualOffsets(updated, over: offsets) else { return }
+        offsets = ScrollChromeLayout.publishedVisualOffsets(from: updated)
+    }
 }
 
 final class ScrollChromeTracker {
@@ -753,8 +805,8 @@ final class ScrollChromeTracker {
     }
 }
 
-private struct FlowScrollChromeOffsetsEnvironmentKey: EnvironmentKey {
-    static let defaultValue: Binding<ScrollChromeOffsets>? = nil
+private struct FlowScrollChromeStoreEnvironmentKey: EnvironmentKey {
+    static let defaultValue: ScrollChromeStore? = nil
 }
 
 private struct FlowBottomTabBarHeightEnvironmentKey: EnvironmentKey {
@@ -762,9 +814,9 @@ private struct FlowBottomTabBarHeightEnvironmentKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    var flowScrollChromeOffsets: Binding<ScrollChromeOffsets>? {
-        get { self[FlowScrollChromeOffsetsEnvironmentKey.self] }
-        set { self[FlowScrollChromeOffsetsEnvironmentKey.self] = newValue }
+    var flowScrollChromeStore: ScrollChromeStore? {
+        get { self[FlowScrollChromeStoreEnvironmentKey.self] }
+        set { self[FlowScrollChromeStoreEnvironmentKey.self] = newValue }
     }
 
     var flowBottomTabBarHeight: CGFloat {
@@ -890,6 +942,22 @@ struct ScrollChromeLayout {
         safeAreaBottom: CGFloat
     ) -> CGFloat {
         max(0, bottomBarHeight) + max(0, safeAreaBottom)
+    }
+
+    static func bottomBarOffset(
+        from offsets: ScrollChromeOffsets,
+        selectedTabIsHome: Bool,
+        isHomeRootVisible: Bool,
+        bottomBarHeight: CGFloat,
+        safeAreaBottom: CGFloat
+    ) -> CGFloat {
+        guard selectedTabIsHome, isHomeRootVisible else { return 0 }
+
+        let hiddenOffset = bottomHiddenOffset(
+            bottomBarHeight: bottomBarHeight,
+            safeAreaBottom: safeAreaBottom
+        )
+        return clamp(offsets.bottomBarOffset, min: 0, max: hiddenOffset)
     }
 
     static func bottomContentVisibleFraction(

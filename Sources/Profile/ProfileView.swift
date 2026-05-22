@@ -26,7 +26,7 @@ struct ProfileView: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var toastCenter: AppToastCenter
     @EnvironmentObject private var relaySettings: RelaySettingsStore
-    @Environment(\.flowScrollChromeOffsets) private var flowScrollChromeOffsets
+    @Environment(\.flowScrollChromeStore) private var flowScrollChromeStore
     @Environment(\.flowBottomTabBarHeight) private var flowBottomTabBarHeight
     @Environment(\.dismiss) private var dismiss
 
@@ -414,7 +414,7 @@ struct ProfileView: View {
                 }
                 .modifier(
                     ProfileScrollChromeModifier(
-                        scrollChromeOffsets: flowScrollChromeOffsets,
+                        scrollChromeStore: flowScrollChromeStore,
                         bottomTabBarHeight: flowBottomTabBarHeight,
                         safeAreaBottom: safeAreaBottom
                     )
@@ -1098,27 +1098,25 @@ private struct ProfileConnectionsSheet: View {
 }
 
 private struct ProfileScrollChromeModifier: ViewModifier {
-    let scrollChromeOffsets: Binding<ScrollChromeOffsets>?
+    let scrollChromeStore: ScrollChromeStore?
     let bottomTabBarHeight: CGFloat
     let safeAreaBottom: CGFloat
     @State private var scrollChromeTracker = ScrollChromeTracker()
 
     func body(content: Content) -> some View {
-        if #available(iOS 18.0, *), let scrollChromeOffsets {
+        if #available(iOS 18.0, *), let scrollChromeStore {
             content
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     max(0, geometry.contentOffset.y + geometry.contentInsets.top)
                 } action: { _, scrollY in
                     let updated = scrollChromeTracker.offsetsByApplyingScroll(
                         currentScrollY: scrollY,
-                        currentVisualOffsets: scrollChromeOffsets.wrappedValue,
+                        currentVisualOffsets: scrollChromeStore.offsets,
                         topBarHeight: ScrollChromeLayout.defaultTopBarHeight,
                         bottomBarHeight: bottomTabBarHeight,
                         safeAreaBottom: safeAreaBottom
                     )
-                    if ScrollChromeLayout.shouldPublishVisualOffsets(updated, over: scrollChromeOffsets.wrappedValue) {
-                        scrollChromeOffsets.wrappedValue = ScrollChromeLayout.publishedVisualOffsets(from: updated)
-                    }
+                    scrollChromeStore.publishVisualOffsetsIfNeeded(updated)
                 }
         } else {
             content

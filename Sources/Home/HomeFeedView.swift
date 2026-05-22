@@ -16,7 +16,7 @@ struct HomeFeedView: View {
     @ObservedObject var viewModel: HomeFeedViewModel
     @Binding var isShowingSideMenu: Bool
     @Binding var isRootVisible: Bool
-    @Binding var scrollChromeOffsets: ScrollChromeOffsets
+    let scrollChromeStore: ScrollChromeStore
     let bottomTabBarHeight: CGFloat
     private let reactionStats = NoteReactionStatsService.shared
     @StateObject private var engagementViewport = FeedEngagementViewportCoordinator()
@@ -237,7 +237,7 @@ struct HomeFeedView: View {
             NavigationStack {
                 HomeFeedRootContent(
                     isShowingSideMenu: $isShowingSideMenu,
-                    scrollChromeOffsets: $scrollChromeOffsets,
+                    scrollChromeStore: scrollChromeStore,
                     bottomTabBarHeight: bottomTabBarHeight,
                     topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top),
                     bottomSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.bottom),
@@ -447,19 +447,21 @@ struct HomeFeedView: View {
         scrollProxy: ScrollViewProxy,
         topBarHeight: CGFloat
     ) -> some View {
-        if viewModel.visibleBufferedNewItemsCount > 0, !isNearFeedTop, !isShowingSideMenu, !isRevealingBufferedItems {
-            newNotesPill {
-                self.revealBufferedNewItems(scrollProxy: scrollProxy)
-            }
-            .padding(
-                .top,
-                ScrollChromeLayout.newNotesIslandTopPadding(
-                    topBarHeight: topBarHeight,
-                    topBarOffset: scrollChromeOffsets.topBarOffset
+        HomeFeedNewNotesChromeOverlay(
+            scrollChromeStore: scrollChromeStore,
+            isVisible: viewModel.visibleBufferedNewItemsCount > 0 &&
+                !isNearFeedTop &&
+                !isShowingSideMenu &&
+                !isRevealingBufferedItems,
+            topBarHeight: topBarHeight,
+            content: {
+                AnyView(
+                    newNotesPill {
+                        self.revealBufferedNewItems(scrollProxy: scrollProxy)
+                    }
                 )
-            )
-            .transition(.move(edge: .top).combined(with: .opacity))
-        }
+            }
+        )
     }
 
     private func handleScroll(
@@ -469,18 +471,13 @@ struct HomeFeedView: View {
     ) {
         let updated = scrollChromeTracker.offsetsByApplyingScroll(
             currentScrollY: currentScrollY,
-            currentVisualOffsets: scrollChromeOffsets,
+            currentVisualOffsets: scrollChromeStore.offsets,
             topBarHeight: topBarHeight,
             bottomBarHeight: bottomTabBarHeight,
             safeAreaBottom: safeAreaBottom
         )
 
-        publishScrollChromeOffsetsIfNeeded(updated)
-    }
-
-    private func publishScrollChromeOffsetsIfNeeded(_ updated: ScrollChromeOffsets) {
-        guard ScrollChromeLayout.shouldPublishVisualOffsets(updated, over: scrollChromeOffsets) else { return }
-        scrollChromeOffsets = ScrollChromeLayout.publishedVisualOffsets(from: updated)
+        scrollChromeStore.publishVisualOffsetsIfNeeded(updated)
     }
 
     private func handleNearTopChange(currentScrollY: CGFloat) {
@@ -1435,9 +1432,8 @@ struct HomeFeedView: View {
 }
 
 private struct HomeFeedRootContent: View {
-    @EnvironmentObject private var appSettings: AppSettingsStore
     @Binding var isShowingSideMenu: Bool
-    @Binding var scrollChromeOffsets: ScrollChromeOffsets
+    let scrollChromeStore: ScrollChromeStore
 
     let bottomTabBarHeight: CGFloat
     let topSafeAreaInset: CGFloat
@@ -1461,8 +1457,6 @@ private struct HomeFeedRootContent: View {
                 bottomBarHeight: bottomTabBarHeight,
                 safeAreaBottom: safeAreaBottom
             )
-            let topVisibleFraction = topNavigationBarVisibleFraction(topHiddenOffset: topHiddenOffset)
-
             SideMenuContainer(
                 isOpen: $isShowingSideMenu,
                 topSafeAreaInset: safeAreaTop
@@ -1482,14 +1476,12 @@ private struct HomeFeedRootContent: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(edges: .bottom)
 
-                    topNavigationBar()
-                        .background(topNavigationBarHeightReader)
-                        .padding(.top, safeAreaTop)
-                        .background(topNavigationBarBackground)
-                        .offset(y: scrollChromeOffsets.topBarOffset)
-                        .opacity(topVisibleFraction)
-                        .allowsHitTesting(topNavigationBarHitTestingEnabled(topHiddenOffset: topHiddenOffset))
-                        .accessibilityHidden(!topNavigationBarHitTestingEnabled(topHiddenOffset: topHiddenOffset))
+                    HomeFeedTopNavigationChromeView(
+                        scrollChromeStore: scrollChromeStore,
+                        safeAreaTop: safeAreaTop,
+                        topHiddenOffset: topHiddenOffset,
+                        topNavigationBar: topNavigationBar
+                    )
                         .zIndex(1)
                 }
             }
@@ -1501,17 +1493,49 @@ private struct HomeFeedRootContent: View {
         .ignoresSafeArea(edges: [.top, .bottom])
         .toolbar(.hidden, for: .navigationBar)
     }
+}
 
-    private func topNavigationBarHitTestingEnabled(topHiddenOffset: CGFloat) -> Bool {
+private struct HomeFeedTopNavigationChromeView: View {
+    @EnvironmentObject private var appSettings: AppSettingsStore
+    @ObservedObject var scrollChromeStore: ScrollChromeStore
+
+    let safeAreaTop: CGFloat
+    let topHiddenOffset: CGFloat
+    let topNavigationBar: () -> AnyView
+
+    var body: some View {
+        let topBarOffset = scrollChromeStore.offsets.topBarOffset
+        let hitTestingEnabled = topNavigationBarHitTestingEnabled(
+            topBarOffset: topBarOffset,
+            topHiddenOffset: topHiddenOffset
+        )
+
+        topNavigationBar()
+            .background(topNavigationBarHeightReader)
+            .padding(.top, safeAreaTop)
+            .background(topNavigationBarBackground)
+            .offset(y: topBarOffset)
+            .opacity(topNavigationBarVisibleFraction(topBarOffset: topBarOffset, topHiddenOffset: topHiddenOffset))
+            .allowsHitTesting(hitTestingEnabled)
+            .accessibilityHidden(!hitTestingEnabled)
+    }
+
+    private func topNavigationBarHitTestingEnabled(
+        topBarOffset: CGFloat,
+        topHiddenOffset: CGFloat
+    ) -> Bool {
         ScrollChromeLayout.chromeHitTestingEnabled(
-            offset: scrollChromeOffsets.topBarOffset,
+            offset: topBarOffset,
             hiddenOffset: topHiddenOffset
         )
     }
 
-    private func topNavigationBarVisibleFraction(topHiddenOffset: CGFloat) -> CGFloat {
+    private func topNavigationBarVisibleFraction(
+        topBarOffset: CGFloat,
+        topHiddenOffset: CGFloat
+    ) -> CGFloat {
         ScrollChromeLayout.visibleFraction(
-            offset: -scrollChromeOffsets.topBarOffset,
+            offset: -topBarOffset,
             hiddenOffset: topHiddenOffset
         )
     }
@@ -1529,6 +1553,28 @@ private struct HomeFeedRootContent: View {
     private var topNavigationBarBackground: some View {
         appSettings.themePalette.background
             .ignoresSafeArea(edges: .top)
+    }
+}
+
+private struct HomeFeedNewNotesChromeOverlay: View {
+    @ObservedObject var scrollChromeStore: ScrollChromeStore
+
+    let isVisible: Bool
+    let topBarHeight: CGFloat
+    let content: () -> AnyView
+
+    var body: some View {
+        if isVisible {
+            content()
+                .padding(
+                    .top,
+                    ScrollChromeLayout.newNotesIslandTopPadding(
+                        topBarHeight: topBarHeight,
+                        topBarOffset: scrollChromeStore.offsets.topBarOffset
+                    )
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 }
 
