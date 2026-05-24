@@ -118,7 +118,7 @@ final class HomeFeedViewModel: ObservableObject {
         let interestSources: [HomePrimaryFeedSource] = interestHashtags.isEmpty ? [] : [.interests]
         let customSources = customFeeds.map { HomePrimaryFeedSource.custom($0.id) }
         let pollsSources: [HomePrimaryFeedSource] = pollsFeedVisible ? [.polls] : []
-        return [.following, .articles] + pollsSources + [.trending] + interestSources + [.news] + customSources + relaySources + hashtagSources
+        return [.following] + pollsSources + [.trending] + interestSources + customSources + relaySources + hashtagSources
     }
 
     var supportsModeTabsForCurrentSource: Bool {

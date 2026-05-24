@@ -76,11 +76,13 @@ final class HomeFeedViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testFeedSourceOptionsExcludeNetworkAndStartWithFollowing() {
+    func testFeedSourceOptionsExcludeNetworkArticlesAndNewsAndStartWithFollowing() {
         let viewModel = HomeFeedViewModel(relayURL: defaultHomeRelayURL)
 
         XCTAssertFalse(viewModel.feedSourceOptions.contains(.network))
-        XCTAssertEqual(Array(viewModel.feedSourceOptions.prefix(3)), [.following, .articles, .polls])
+        XCTAssertFalse(viewModel.feedSourceOptions.contains(.articles))
+        XCTAssertFalse(viewModel.feedSourceOptions.contains(.news))
+        XCTAssertEqual(Array(viewModel.feedSourceOptions.prefix(3)), [.following, .polls, .trending])
     }
 
     @MainActor
