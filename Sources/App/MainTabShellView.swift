@@ -271,22 +271,25 @@ struct MainTabShellView: View {
 
     @available(iOS 26.0, *)
     private var bottomTabBarNativeGlass: some View {
-        GlassEffectContainer {
-            bottomTabBarContents
-                .glassEffect(
-                    .regular
-                        .tint(bottomTabBarGlassTint)
-                        .interactive(),
-                    in: Capsule()
-                )
+        GlassEffectContainer(spacing: 40) {
+            HStack(spacing: Self.bottomTabBarCapsuleItemSpacing) {
+                glassTabBarButton(for: .home)
+                glassTabBarButton(for: .search)
+                if !appSettings.floatingComposeButtonEnabled {
+                    composeTabButton
+                }
+                glassTabBarButton(for: .dms)
+                glassTabBarButton(for: .activity)
+            }
+            .padding(.horizontal, Self.bottomTabBarCapsuleHorizontalPadding)
+            .padding(.vertical, Self.bottomTabBarCapsuleVerticalPadding)
         }
     }
 
     @available(iOS 26.0, *)
-    private var bottomTabBarGlassTint: Color {
-        effectiveChromeColorScheme == .dark
-            ? Color.white.opacity(0.18)
-            : Color.black.opacity(0.12)
+    private func glassTabBarButton(for tab: Tab) -> some View {
+        tabBarButton(for: tab)
+            .glassEffect(.regular.interactive(), in: Capsule())
     }
 
     private var bottomTabBarContents: some View {
