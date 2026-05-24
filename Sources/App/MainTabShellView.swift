@@ -271,25 +271,10 @@ struct MainTabShellView: View {
 
     @available(iOS 26.0, *)
     private var bottomTabBarNativeGlass: some View {
-        GlassEffectContainer(spacing: 40) {
-            HStack(spacing: Self.bottomTabBarCapsuleItemSpacing) {
-                glassTabBarButton(for: .home)
-                glassTabBarButton(for: .search)
-                if !appSettings.floatingComposeButtonEnabled {
-                    composeTabButton
-                }
-                glassTabBarButton(for: .dms)
-                glassTabBarButton(for: .activity)
-            }
-            .padding(.horizontal, Self.bottomTabBarCapsuleHorizontalPadding)
-            .padding(.vertical, Self.bottomTabBarCapsuleVerticalPadding)
+        GlassEffectContainer {
+            bottomTabBarContents
+                .glassEffect(.regular.interactive(), in: Capsule())
         }
-    }
-
-    @available(iOS 26.0, *)
-    private func glassTabBarButton(for tab: Tab) -> some View {
-        tabBarButton(for: tab)
-            .glassEffect(.regular.interactive(), in: Capsule())
     }
 
     private var bottomTabBarContents: some View {
@@ -392,10 +377,9 @@ struct MainTabShellView: View {
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 21, weight: .semibold))
-                .foregroundStyle(appSettings.buttonTextColor)
+                .foregroundStyle(appSettings.primaryColor)
                 .frame(width: Self.bottomTabBarIconFrameSize, height: Self.bottomTabBarIconFrameSize)
-                .background(appSettings.primaryGradient, in: Circle())
-                .shadow(color: .black.opacity(0.18), radius: 6, x: 0, y: 2)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Compose note")
