@@ -993,10 +993,12 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(paddingSource.contains("topBarOffset:"))
     }
 
-    func testHomeFeedScrollContentCanUnderlayHiddenChromeAtBothEdges() throws {
+    func testHomeFeedLeavesBottomSafeAreaAvailableForNativeTabMinimization() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
-        XCTAssertTrue(source.contains(".ignoresSafeArea(edges: [.top, .bottom])"))
+        XCTAssertTrue(source.contains(".ignoresSafeArea(edges: .top)"))
+        XCTAssertFalse(source.contains(".ignoresSafeArea(edges: [.top, .bottom])"))
+        XCTAssertFalse(source.contains(".ignoresSafeArea(edges: .bottom)"))
     }
 
     func testScrollChromeContentPaddingStaysStableWhileTopChromeMoves() {
@@ -1074,18 +1076,19 @@ final class AppThemeOptionTests: XCTestCase {
     func testHomeFeedCapturesSafeAreaBeforeRootIgnoresIt() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
-        XCTAssertTrue(source.contains("GeometryReader { navigationGeometry in\n            NavigationStack"))
+        XCTAssertTrue(source.contains("NavigationStack {\n            GeometryReader { navigationGeometry in"))
         XCTAssertTrue(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertTrue(source.contains("bottomSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.bottom)"))
         XCTAssertTrue(source.contains("let topSafeAreaInset: CGFloat"))
         XCTAssertTrue(source.contains("let bottomSafeAreaInset: CGFloat"))
     }
 
-    func testHomeFeedRootSpansDeviceEdgesLikeProfileHeader() throws {
+    func testHomeFeedRootSpansTopEdgeWhilePreservingBottomTabEdge() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
         XCTAssertTrue(source.contains("GeometryReader { geometry in"))
-        XCTAssertTrue(source.contains("}\n        .ignoresSafeArea(edges: [.top, .bottom])\n        .toolbar(.hidden, for: .navigationBar)"))
+        XCTAssertTrue(source.contains("}\n        .ignoresSafeArea(edges: .top)\n        .toolbar(.hidden, for: .navigationBar)"))
+        XCTAssertFalse(source.contains("}\n        .ignoresSafeArea(edges: [.top, .bottom])\n        .toolbar(.hidden, for: .navigationBar)"))
     }
 
     func testHomeTopChromeBackgroundMovesAndFadesWithVisibleChrome() throws {

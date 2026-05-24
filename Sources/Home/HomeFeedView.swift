@@ -233,8 +233,8 @@ struct HomeFeedView: View {
     }
 
     private var navigationRoot: some View {
-        GeometryReader { navigationGeometry in
-            NavigationStack {
+        NavigationStack {
+            GeometryReader { navigationGeometry in
                 HomeFeedRootContent(
                     isShowingSideMenu: $isShowingSideMenu,
                     scrollChromeStore: scrollChromeStore,
@@ -309,7 +309,6 @@ struct HomeFeedView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             feedTopPadding(height: topContentPadding)
         }
-        .ignoresSafeArea(edges: .bottom)
         .coordinateSpace(name: Self.feedScrollCoordinateSpace)
         .overlay(alignment: .top) {
             newNotesOverlay(
@@ -1474,7 +1473,6 @@ private struct HomeFeedRootContent: View {
                         safeAreaBottom
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea(edges: .bottom)
 
                     HomeFeedTopNavigationChromeView(
                         scrollChromeStore: scrollChromeStore,
@@ -1490,7 +1488,7 @@ private struct HomeFeedRootContent: View {
                 topBarHeight = newValue
             }
         }
-        .ignoresSafeArea(edges: [.top, .bottom])
+        .ignoresSafeArea(edges: .top)
         .toolbar(.hidden, for: .navigationBar)
     }
 }
