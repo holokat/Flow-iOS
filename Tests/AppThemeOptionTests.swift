@@ -783,83 +783,6 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(reloaded.floatingComposeButtonEnabled)
     }
 
-    func testFloatingComposePaddingClearsVisibleBottomBar() {
-        let bottomTabBarHeight = FloatingComposeButtonLayout.defaultBottomTabBarHeight
-        let padding = FloatingComposeButtonLayout.bottomPadding(
-            safeAreaBottom: 34,
-            bottomTabBarHeight: bottomTabBarHeight,
-            isBottomTabBarVisible: true
-        )
-
-        XCTAssertEqual(padding, 55)
-    }
-
-    func testFloatingComposePaddingSitsCloserWhenBottomBarIsHidden() {
-        let bottomTabBarHeight = FloatingComposeButtonLayout.defaultBottomTabBarHeight
-        let hiddenPadding = FloatingComposeButtonLayout.bottomPadding(
-            safeAreaBottom: 34,
-            bottomTabBarHeight: bottomTabBarHeight,
-            isBottomTabBarVisible: false
-        )
-        let visiblePadding = FloatingComposeButtonLayout.bottomPadding(
-            safeAreaBottom: 34,
-            bottomTabBarHeight: bottomTabBarHeight,
-            isBottomTabBarVisible: true
-        )
-
-        XCTAssertEqual(hiddenPadding, 20)
-        XCTAssertLessThan(hiddenPadding, visiblePadding)
-    }
-
-    func testFloatingComposeButtonUsesRequestedTrailingPadding() {
-        XCTAssertEqual(FloatingComposeButtonLayout.trailingPadding, 26)
-    }
-
-    func testFloatingComposePaddingMovesContinuouslyWithBottomBarOffset() {
-        let bottomTabBarHeight = FloatingComposeButtonLayout.defaultBottomTabBarHeight
-        let hiddenPadding = FloatingComposeButtonLayout.bottomPadding(
-            safeAreaBottom: 34,
-            bottomTabBarHeight: bottomTabBarHeight,
-            hiddenProgress: 1
-        )
-        let visiblePadding = FloatingComposeButtonLayout.bottomPadding(
-            safeAreaBottom: 34,
-            bottomTabBarHeight: bottomTabBarHeight,
-            hiddenProgress: 0
-        )
-        let halfwayPadding = FloatingComposeButtonLayout.bottomPadding(
-            safeAreaBottom: 34,
-            bottomTabBarHeight: bottomTabBarHeight,
-            hiddenProgress: 0.5
-        )
-
-        XCTAssertEqual(halfwayPadding, (hiddenPadding + visiblePadding) / 2, accuracy: 0.0001)
-    }
-
-    func testFloatingComposeButtonTracksNumericBottomPaddingWithoutRetargetedAnimation() throws {
-        let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
-        let overlayRange = try XCTUnwrap(source.range(of: "private struct FloatingComposeButtonChromeOverlay: View"))
-        let buttonRange = try XCTUnwrap(source.range(of: "struct ScrollChromeOffsets"))
-        let overlaySource = source[overlayRange.lowerBound..<buttonRange.lowerBound]
-
-        XCTAssertTrue(overlaySource.contains("let bottomPadding = floatingComposeBottomPadding"))
-        XCTAssertTrue(overlaySource.contains("transaction.disablesAnimations = true"))
-        XCTAssertFalse(overlaySource.contains("FloatingComposeButtonLayout.movementAnimation"))
-        XCTAssertFalse(overlaySource.contains("value: bottomPadding"))
-        XCTAssertFalse(overlaySource.contains(".animation("))
-    }
-
-    func testFloatingComposeButtonTracksFullBottomBarHiddenProgress() throws {
-        let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
-        let overlayRange = try XCTUnwrap(source.range(of: "private struct FloatingComposeButtonChromeOverlay: View"))
-        let nextSectionRange = try XCTUnwrap(source.range(of: "struct ScrollChromeOffsets"))
-        let overlaySource = source[overlayRange.lowerBound..<nextSectionRange.lowerBound]
-
-        XCTAssertTrue(overlaySource.contains("private func bottomTabBarHiddenProgress"))
-        XCTAssertTrue(overlaySource.contains("ScrollChromeLayout.bottomHiddenOffset"))
-        XCTAssertTrue(overlaySource.contains("ScrollChromeLayout.hiddenProgress"))
-    }
-
     func testBottomTabBarStaysVisibleOnHomeRoot() {
         XCTAssertTrue(
             ScrollChromeLayout.isBottomTabBarVisible(
@@ -1231,27 +1154,6 @@ final class AppThemeOptionTests: XCTestCase {
         )
     }
 
-    func testNativeTabBarHidesOnlyAfterHomeScrollChromeIsMostlyHidden() {
-        XCTAssertFalse(
-            ScrollChromeLayout.shouldHideNativeTabBar(
-                bottomBarOffset: 0,
-                hiddenOffset: 100
-            )
-        )
-        XCTAssertFalse(
-            ScrollChromeLayout.shouldHideNativeTabBar(
-                bottomBarOffset: 80,
-                hiddenOffset: 100
-            )
-        )
-        XCTAssertTrue(
-            ScrollChromeLayout.shouldHideNativeTabBar(
-                bottomBarOffset: 92,
-                hiddenOffset: 100
-            )
-        )
-    }
-
     func testScrollChromeBottomContentPaddingIgnoresSafeAreaSpacer() {
         XCTAssertEqual(
             ScrollChromeLayout.bottomContentVisibleFraction(
@@ -1336,15 +1238,17 @@ final class AppThemeOptionTests: XCTestCase {
         let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
 
         XCTAssertTrue(source.contains("TabView(selection: tabSelection)"))
-        XCTAssertTrue(source.contains(".tabItem { tabBarLabel(for: .home) }"))
-        XCTAssertTrue(source.contains(".tabItem { tabBarLabel(for: .search) }"))
-        XCTAssertTrue(source.contains(".tabItem { tabBarLabel(for: .compose) }"))
-        XCTAssertTrue(source.contains(".tabItem { tabBarLabel(for: .dms) }"))
-        XCTAssertTrue(source.contains(".tabItem { tabBarLabel(for: .activity) }"))
-        XCTAssertTrue(source.contains(".toolbar(nativeTabBarVisibility(safeAreaBottom: proxy.safeAreaInsets.bottom), for: .tabBar)"))
+        XCTAssertTrue(source.contains("SwiftUI.Tab(value: Tab.compose, role: .search)"))
+        XCTAssertTrue(source.contains("private func tabBarIcon(for tab: Tab)"))
+        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .home) }"))
+        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .search) }"))
+        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .compose) }"))
+        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .dms) }"))
+        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .activity) }"))
+        XCTAssertTrue(source.contains(".toolbar(nativeTabBarVisibility, for: .tabBar)"))
         XCTAssertTrue(source.contains(".flowNativeTabBarBehavior()"))
-        XCTAssertTrue(source.contains("private func shouldHideNativeTabBarForHomeScroll"))
-        XCTAssertTrue(source.contains("ScrollChromeLayout.shouldHideNativeTabBar"))
+        XCTAssertTrue(source.contains(".environment(\\.symbolVariants, .none)"))
+        XCTAssertFalse(source.contains("private func tabBarLabel"))
         XCTAssertFalse(source.contains(".toolbar(.hidden, for: .tabBar)"))
         XCTAssertFalse(source.contains("GlassEffectContainer"))
         XCTAssertFalse(source.contains(".glassEffect("))
@@ -1353,12 +1257,13 @@ final class AppThemeOptionTests: XCTestCase {
     func testComposeTabUsesNativeItemAsActionWithoutSelectingPlaceholder() throws {
         let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
         let selectionRange = try XCTUnwrap(source.range(of: "private var tabSelection: Binding<Tab>"))
-        let visibilityRange = try XCTUnwrap(source.range(of: "private func nativeTabBarVisibility"))
+        let visibilityRange = try XCTUnwrap(source.range(of: "private var nativeTabBarVisibility"))
         let selectionSource = source[selectionRange.lowerBound..<visibilityRange.lowerBound]
 
         XCTAssertTrue(source.contains("case compose"))
         XCTAssertTrue(source.contains("Color.clear"))
         XCTAssertTrue(source.contains(".tag(Tab.compose)"))
+        XCTAssertTrue(source.contains("SwiftUI.Tab(value: Tab.compose, role: .search)"))
         XCTAssertTrue(selectionSource.contains("guard newValue != .compose else"))
         XCTAssertTrue(selectionSource.contains("handleComposeTap()"))
         XCTAssertFalse(selectionSource.contains("selectedTab = .compose"))
@@ -1369,6 +1274,9 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertFalse(source.contains(".safeAreaInset(edge: .bottom"))
         XCTAssertFalse(source.contains("private struct BottomTabBarChromeOverlay: View"))
+        XCTAssertFalse(source.contains("private struct FloatingComposeButtonChromeOverlay: View"))
+        XCTAssertFalse(source.contains("FloatingComposeButtonLayout"))
+        XCTAssertFalse(source.contains("floatingComposeButtonOverlay"))
         XCTAssertFalse(source.contains("private var bottomTabBar"))
         XCTAssertFalse(source.contains("private func bottomTabBar(safeAreaBottom: CGFloat)"))
         XCTAssertFalse(source.contains("BottomTabBarHeightPreferenceKey"))
@@ -1382,9 +1290,9 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("@State private var isHomeRootVisible = true"))
         XCTAssertTrue(shellSource.contains("isRootVisible: $isHomeRootVisible"))
         XCTAssertTrue(homeSource.contains("@Binding var isRootVisible: Bool"))
-        XCTAssertTrue(shellSource.contains("isHomeRootVisible: isHomeRootVisible"))
-        XCTAssertTrue(shellSource.contains("selectedTabIsHome: selectedTab == .home"))
-        XCTAssertTrue(shellSource.contains("guard selectedTabIsHome, isHomeRootVisible else { return 0 }"))
+        XCTAssertTrue(shellSource.contains("private var nativeTabBarVisibility: Visibility"))
+        XCTAssertTrue(shellSource.contains("isBottomTabBarVisible ? .visible : .hidden"))
+        XCTAssertFalse(shellSource.contains("private func shouldHideNativeTabBarForHomeScroll"))
     }
 
     func testReservedBottomInsetDoesNotRenderSecondTabBar() throws {

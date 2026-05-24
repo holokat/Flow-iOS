@@ -20,16 +20,6 @@ struct MainTabShellView: View {
             }
         }
 
-        var tabBarTitle: String {
-            switch self {
-            case .home: return "Home"
-            case .search: return "Search"
-            case .compose: return "Compose"
-            case .dms: return "Halo"
-            case .activity: return "Pulse"
-            }
-        }
-
         var symbolName: String {
             switch self {
             case .home: return "house"
@@ -59,7 +49,7 @@ struct MainTabShellView: View {
     @State private var isActivityRootVisible = true
     @State private var isDMRootVisible = true
     @State private var isHomeSideMenuPresented = false
-    private let bottomTabBarHeight: CGFloat = FloatingComposeButtonLayout.defaultBottomTabBarHeight
+    private let bottomTabBarHeight: CGFloat = ScrollChromeLayout.defaultBottomTabBarHeight
     @State private var homeScrollChromeStore = ScrollChromeStore()
 
     @StateObject private var homeViewModel = HomeFeedViewModel(
@@ -77,58 +67,7 @@ struct MainTabShellView: View {
             AppThemeBackgroundView()
                 .ignoresSafeArea()
 
-            GeometryReader { proxy in
-                TabView(selection: tabSelection) {
-                    HomeFeedView(
-                        viewModel: homeViewModel,
-                        isShowingSideMenu: $isHomeSideMenuPresented,
-                        isRootVisible: $isHomeRootVisible,
-                        scrollChromeStore: homeScrollChromeStore,
-                        bottomTabBarHeight: bottomTabBarHeight
-                    )
-                        .environment(\.flowScrollChromeStore, homeScrollChromeStore)
-                        .environment(\.flowBottomTabBarHeight, bottomTabBarHeight)
-                        .id(homeRootResetID)
-                        .tag(Tab.home)
-                        .tabItem { tabBarLabel(for: .home) }
-
-                    SearchView(
-                        viewModel: searchViewModel,
-                        isActive: selectedTab == .search
-                    )
-                        .id(searchRootResetID)
-                        .tag(Tab.search)
-                        .tabItem { tabBarLabel(for: .search) }
-
-                    if !appSettings.floatingComposeButtonEnabled {
-                        Color.clear
-                            .tag(Tab.compose)
-                            .tabItem { tabBarLabel(for: .compose) }
-                    }
-
-                    DMsView(isRootVisible: $isDMRootVisible)
-                        .tag(Tab.dms)
-                        .tabItem { tabBarLabel(for: .dms) }
-
-                    ActivityView(
-                        viewModel: activityViewModel,
-                        isRootVisible: $isActivityRootVisible,
-                        isTabActive: selectedTab == .activity
-                    )
-                        .id(activityRootResetID)
-                        .tag(Tab.activity)
-                        .tabItem { tabBarLabel(for: .activity) }
-                        .modifier(ActivityTabUnreadBadgeModifier(isVisible: activityViewModel.hasUnread && !isActivityListVisible))
-                }
-                .toolbar(nativeTabBarVisibility(safeAreaBottom: proxy.safeAreaInsets.bottom), for: .tabBar)
-                .flowNativeTabBarBehavior()
-            }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            if appSettings.floatingComposeButtonEnabled {
-                floatingComposeButtonOverlay
-                    .transition(.scale(scale: 0.92).combined(with: .opacity))
-            }
+            nativeTabView
         }
         .overlay(alignment: .bottomTrailing) {
             GeometryReader { proxy in
@@ -234,8 +173,132 @@ struct MainTabShellView: View {
     }
 
     @ViewBuilder
-    private func tabBarLabel(for tab: Tab) -> some View {
-        Label(tab.tabBarTitle, systemImage: tab.symbolName)
+    private var nativeTabView: some View {
+        if #available(iOS 26.0, *) {
+            modernNativeTabView
+        } else {
+            legacyNativeTabView
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private var modernNativeTabView: some View {
+        TabView(selection: tabSelection) {
+            SwiftUI.Tab(value: Tab.home) {
+                homeTabContent
+            } label: {
+                tabBarIcon(for: .home)
+            }
+
+            SwiftUI.Tab(value: Tab.search) {
+                searchTabContent
+            } label: {
+                tabBarIcon(for: .search)
+            }
+
+            SwiftUI.Tab(value: Tab.dms) {
+                directMessagesTabContent
+            } label: {
+                tabBarIcon(for: .dms)
+            }
+
+            activityTabContentEntry
+
+            SwiftUI.Tab(value: Tab.compose, role: .search) {
+                Color.clear
+            } label: {
+                tabBarIcon(for: .compose)
+            }
+        }
+        .toolbar(nativeTabBarVisibility, for: .tabBar)
+        .flowNativeTabBarBehavior()
+    }
+
+    @available(iOS 26.0, *)
+    @TabContentBuilder<Tab>
+    private var activityTabContentEntry: some TabContent<Tab> {
+        if activityViewModel.hasUnread && !isActivityListVisible {
+            SwiftUI.Tab(value: Tab.activity) {
+                activityTabContent
+            } label: {
+                tabBarIcon(for: .activity)
+            }
+            .badge("")
+        } else {
+            SwiftUI.Tab(value: Tab.activity) {
+                activityTabContent
+            } label: {
+                tabBarIcon(for: .activity)
+            }
+        }
+    }
+
+    private var legacyNativeTabView: some View {
+        TabView(selection: tabSelection) {
+            homeTabContent
+                .tag(Tab.home)
+                .tabItem { tabBarIcon(for: .home) }
+
+            searchTabContent
+                .tag(Tab.search)
+                .tabItem { tabBarIcon(for: .search) }
+
+            directMessagesTabContent
+                .tag(Tab.dms)
+                .tabItem { tabBarIcon(for: .dms) }
+
+            activityTabContent
+                .tag(Tab.activity)
+                .tabItem { tabBarIcon(for: .activity) }
+                .modifier(ActivityTabUnreadBadgeModifier(isVisible: activityViewModel.hasUnread && !isActivityListVisible))
+
+            Color.clear
+                .tag(Tab.compose)
+                .tabItem { tabBarIcon(for: .compose) }
+        }
+        .toolbar(nativeTabBarVisibility, for: .tabBar)
+        .flowNativeTabBarBehavior()
+    }
+
+    private var homeTabContent: some View {
+        HomeFeedView(
+            viewModel: homeViewModel,
+            isShowingSideMenu: $isHomeSideMenuPresented,
+            isRootVisible: $isHomeRootVisible,
+            scrollChromeStore: homeScrollChromeStore,
+            bottomTabBarHeight: bottomTabBarHeight
+        )
+        .environment(\.flowScrollChromeStore, homeScrollChromeStore)
+        .environment(\.flowBottomTabBarHeight, bottomTabBarHeight)
+        .id(homeRootResetID)
+    }
+
+    private var searchTabContent: some View {
+        SearchView(
+            viewModel: searchViewModel,
+            isActive: selectedTab == .search
+        )
+        .id(searchRootResetID)
+    }
+
+    private var directMessagesTabContent: some View {
+        DMsView(isRootVisible: $isDMRootVisible)
+    }
+
+    private var activityTabContent: some View {
+        ActivityView(
+            viewModel: activityViewModel,
+            isRootVisible: $isActivityRootVisible,
+            isTabActive: selectedTab == .activity
+        )
+        .id(activityRootResetID)
+    }
+
+    @ViewBuilder
+    private func tabBarIcon(for tab: Tab) -> some View {
+        Image(systemName: tab.symbolName)
+            .symbolRenderingMode(.monochrome)
+            .environment(\.symbolVariants, .none)
             .accessibilityLabel(tab.accessibilityLabel)
     }
 
@@ -254,57 +317,8 @@ struct MainTabShellView: View {
         )
     }
 
-    private func nativeTabBarVisibility(safeAreaBottom: CGFloat) -> Visibility {
-        guard isBottomTabBarVisible else { return .hidden }
-        return shouldHideNativeTabBarForHomeScroll(safeAreaBottom: safeAreaBottom) ? .hidden : .visible
-    }
-
-    private func shouldHideNativeTabBarForHomeScroll(safeAreaBottom: CGFloat) -> Bool {
-        guard selectedTab == .home, isHomeRootVisible else { return false }
-
-        let hiddenOffset = ScrollChromeLayout.bottomHiddenOffset(
-            bottomBarHeight: bottomTabBarHeight,
-            safeAreaBottom: safeAreaBottom
-        )
-        let bottomBarOffset = ScrollChromeLayout.bottomBarOffset(
-            from: homeScrollChromeStore.offsets,
-            selectedTabIsHome: selectedTab == .home,
-            isHomeRootVisible: isHomeRootVisible,
-            bottomBarHeight: bottomTabBarHeight,
-            safeAreaBottom: safeAreaBottom
-        )
-        return ScrollChromeLayout.shouldHideNativeTabBar(
-            bottomBarOffset: bottomBarOffset,
-            hiddenOffset: hiddenOffset
-        )
-    }
-
-    private var floatingComposeButtonOverlay: some View {
-        FloatingComposeButtonChromeOverlay(
-            scrollChromeStore: homeScrollChromeStore,
-            bottomTabBarHeight: bottomTabBarHeight,
-            selectedTab: selectedTab,
-            isHomeRootVisible: isHomeRootVisible,
-            isBottomTabBarVisible: isBottomTabBarVisible,
-            shouldOverlayBottomTabBar: shouldOverlayBottomTabBar,
-            composeFloatingButton: { AnyView(composeFloatingButton) }
-        )
-    }
-
-    private var composeFloatingButton: some View {
-        Button {
-            AppClickSoundPlayer.play(appSettings.clickSoundEffect)
-            handleComposeTap()
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 25, weight: .semibold))
-                .foregroundStyle(appSettings.buttonTextColor)
-                .frame(width: 58, height: 58)
-                .background(appSettings.primaryGradient, in: Circle())
-                .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 5)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Compose note")
+    private var nativeTabBarVisibility: Visibility {
+        isBottomTabBarVisible ? .visible : .hidden
     }
 
     private var effectiveWriteRelayURLs: [URL] {
@@ -323,13 +337,6 @@ struct MainTabShellView: View {
             isHomeSideMenuPresented: isHomeSideMenuPresented,
             selectedTabIsDirectMessages: selectedTab == .dms,
             isDirectMessagesRootVisible: isDMRootVisible
-        )
-    }
-
-    private var shouldOverlayBottomTabBar: Bool {
-        ScrollChromeLayout.usesOverlayBottomTabBar(
-            selectedTabIsHome: selectedTab == .home,
-            isHomeSideMenuPresented: isHomeSideMenuPresented
         )
     }
 
@@ -547,99 +554,6 @@ private extension View {
     }
 }
 
-struct FloatingComposeButtonLayout {
-    static let defaultBottomTabBarHeight: CGFloat = 67
-    static let trailingPadding: CGFloat = 26
-    private static let visibleBottomBarGap: CGFloat = 14
-    private static let hiddenBottomGap: CGFloat = 10
-    private static let hiddenVerticalDrop: CGFloat = 24
-    private static let visibleVerticalDrop: CGFloat = 60
-
-    static func bottomPadding(
-        safeAreaBottom: CGFloat,
-        bottomTabBarHeight: CGFloat,
-        isBottomTabBarVisible: Bool
-    ) -> CGFloat {
-        bottomPadding(
-            safeAreaBottom: safeAreaBottom,
-            bottomTabBarHeight: bottomTabBarHeight,
-            hiddenProgress: isBottomTabBarVisible ? 0 : 1
-        )
-    }
-
-    static func bottomPadding(
-        safeAreaBottom: CGFloat,
-        bottomTabBarHeight: CGFloat,
-        hiddenProgress: CGFloat
-    ) -> CGFloat {
-        let safeAreaBottom = max(0, safeAreaBottom)
-        let hiddenProgress = clamp(hiddenProgress, min: 0, max: 1)
-        let hiddenPadding = max(0, safeAreaBottom + hiddenBottomGap - hiddenVerticalDrop)
-        let visibleBottomBarHeight = max(bottomTabBarHeight, defaultBottomTabBarHeight)
-        let visiblePadding = max(0, safeAreaBottom + visibleBottomBarHeight + visibleBottomBarGap - visibleVerticalDrop)
-
-        return visiblePadding + ((hiddenPadding - visiblePadding) * hiddenProgress)
-    }
-
-    private static func clamp(_ value: CGFloat, min minimum: CGFloat, max maximum: CGFloat) -> CGFloat {
-        Swift.min(Swift.max(value, minimum), maximum)
-    }
-}
-
-private struct FloatingComposeButtonChromeOverlay: View {
-    @ObservedObject var scrollChromeStore: ScrollChromeStore
-
-    let bottomTabBarHeight: CGFloat
-    let selectedTab: MainTabShellView.Tab
-    let isHomeRootVisible: Bool
-    let isBottomTabBarVisible: Bool
-    let shouldOverlayBottomTabBar: Bool
-    let composeFloatingButton: () -> AnyView
-
-    var body: some View {
-        GeometryReader { proxy in
-            let bottomPadding = floatingComposeBottomPadding(safeAreaBottom: proxy.safeAreaInsets.bottom)
-
-            composeFloatingButton()
-                .transaction { transaction in
-                    transaction.disablesAnimations = true
-                }
-                .padding(.trailing, FloatingComposeButtonLayout.trailingPadding)
-                .padding(.bottom, bottomPadding)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-        }
-    }
-
-    private func floatingComposeBottomPadding(safeAreaBottom: CGFloat) -> CGFloat {
-        FloatingComposeButtonLayout.bottomPadding(
-            safeAreaBottom: safeAreaBottom,
-            bottomTabBarHeight: bottomTabBarHeight,
-            hiddenProgress: bottomTabBarHiddenProgress(safeAreaBottom: safeAreaBottom)
-        )
-    }
-
-    private func bottomTabBarHiddenProgress(safeAreaBottom: CGFloat) -> CGFloat {
-        guard isBottomTabBarVisible else { return 1 }
-        guard selectedTab == .home, isHomeRootVisible else { return 0 }
-        guard shouldOverlayBottomTabBar else { return 0 }
-
-        let hiddenOffset = ScrollChromeLayout.bottomHiddenOffset(
-            bottomBarHeight: bottomTabBarHeight,
-            safeAreaBottom: safeAreaBottom
-        )
-        return ScrollChromeLayout.hiddenProgress(
-            offset: ScrollChromeLayout.bottomBarOffset(
-                from: scrollChromeStore.offsets,
-                selectedTabIsHome: selectedTab == .home,
-                isHomeRootVisible: isHomeRootVisible,
-                bottomBarHeight: bottomTabBarHeight,
-                safeAreaBottom: safeAreaBottom
-            ),
-            hiddenOffset: hiddenOffset
-        )
-    }
-}
-
 struct ScrollChromeOffsets: Equatable {
     var previousScrollY: CGFloat = 0
     var topBarOffset: CGFloat = 0
@@ -699,7 +613,7 @@ private struct FlowScrollChromeStoreEnvironmentKey: EnvironmentKey {
 }
 
 private struct FlowBottomTabBarHeightEnvironmentKey: EnvironmentKey {
-    static let defaultValue = FloatingComposeButtonLayout.defaultBottomTabBarHeight
+    static let defaultValue = ScrollChromeLayout.defaultBottomTabBarHeight
 }
 
 extension EnvironmentValues {
@@ -721,6 +635,7 @@ struct ScrollChromeContentPadding: Equatable {
 
 struct ScrollChromeLayout {
     static let defaultTopBarHeight: CGFloat = 55
+    static let defaultBottomTabBarHeight: CGFloat = 67
     static let topOfFeedRestoreThreshold: CGFloat = 8
     static let visualOffsetPublishThreshold: CGFloat = 0.5
 
@@ -918,14 +833,6 @@ struct ScrollChromeLayout {
         guard hiddenOffset > 0 else { return 0 }
 
         return clamp(offset / hiddenOffset, min: 0, max: 1)
-    }
-
-    static func shouldHideNativeTabBar(
-        bottomBarOffset: CGFloat,
-        hiddenOffset: CGFloat,
-        hiddenThreshold: CGFloat = 0.92
-    ) -> Bool {
-        hiddenProgress(offset: bottomBarOffset, hiddenOffset: hiddenOffset) >= hiddenThreshold
     }
 
     static func newNotesIslandTopPadding(
