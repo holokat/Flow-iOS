@@ -273,8 +273,20 @@ struct MainTabShellView: View {
     private var bottomTabBarNativeGlass: some View {
         GlassEffectContainer {
             bottomTabBarContents
-                .glassEffect(.regular.interactive(), in: Capsule())
+                .glassEffect(
+                    .regular
+                        .tint(bottomTabBarGlassTint)
+                        .interactive(),
+                    in: Capsule()
+                )
         }
+    }
+
+    @available(iOS 26.0, *)
+    private var bottomTabBarGlassTint: Color {
+        effectiveChromeColorScheme == .dark
+            ? Color.white.opacity(0.18)
+            : Color.black.opacity(0.12)
     }
 
     private var bottomTabBarContents: some View {
