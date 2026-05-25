@@ -43,6 +43,7 @@ struct HomeFeedView: View {
     @State private var shouldAutoFocusReplyInThread = false
     @State private var isNearFeedTop = true
     @State private var isRevealingBufferedItems = false
+    @State private var feedScrollTarget: String?
     @State private var scrollChromeTracker = ScrollChromeTracker()
 
     var body: some View {
@@ -268,22 +269,18 @@ struct HomeFeedView: View {
         let visibleItems = viewModel.visibleItems
         let visibleReplyCounts = ReplyCountEstimator.counts(for: visibleItems)
 
-        return ScrollViewReader { scrollProxy in
-            feedList(
-                scrollProxy: scrollProxy,
-                visibleItems: visibleItems,
-                visibleReplyCounts: visibleReplyCounts,
-                topContentPadding: topContentPadding,
-                bottomContentPadding: bottomContentPadding,
-                topBarHeight: topBarHeight,
-                safeAreaBottom: safeAreaBottom
-            )
-        }
+        return feedList(
+            visibleItems: visibleItems,
+            visibleReplyCounts: visibleReplyCounts,
+            topContentPadding: topContentPadding,
+            bottomContentPadding: bottomContentPadding,
+            topBarHeight: topBarHeight,
+            safeAreaBottom: safeAreaBottom
+        )
     }
 
     @ViewBuilder
     private func feedList(
-        scrollProxy: ScrollViewProxy,
         visibleItems: [FeedItem],
         visibleReplyCounts: [String: Int],
         topContentPadding: CGFloat,
@@ -292,6 +289,9 @@ struct HomeFeedView: View {
         safeAreaBottom: CGFloat
     ) -> some View {
         let list = List {
+            feedTopAnchorRow
+                .homeFeedListRow()
+
             feedModeHeaderRow
                 .homeFeedListRow()
 
@@ -310,10 +310,10 @@ struct HomeFeedView: View {
             feedTopPadding(height: topContentPadding)
         }
         .ignoresSafeArea(edges: .bottom)
+        .scrollPosition(id: $feedScrollTarget, anchor: .top)
         .coordinateSpace(name: Self.feedScrollCoordinateSpace)
         .overlay(alignment: .top) {
             newNotesOverlay(
-                scrollProxy: scrollProxy,
                 topBarHeight: topBarHeight
             )
         }
@@ -348,8 +348,14 @@ struct HomeFeedView: View {
     private func feedTopPadding(height: CGFloat) -> some View {
         Color.clear
             .frame(height: max(0, height))
-            .id(Self.feedTopAnchorID)
             .background(feedTopOffsetReader)
+    }
+
+    private var feedTopAnchorRow: some View {
+        Color.clear
+            .frame(height: 0)
+            .id(Self.feedTopAnchorID)
+            .accessibilityHidden(true)
     }
 
     private func feedBottomPadding(height: CGFloat) -> some View {
@@ -444,7 +450,6 @@ struct HomeFeedView: View {
 
     @ViewBuilder
     private func newNotesOverlay(
-        scrollProxy: ScrollViewProxy,
         topBarHeight: CGFloat
     ) -> some View {
         HomeFeedNewNotesChromeOverlay(
@@ -457,7 +462,7 @@ struct HomeFeedView: View {
             content: {
                 AnyView(
                     newNotesPill {
-                        self.revealBufferedNewItems(scrollProxy: scrollProxy)
+                        self.revealBufferedNewItems()
                     }
                 )
             }
@@ -493,17 +498,17 @@ struct HomeFeedView: View {
         await viewModel.refresh()
     }
 
-    private func revealBufferedNewItems(scrollProxy: ScrollViewProxy) {
+    private func revealBufferedNewItems() {
         guard viewModel.visibleBufferedNewItemsCount > 0 else { return }
         guard !isRevealingBufferedItems else { return }
 
         isRevealingBufferedItems = true
         if let animation = FlowTransitionMotion.feedRevealScrollAnimation(reduceMotion: accessibilityReduceMotion) {
             withAnimation(animation) {
-                scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)
+                feedScrollTarget = Self.feedTopAnchorID
             }
         } else {
-            scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)
+            feedScrollTarget = Self.feedTopAnchorID
         }
 
         Task { @MainActor in

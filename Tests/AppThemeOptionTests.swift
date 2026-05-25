@@ -1205,12 +1205,12 @@ final class AppThemeOptionTests: XCTestCase {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
         XCTAssertTrue(source.contains("Text(\"posted\")"))
-        XCTAssertTrue(source.contains("private func revealBufferedNewItems(scrollProxy: ScrollViewProxy)"))
+        XCTAssertTrue(source.contains("private func revealBufferedNewItems()"))
         XCTAssertTrue(source.contains("Self.bufferedRevealDelayNanoseconds"))
 
-        let revealRange = try XCTUnwrap(source.range(of: "private func revealBufferedNewItems(scrollProxy: ScrollViewProxy)"))
+        let revealRange = try XCTUnwrap(source.range(of: "private func revealBufferedNewItems()"))
         let revealSource = source[revealRange.lowerBound...]
-        let scrollRange = try XCTUnwrap(revealSource.range(of: "scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)"))
+        let scrollRange = try XCTUnwrap(revealSource.range(of: "feedScrollTarget = Self.feedTopAnchorID"))
         let showRange = try XCTUnwrap(revealSource.range(of: "viewModel.showBufferedNewItems()"))
 
         XCTAssertLessThan(scrollRange.lowerBound, showRange.lowerBound)
@@ -1226,6 +1226,17 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
         XCTAssertLessThan(rowsRange.lowerBound, sentinelRange.lowerBound)
         XCTAssertFalse(source.contains("LazyVStack(alignment: .leading, spacing: 0)"))
+    }
+
+    func testHomeFeedListIsDirectScrollContentForNativeTabBarMinimization() throws {
+        let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let feedContentRange = try XCTUnwrap(source.range(of: "private func feedContent("))
+        let feedListRange = try XCTUnwrap(source.range(of: "@ViewBuilder\n    private func feedList", range: feedContentRange.upperBound..<source.endIndex))
+        let feedContentSource = source[feedContentRange.lowerBound..<feedListRange.lowerBound]
+
+        XCTAssertFalse(feedContentSource.contains("ScrollViewReader"))
+        XCTAssertTrue(source.contains("@State private var feedScrollTarget: String?"))
+        XCTAssertTrue(source.contains(".scrollPosition(id: $feedScrollTarget, anchor: .top)"))
     }
 
     func testHomeFeedUsesNativeScrollGeometryForChromeOffsets() throws {
