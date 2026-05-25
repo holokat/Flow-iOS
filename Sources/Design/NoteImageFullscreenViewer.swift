@@ -195,7 +195,7 @@ struct NoteImageFullscreenViewer: View {
                             .frame(minWidth: 36, minHeight: 28, alignment: .leading)
                     } else {
                         Image(systemName: "paintbrush.pointed.fill")
-                            .foregroundStyle(appSettings.primaryColor)
+                            .foregroundStyle(chromeForegroundColor)
                             .frame(minWidth: 36, minHeight: 28, alignment: .leading)
                     }
                 }

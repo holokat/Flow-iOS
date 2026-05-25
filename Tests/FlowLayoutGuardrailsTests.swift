@@ -641,6 +641,18 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(viewerSource.contains("Color.black"))
     }
 
+    func testImageFullscreenRemixToolbarIconUsesSharedChromeColor() throws {
+        let source = try Self.sourceText(at: "Sources/Design/NoteImageFullscreenViewer.swift")
+        let actionBarStart = try XCTUnwrap(source.range(of: "private var mediaActionBar: some View {"))
+        let actionBarEnd = try XCTUnwrap(source.range(of: "private var visibleReactionCount", range: actionBarStart.upperBound..<source.endIndex))
+        let actionBarSource = source[actionBarStart.lowerBound..<actionBarEnd.lowerBound]
+        let remixIconStart = try XCTUnwrap(actionBarSource.range(of: "Image(systemName: \"paintbrush.pointed.fill\")"))
+        let remixIconSource = actionBarSource[remixIconStart.lowerBound..<actionBarSource.endIndex]
+
+        XCTAssertTrue(remixIconSource.contains(".foregroundStyle(chromeForegroundColor)"))
+        XCTAssertFalse(remixIconSource.contains(".foregroundStyle(appSettings.primaryColor)"))
+    }
+
     func testProfileScreenDoesNotUseMidPageSpotlightGlow() throws {
         let source = try Self.sourceText(at: "Sources/Profile/ProfileView.swift")
 
