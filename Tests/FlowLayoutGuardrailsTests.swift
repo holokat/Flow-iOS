@@ -212,6 +212,29 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertLessThanOrEqual(ComposeToolbarLayout.draftButtonBackgroundOpacity, 1)
     }
 
+    func testComposeMediaAttachmentsSitAboveBottomToolbarOutsideEditorCard() throws {
+        let sheetSource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheet.swift")
+        let accessorySource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheetAccessoryViews.swift")
+        let bottomBarStart = try XCTUnwrap(sheetSource.range(of: "private var composeBottomAccessoryBar: some View {"))
+        let bottomBarEnd = try XCTUnwrap(sheetSource.range(of: "private var composeAttachmentToolbar", range: bottomBarStart.upperBound..<sheetSource.endIndex))
+        let bottomBarSource = sheetSource[bottomBarStart.lowerBound..<bottomBarEnd.lowerBound]
+        let previewRange = try XCTUnwrap(bottomBarSource.range(of: "ComposeMediaAttachmentStrip("))
+        let toolbarRange = try XCTUnwrap(bottomBarSource.range(of: "composeAttachmentToolbar"))
+        let cardStart = try XCTUnwrap(accessorySource.range(of: "struct ComposeComposerCardView: View {"))
+        let cardEnd = try XCTUnwrap(accessorySource.range(of: "struct ComposeAttachmentToolbarBar: View {"))
+        let cardSource = accessorySource[cardStart.lowerBound..<cardEnd.lowerBound]
+
+        XCTAssertTrue(sheetSource.contains(".safeAreaInset(edge: .bottom, spacing: 0) {\n            composeBottomAccessoryBar\n        }"))
+        XCTAssertLessThan(previewRange.lowerBound, toolbarRange.lowerBound)
+        XCTAssertFalse(cardSource.contains("ComposeMediaAttachmentStrip("))
+        XCTAssertFalse(cardSource.contains("let mediaAttachments: [ComposeMediaAttachment]"))
+    }
+
+    func testComposeMediaAttachmentPreviewIsLargerSquare() {
+        XCTAssertEqual(CompactMediaAttachmentPreview.thumbnailWidth, CompactMediaAttachmentPreview.thumbnailHeight, accuracy: 0.0001)
+        XCTAssertGreaterThan(CompactMediaAttachmentPreview.thumbnailWidth, 116)
+    }
+
     func testFlowTransitionMotionTimingsMatchTransitionReferenceAndRespectReduceMotion() {
         XCTAssertEqual(FlowTransitionMotion.duration(.badgePop, reduceMotion: false), 0.5, accuracy: 0.0001)
         XCTAssertEqual(FlowTransitionMotion.duration(.textSwap, reduceMotion: false), 0.2, accuracy: 0.0001)

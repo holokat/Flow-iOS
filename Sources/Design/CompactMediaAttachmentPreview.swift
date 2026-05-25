@@ -43,8 +43,8 @@ struct CompactMediaAttachmentPreview: View {
         }
     }
 
-    static let thumbnailWidth: CGFloat = 116
-    static let thumbnailHeight: CGFloat = 104
+    static let thumbnailWidth: CGFloat = 132
+    static let thumbnailHeight: CGFloat = 132
 
     let url: URL
     let mimeType: String

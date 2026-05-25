@@ -84,15 +84,11 @@ struct ComposeDraftLibraryToolbarButton: View {
 
 struct ComposeComposerCardView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     @ObservedObject var viewModel: ComposeNoteViewModel
-    @ObservedObject var speechTranscriber: ComposeSpeechTranscriber
 
     let mode: ComposeNoteSheetMode
-    @Binding var selectedMediaItems: [PhotosPickerItem]
-    let mediaAttachments: [ComposeMediaAttachment]
     @Binding var pollDraft: ComposePollDraft?
     @Binding var isEditorFocused: Bool
     @Binding var editorSelectedRange: NSRange
@@ -101,27 +97,14 @@ struct ComposeComposerCardView: View {
     let activeMentionQuery: ComposeMentionQuery?
     let mentionSuggestions: [ComposeMentionSuggestion]
     let isLoadingMentionSuggestions: Bool
-    let isUploadingMedia: Bool
-    let isRequestingCaptureAccess: Bool
     let canAttachPoll: Bool
-    let currentNsec: String?
-    let writeRelayURLs: [URL]
     let onMentionQueryChange: (ComposeMentionQuery?) -> Void
     let onMentionSuggestionSelect: (ComposeMentionSuggestion) -> Void
-    let onPreviewMedia: (ComposeMediaAttachment) -> Void
-    let onRemoveMedia: (ComposeMediaAttachment) -> Void
-    let onCameraTap: () -> Void
-    let onGIFTap: () -> Void
-    let onSpeechToggle: () -> Void
     let onTogglePoll: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             composeEditor
-
-            if !mediaAttachments.isEmpty {
-                mediaAttachmentPreviewList
-            }
 
             if pollDraft != nil, canAttachPoll {
                 ComposePollEditorView(
@@ -208,16 +191,6 @@ struct ComposeComposerCardView: View {
             set: { pollDraft = $0 }
         )
     }
-
-    private var mediaAttachmentPreviewList: some View {
-        ComposeMediaAttachmentStrip(
-            attachments: mediaAttachments,
-            colorScheme: colorScheme,
-            onPreview: onPreviewMedia,
-            onRemove: onRemoveMedia
-        )
-    }
-
 }
 
 struct ComposeAttachmentToolbarBar: View {

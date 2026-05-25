@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 struct ComposeNoteSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var toastCenter: AppToastCenter
     @EnvironmentObject private var composeDraftStore: AppComposeDraftStore
@@ -266,8 +267,29 @@ struct ComposeNoteSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .safeAreaInset(edge: .bottom, spacing: 0) {
+            composeBottomAccessoryBar
+        }
+    }
+
+    private var composeBottomAccessoryBar: some View {
+        VStack(spacing: 0) {
+            if !mediaAttachments.isEmpty {
+                ComposeMediaAttachmentStrip(
+                    attachments: mediaAttachments,
+                    colorScheme: colorScheme,
+                    onPreview: { attachment in
+                        previewingMediaAttachment = attachment
+                    },
+                    onRemove: removeMediaAttachment(_:)
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+            }
+
             composeAttachmentToolbar
         }
+        .background(appSettings.themePalette.background)
     }
 
     private var composeAttachmentToolbar: some View {
@@ -317,10 +339,7 @@ struct ComposeNoteSheet: View {
     private var composeCard: some View {
         ComposeComposerCardView(
             viewModel: viewModel,
-            speechTranscriber: speechTranscriber,
             mode: mode,
-            selectedMediaItems: $selectedMediaItems,
-            mediaAttachments: mediaAttachments,
             pollDraft: $pollDraft,
             isEditorFocused: $isEditorFocused,
             editorSelectedRange: $editorSelectedRange,
@@ -329,26 +348,9 @@ struct ComposeNoteSheet: View {
             activeMentionQuery: activeMentionQuery,
             mentionSuggestions: mentionSuggestions,
             isLoadingMentionSuggestions: isLoadingMentionSuggestions,
-            isUploadingMedia: isUploadingMedia,
-            isRequestingCaptureAccess: isRequestingCaptureAccess,
             canAttachPoll: canAttachPoll,
-            currentNsec: currentNsec,
-            writeRelayURLs: writeRelayURLs,
             onMentionQueryChange: handleMentionQueryChange(_:),
             onMentionSuggestionSelect: insertMentionSuggestion(_:),
-            onPreviewMedia: { attachment in
-                previewingMediaAttachment = attachment
-            },
-            onRemoveMedia: removeMediaAttachment(_:),
-            onCameraTap: handleCameraButtonTap,
-            onGIFTap: {
-                isShowingKlipyGIFPicker = true
-            },
-            onSpeechToggle: {
-                Task {
-                    await handleSpeechToggle()
-                }
-            },
             onTogglePoll: togglePollDraft
         )
     }
