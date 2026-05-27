@@ -50,7 +50,7 @@ struct HomeFeedView: View {
         let _ = muteStore.filterRevision
         let _ = appSettings.spamFilterLabelSignature
 
-        AnyView(navigationRoot)
+        navigationRoot
             .modifier(sheetsModifier)
             .modifier(lifecycleModifier)
             .onAppear(perform: updateRootVisibility)
@@ -242,18 +242,16 @@ struct HomeFeedView: View {
                     bottomTabBarHeight: bottomTabBarHeight,
                     topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top),
                     bottomSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.bottom),
-                    topNavigationBar: { AnyView(topNavigationBar) },
+                    topNavigationBar: { topNavigationBar },
                     feedContent: { topPadding, bottomPadding, topBarHeight, safeAreaBottom in
-                        AnyView(
-                            feedContent(
-                                topContentPadding: topPadding,
-                                bottomContentPadding: bottomPadding,
-                                topBarHeight: topBarHeight,
-                                safeAreaBottom: safeAreaBottom
-                            )
+                        feedContent(
+                            topContentPadding: topPadding,
+                            bottomContentPadding: bottomPadding,
+                            topBarHeight: topBarHeight,
+                            safeAreaBottom: safeAreaBottom
                         )
                     },
-                    sideMenuContent: { AnyView(sideMenuContent) }
+                    sideMenuContent: { sideMenuContent }
                 )
                 .modifier(navigationDestinationsModifier)
             }
@@ -291,6 +289,7 @@ struct HomeFeedView: View {
         let list = List {
             feedTopAnchorRow
                 .homeFeedListRow()
+                .environment(\.defaultMinListRowHeight, 0)
 
             feedModeHeaderRow
                 .homeFeedListRow()
@@ -304,6 +303,7 @@ struct HomeFeedView: View {
                 .homeFeedListRow()
         }
         .listStyle(.plain)
+        .contentMargins(.top, 0, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -460,11 +460,9 @@ struct HomeFeedView: View {
                 !isRevealingBufferedItems,
             topBarHeight: topBarHeight,
             content: {
-                AnyView(
-                    newNotesPill {
-                        self.revealBufferedNewItems()
-                    }
-                )
+                newNotesPill {
+                    self.revealBufferedNewItems()
+                }
             }
         )
     }
@@ -1436,16 +1434,20 @@ struct HomeFeedView: View {
     }
 }
 
-private struct HomeFeedRootContent: View {
+private struct HomeFeedRootContent<
+    TopNavigationBar: View,
+    FeedContent: View,
+    SideMenuContent: View
+>: View {
     @Binding var isShowingSideMenu: Bool
     let scrollChromeStore: ScrollChromeStore
 
     let bottomTabBarHeight: CGFloat
     let topSafeAreaInset: CGFloat
     let bottomSafeAreaInset: CGFloat
-    let topNavigationBar: () -> AnyView
-    let feedContent: (_ topPadding: CGFloat, _ bottomPadding: CGFloat, _ topBarHeight: CGFloat, _ safeAreaBottom: CGFloat) -> AnyView
-    let sideMenuContent: () -> AnyView
+    let topNavigationBar: () -> TopNavigationBar
+    let feedContent: (_ topPadding: CGFloat, _ bottomPadding: CGFloat, _ topBarHeight: CGFloat, _ safeAreaBottom: CGFloat) -> FeedContent
+    let sideMenuContent: () -> SideMenuContent
 
     @State private var topBarHeight = ScrollChromeLayout.defaultTopBarHeight
 
@@ -1458,7 +1460,7 @@ private struct HomeFeedRootContent: View {
                 safeAreaTop: safeAreaTop
             )
             let contentPadding = ScrollChromeLayout.feedContentPadding(
-                topBarHeight: topHiddenOffset,
+                topBarHeight: topBarHeight,
                 bottomBarHeight: bottomTabBarHeight,
                 safeAreaBottom: safeAreaBottom
             )
@@ -1499,13 +1501,13 @@ private struct HomeFeedRootContent: View {
     }
 }
 
-private struct HomeFeedTopNavigationChromeView: View {
+private struct HomeFeedTopNavigationChromeView<TopNavigationBar: View>: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
     @ObservedObject var scrollChromeStore: ScrollChromeStore
 
     let safeAreaTop: CGFloat
     let topHiddenOffset: CGFloat
-    let topNavigationBar: () -> AnyView
+    let topNavigationBar: () -> TopNavigationBar
 
     var body: some View {
         let topBarOffset = scrollChromeStore.offsets.topBarOffset
@@ -1560,12 +1562,12 @@ private struct HomeFeedTopNavigationChromeView: View {
     }
 }
 
-private struct HomeFeedNewNotesChromeOverlay: View {
+private struct HomeFeedNewNotesChromeOverlay<Content: View>: View {
     @ObservedObject var scrollChromeStore: ScrollChromeStore
 
     let isVisible: Bool
     let topBarHeight: CGFloat
-    let content: () -> AnyView
+    let content: () -> Content
 
     var body: some View {
         if isVisible {

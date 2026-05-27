@@ -813,6 +813,22 @@ final class AppThemeOptionTests: XCTestCase {
         )
     }
 
+    func testHomeCollapsedTabAffordanceThresholdTracksScrollChromeOffset() {
+        XCTAssertFalse(
+            ScrollChromeLayout.shouldShowCollapsedHomeTabAffordance(
+                offsets: ScrollChromeOffsets(bottomBarOffset: 8),
+                bottomBarHeight: 67
+            )
+        )
+
+        XCTAssertTrue(
+            ScrollChromeLayout.shouldShowCollapsedHomeTabAffordance(
+                offsets: ScrollChromeOffsets(bottomBarOffset: 28),
+                bottomBarHeight: 67
+            )
+        )
+    }
+
     func testHomeBottomBarUsesOverlayChrome() {
         XCTAssertTrue(
             ScrollChromeLayout.usesOverlayBottomTabBar(
@@ -1037,7 +1053,7 @@ final class AppThemeOptionTests: XCTestCase {
         let homeSource = try sourceText(at: "Sources/Home/HomeFeedView.swift")
         let profileSource = try sourceText(at: "Sources/Profile/ProfileView.swift")
 
-        XCTAssertTrue(shellSource.contains("@State private var homeScrollChromeStore = ScrollChromeStore()"))
+        XCTAssertTrue(shellSource.contains("@StateObject private var homeScrollChromeStore = ScrollChromeStore()"))
         XCTAssertFalse(shellSource.contains("@State private var homeScrollChrome = ScrollChromeOffsets()"))
         XCTAssertTrue(shellSource.contains("scrollChromeStore: homeScrollChromeStore"))
         XCTAssertTrue(shellSource.contains("TabView(selection: tabSelection)"))
@@ -1066,7 +1082,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertTrue(source.contains("let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)"))
         XCTAssertTrue(source.contains("let topHiddenOffset = ScrollChromeLayout.topHiddenOffset"))
-        XCTAssertTrue(source.contains("topBarHeight: topHiddenOffset"))
+        XCTAssertTrue(source.contains("topBarHeight: topBarHeight"))
         XCTAssertTrue(source.contains(".padding(.top, safeAreaTop)"))
         XCTAssertTrue(source.contains(".offset(y: topBarOffset)"))
         XCTAssertTrue(source.contains("hiddenOffset: topHiddenOffset"))
@@ -1237,6 +1253,11 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(feedContentSource.contains("ScrollViewReader"))
         XCTAssertTrue(source.contains("@State private var feedScrollTarget: String?"))
         XCTAssertTrue(source.contains(".scrollPosition(id: $feedScrollTarget, anchor: .top)"))
+        XCTAssertTrue(source.contains(".contentMargins(.top, 0, for: .scrollContent)"))
+        XCTAssertTrue(source.contains(".environment(\\.defaultMinListRowHeight, 0)"))
+        XCTAssertFalse(source.contains("let topNavigationBar: () -> AnyView"))
+        XCTAssertFalse(source.contains("let feedContent: (_ topPadding: CGFloat, _ bottomPadding: CGFloat, _ topBarHeight: CGFloat, _ safeAreaBottom: CGFloat) -> AnyView"))
+        XCTAssertFalse(source.contains("let sideMenuContent: () -> AnyView"))
     }
 
     func testHomeFeedUsesNativeScrollGeometryForChromeOffsets() throws {
@@ -1251,12 +1272,17 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertTrue(source.contains("TabView(selection: tabSelection)"))
         XCTAssertTrue(source.contains("SwiftUI.Tab(value: Tab.compose, role: .search)"))
-        XCTAssertTrue(source.contains("private func tabBarIcon(for tab: Tab)"))
-        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .home) }"))
-        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .search) }"))
-        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .compose) }"))
-        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .dms) }"))
-        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .activity) }"))
+        XCTAssertTrue(source.contains("private func tabBarIcon(for tab: Tab, showsUnreadDot: Bool)"))
+        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .home, showsUnreadDot: false) }"))
+        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .search, showsUnreadDot: false) }"))
+        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .compose, showsUnreadDot: false) }"))
+        XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .dms, showsUnreadDot: false) }"))
+        XCTAssertTrue(source.contains("showsUnreadDot: activityViewModel.hasUnread && !isActivityListVisible"))
+        XCTAssertTrue(source.contains(".frame(width: 8, height: 8)"))
+        XCTAssertFalse(source.contains(".badge(\"\")"))
+        XCTAssertFalse(source.contains("ActivityTabUnreadBadgeModifier"))
+        XCTAssertTrue(source.contains("homeCollapsedTabAffordance"))
+        XCTAssertTrue(source.contains("shouldShowCollapsedHomeTabAffordance"))
         XCTAssertTrue(source.contains(".toolbar(nativeTabBarVisibility, for: .tabBar)"))
         XCTAssertTrue(source.contains(".flowNativeTabBarBehavior()"))
         XCTAssertTrue(source.contains(".environment(\\.symbolVariants, .none)"))
@@ -1303,7 +1329,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("isRootVisible: $isHomeRootVisible"))
         XCTAssertTrue(homeSource.contains("@Binding var isRootVisible: Bool"))
         XCTAssertTrue(shellSource.contains("private var nativeTabBarVisibility: Visibility"))
-        XCTAssertTrue(shellSource.contains("isBottomTabBarVisible ? .visible : .hidden"))
+        XCTAssertTrue(shellSource.contains("isBottomTabBarVisible && !isHomeCollapsedTabAffordanceVisible ? .visible : .hidden"))
         XCTAssertFalse(shellSource.contains("private func shouldHideNativeTabBarForHomeScroll"))
     }
 
