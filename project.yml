@@ -52,7 +52,7 @@ targets:
         INFOPLIST_FILE: Sources/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: Sources/App/Flow.entitlements
         SWIFT_VERSION: 5.0
-        CURRENT_PROJECT_VERSION: 1
+        CURRENT_PROJECT_VERSION: 2
         MARKETING_VERSION: 0.1.0
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -94,7 +94,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Sources/ShareExtension/ShareExtension.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
         SWIFT_VERSION: 5.0
-        CURRENT_PROJECT_VERSION: 1
+        CURRENT_PROJECT_VERSION: 2
         MARKETING_VERSION: 0.1.0
         CODE_SIGN_STYLE: Automatic
   FlowTests:
