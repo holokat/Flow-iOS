@@ -8,7 +8,7 @@ final class ComposeSpeechTranscriber: ObservableObject {
     @Published private(set) var isTranscribing = false
     @Published private(set) var elapsedMs: Int = 0
 
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var speechRecognizer: SFSpeechRecognizer?
@@ -22,10 +22,11 @@ final class ComposeSpeechTranscriber: ObservableObject {
         tickerTask?.cancel()
         recognitionTask?.cancel()
         recognitionRequest = nil
+        guard let audioEngine else { return }
         if audioEngine.isRunning {
             audioEngine.stop()
         }
-        audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.reset()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -57,8 +58,8 @@ final class ComposeSpeechTranscriber: ObservableObject {
         isTranscribing = true
         stopTicker()
 
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine?.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
     }
 
@@ -128,19 +129,14 @@ final class ComposeSpeechTranscriber: ObservableObject {
         recognitionTask = nil
         recognitionRequest = nil
 
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        audioEngine.reset()
-        audioEngine.inputNode.removeTap(onBus: 0)
-
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        releaseAudioEngine()
     }
 
     private func startRecognitionPipeline(
         using recognizer: SFSpeechRecognizer,
         strategy: RecordingSessionStrategy
     ) throws {
+        let audioEngine = recordingAudioEngine()
         let audioSession = AVAudioSession.sharedInstance()
         try configureAudioSession(audioSession, strategy: strategy)
 
@@ -186,6 +182,27 @@ final class ComposeSpeechTranscriber: ObservableObject {
                 }
             }
         }
+    }
+
+    private func recordingAudioEngine() -> AVAudioEngine {
+        if let audioEngine {
+            return audioEngine
+        }
+
+        let audioEngine = AVAudioEngine()
+        self.audioEngine = audioEngine
+        return audioEngine
+    }
+
+    private func releaseAudioEngine() {
+        guard let audioEngine else { return }
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        audioEngine.reset()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        self.audioEngine = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     private func configureAudioSession(

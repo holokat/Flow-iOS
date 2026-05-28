@@ -104,6 +104,26 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         XCTAssertFalse(source.contains("return .red"))
     }
 
+    func testSpeechTranscriberDefersAudioInputUntilVoiceToggle() throws {
+        let source = try Self.sourceText(at: "Sources/Compose/ComposeSpeechTranscriber.swift")
+        let deinitStart = try XCTUnwrap(source.range(of: "deinit {"))
+        let toggleStart = try XCTUnwrap(source.range(of: "func toggleRecording", range: deinitStart.upperBound..<source.endIndex))
+        let deinitSource = source[deinitStart.lowerBound..<toggleStart.lowerBound]
+
+        XCTAssertFalse(
+            source.contains("private let audioEngine = AVAudioEngine()"),
+            "Regular text composers should not eagerly allocate microphone-backed audio input."
+        )
+        XCTAssertFalse(
+            deinitSource.contains("audioEngine.inputNode"),
+            "Dismissing a regular text composer must not touch the microphone input node."
+        )
+        XCTAssertTrue(
+            source.contains("private func recordingAudioEngine() -> AVAudioEngine"),
+            "Audio input should be created lazily from the explicit voice-recording path."
+        )
+    }
+
     func testActiveMentionQuerySupportsFreeformLocalSearchWithSpaces() {
         let text = "gm @fiat jaf"
         let selection = NSRange(location: (text as NSString).length, length: 0)
