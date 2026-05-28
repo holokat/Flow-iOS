@@ -279,15 +279,7 @@ struct SignupOnboardingView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    fieldLabel("Color Palette")
-
-                    LazyVGrid(
-                        columns: [
-                            GridItem(.flexible(minimum: 140), spacing: 10),
-                            GridItem(.flexible(minimum: 140), spacing: 10)
-                        ],
-                        spacing: 10
-                    ) {
+                    HStack(spacing: 8) {
                         ForEach(Self.onboardingThemeOptions) { option in
                             paletteChip(for: option)
                         }
@@ -640,37 +632,39 @@ struct SignupOnboardingView: View {
         return Button {
             selectedThemeOption = option
         } label: {
-            HStack(spacing: 10) {
+            VStack(spacing: 5) {
                 Image(systemName: option.iconName)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(isSelected ? onboardingChipSelectedForeground : onboardingSecondaryAccent)
 
                 Text(option.title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(isSelected ? onboardingChipSelectedForeground : previewThemePalette.foreground)
-
-                Spacer(minLength: 0)
-
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(onboardingChipSelectedForeground.opacity(0.92))
-                }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
             }
-            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .padding(.horizontal, 6)
             .padding(.vertical, 7)
             .background(
-                Capsule(style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(isSelected ? onboardingChipSelectedFill : AnyShapeStyle(onboardingChipFill))
             )
             .overlay(
-                Capsule(style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(
                         isSelected ? onboardingChipSelectedStroke : previewThemePalette.separator.opacity(0.72),
                         lineWidth: 1
                     )
             )
+            .overlay(alignment: .topTrailing) {
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(onboardingChipSelectedForeground.opacity(0.92))
+                        .padding(5)
+                }
+            }
         }
         .buttonStyle(.plain)
     }

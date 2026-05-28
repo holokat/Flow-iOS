@@ -48,7 +48,7 @@ enum AppThemeOption: String, CaseIterable, Codable, Identifiable, Hashable, Send
         case .black:
             return "Dark"
         case .white, .sakura, .holographicLight, .light:
-            return "Clean"
+            return "Light"
         case .dracula, .gamer, .holographicDark, .dark:
             return "Dark"
         }
@@ -74,7 +74,7 @@ enum AppThemeOption: String, CaseIterable, Codable, Identifiable, Hashable, Send
         case .black:
             return "Dark appearance"
         case .white, .sakura, .holographicLight, .light:
-            return "Clean bright appearance"
+            return "Light appearance"
         case .dracula, .gamer, .holographicDark, .dark:
             return "Dark appearance"
         }

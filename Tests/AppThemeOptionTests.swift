@@ -6,12 +6,12 @@ import UIKit
 
 final class AppThemeOptionTests: XCTestCase {
     @MainActor
-    func testRemovedLightAliasesNormalizeToClean() {
+    func testRemovedLightAliasesNormalizeToLight() {
         for theme in [AppThemeOption.white, .sakura, .holographicLight] {
             XCTAssertFalse(theme.isEnabled)
             XCTAssertEqual(theme.normalizedSelection, .light)
             XCTAssertEqual(theme.preferredColorScheme, .light)
-            XCTAssertEqual(theme.title, "Clean")
+            XCTAssertEqual(theme.title, "Light")
             assertColor(theme.palette.background, matches: .white)
         }
     }
@@ -33,8 +33,8 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertEqual(AppThemeOption.dark.title, "Dark")
         XCTAssertEqual(AppThemeOption.dracula.title, "Dark")
         XCTAssertEqual(AppThemeOption.gamer.title, "Dark")
-        XCTAssertEqual(AppThemeOption.holographicLight.title, "Clean")
-        XCTAssertEqual(AppThemeOption.light.title, "Clean")
+        XCTAssertEqual(AppThemeOption.holographicLight.title, "Light")
+        XCTAssertEqual(AppThemeOption.light.title, "Light")
         XCTAssertEqual(AppThemeOption.sakura.normalizedSelection, .light)
         XCTAssertEqual(
             AppThemeOption.onboardingOptions,
@@ -170,7 +170,7 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testRemovedLightThemeSelectionUsesCleanPalette() {
+    func testRemovedLightThemeSelectionUsesLightPalette() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
@@ -290,6 +290,9 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(AppThemeOption.light.isEnabled)
         XCTAssertTrue(AppThemeOption.black.isEnabled)
         XCTAssertTrue(AppThemeOption.system.isEnabled)
+        XCTAssertEqual(AppThemeOption.light.title, "Light")
+        XCTAssertEqual(AppThemeOption.black.title, "Dark")
+        XCTAssertEqual(AppThemeOption.system.title, "System")
         XCTAssertFalse(AppThemeOption.dark.isEnabled)
         XCTAssertFalse(AppThemeOption.holographicLight.isEnabled)
         XCTAssertFalse(AppThemeOption.dracula.isEnabled)
@@ -300,6 +303,28 @@ final class AppThemeOptionTests: XCTestCase {
         )
         XCTAssertFalse(AppThemeOption.appearanceOptions.contains(.white))
         XCTAssertFalse(AppThemeOption.appearanceOptions.contains(.holographicDark))
+    }
+
+    func testAppearancePalettePickerIsCompactWithoutStandaloneLabel() throws {
+        let source = try sourceText(at: "Sources/Home/SettingsAppearanceView.swift")
+
+        XCTAssertFalse(source.contains("Text(\"Color Palette\")"))
+        XCTAssertTrue(source.contains("HStack(spacing: 8)"))
+        XCTAssertTrue(source.contains("ForEach(appearanceThemeOptions)"))
+        XCTAssertTrue(source.contains(".frame(height: 42)"))
+        XCTAssertFalse(source.contains("LazyVGrid(\n                        columns: [\n                            GridItem(.flexible(), spacing: 10)"))
+    }
+
+    func testOnboardingPalettePickerIsInlineWithoutStandaloneLabel() throws {
+        let source = try sourceText(at: "Sources/Onboarding/SignupOnboardingView.swift")
+        let paletteStart = try XCTUnwrap(source.range(of: "HStack(spacing: 8) {\n                        ForEach(Self.onboardingThemeOptions)"))
+        let paletteSource = source[paletteStart.lowerBound...]
+
+        XCTAssertFalse(source.contains("fieldLabel(\"Color Palette\")"))
+        XCTAssertTrue(paletteSource.contains("ForEach(Self.onboardingThemeOptions)"))
+        XCTAssertTrue(source.contains(".frame(maxWidth: .infinity, minHeight: 50)"))
+        XCTAssertFalse(paletteSource.prefix(400).contains("LazyVGrid"))
+        XCTAssertFalse(paletteSource.prefix(400).contains("GridItem(.flexible(minimum: 140)"))
     }
 
     @MainActor
@@ -318,7 +343,7 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testLegacyWhiteThemeSelectionNormalizesToClean() {
+    func testLegacyWhiteThemeSelectionNormalizesToLight() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)

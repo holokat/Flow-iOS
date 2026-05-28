@@ -17,21 +17,9 @@ struct SettingsAppearanceView: View {
     var body: some View {
         ThemedSettingsForm {
             Section("Appearance") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Color Palette")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    LazyVGrid(
-                        columns: [
-                            GridItem(.flexible(), spacing: 10),
-                            GridItem(.flexible(), spacing: 10)
-                        ],
-                        spacing: 10
-                    ) {
-                        ForEach(appearanceThemeOptions) { option in
-                            themeOptionCard(for: option)
-                        }
+                HStack(spacing: 8) {
+                    ForEach(appearanceThemeOptions) { option in
+                        themeOptionCard(for: option)
                     }
                 }
                 .padding(.vertical, 2)
@@ -141,22 +129,22 @@ struct SettingsAppearanceView: View {
             guard option.isEnabled else { return }
             appSettings.theme = option
         } label: {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 7) {
                 ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(themePreviewFill(for: option))
-                        .frame(height: 60)
+                        .frame(height: 42)
                         .overlay {
                             Image(systemName: option.iconName)
-                                .font(.system(size: 20, weight: .semibold))
+                                .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(themePreviewForeground(for: option))
                         }
 
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(appSettings.primaryColor)
-                            .padding(8)
+                            .padding(5)
                     } else if !option.isEnabled {
                         Text("Soon")
                             .font(.caption2.weight(.semibold))
@@ -169,25 +157,26 @@ struct SettingsAppearanceView: View {
                 }
 
                 Text(option.title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(option.isEnabled ? .primary : .secondary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.82)
             }
-            .padding(10)
+            .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(appSettings.themePalette.secondaryBackground)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .stroke(
                         isSelected ? appSettings.primaryColor : appSettings.themeSeparator(defaultOpacity: 0.18),
                         lineWidth: isSelected ? 1.5 : 1
                     )
             }
             .opacity(option.isEnabled ? 1 : 0.72)
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(!option.isEnabled)
