@@ -957,7 +957,7 @@ final class AppThemeOptionTests: XCTestCase {
     func testHomeFeedCapturesSafeAreaBeforeRootIgnoresIt() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
-        XCTAssertTrue(source.contains("NavigationStack {\n            GeometryReader { navigationGeometry in"))
+        XCTAssertTrue(source.contains("NavigationStack {\n            Group {\n                GeometryReader { navigationGeometry in"))
         XCTAssertTrue(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertTrue(source.contains("bottomSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.bottom)"))
         XCTAssertTrue(source.contains("let topSafeAreaInset: CGFloat"))
@@ -970,7 +970,9 @@ final class AppThemeOptionTests: XCTestCase {
         let feedContentStart = try XCTUnwrap(source.range(of: "private func feedContent", range: rootStart.upperBound..<source.endIndex))
         let rootSource = String(source[rootStart.lowerBound..<feedContentStart.lowerBound])
 
-        XCTAssertTrue(rootSource.contains("        .modifier(navigationDestinationsModifier)"))
+        XCTAssertTrue(rootSource.contains("NavigationStack {\n            Group {\n                GeometryReader { navigationGeometry in"))
+        XCTAssertTrue(rootSource.contains("            }\n            .modifier(navigationDestinationsModifier)\n        }"))
+        XCTAssertFalse(rootSource.contains("        }\n        .modifier(navigationDestinationsModifier)"))
         XCTAssertFalse(rootSource.contains("                .modifier(navigationDestinationsModifier)"))
     }
 
