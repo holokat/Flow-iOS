@@ -917,15 +917,38 @@ final class AppThemeOptionTests: XCTestCase {
         )
     }
 
+    func testScrollChromeTopContentHeightRemovesDoubleCountedSafeArea() {
+        XCTAssertEqual(
+            ScrollChromeLayout.topChromeContentHeight(
+                measuredTopBarHeight: 117,
+                safeAreaTop: 62,
+                fallbackHeight: 55
+            ),
+            55,
+            accuracy: 0.0001
+        )
+
+        XCTAssertEqual(
+            ScrollChromeLayout.topChromeContentHeight(
+                measuredTopBarHeight: 58,
+                safeAreaTop: 62,
+                fallbackHeight: 55
+            ),
+            58,
+            accuracy: 0.0001
+        )
+    }
+
     func testHomeTopChromeStartsBelowSystemSafeAreaAndCollapsesWithIt() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
         XCTAssertTrue(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertTrue(source.contains("let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)"))
+        XCTAssertTrue(source.contains("let topNavigationContentHeight = ScrollChromeLayout.topChromeContentHeight"))
         XCTAssertTrue(source.contains("let topHiddenOffset = ScrollChromeLayout.topHiddenOffset"))
-        XCTAssertTrue(source.contains("topBarHeight: topBarHeight"))
+        XCTAssertTrue(source.contains("topBarHeight: topNavigationContentHeight"))
         XCTAssertTrue(source.contains("private let topNavigationToTabsSpacing: CGFloat = 8"))
-        XCTAssertTrue(source.contains("topBarHeight + topNavigationToTabsSpacing"))
+        XCTAssertTrue(source.contains("topNavigationContentHeight + topNavigationToTabsSpacing"))
         XCTAssertTrue(source.contains(".padding(.top, safeAreaTop)"))
         XCTAssertTrue(source.contains(".offset(y: topBarOffset)"))
         XCTAssertTrue(source.contains("hiddenOffset: topHiddenOffset"))

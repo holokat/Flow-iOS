@@ -1489,12 +1489,16 @@ private struct HomeFeedRootContent<
         GeometryReader { geometry in
             let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)
             let safeAreaBottom = max(max(0, bottomSafeAreaInset), geometry.safeAreaInsets.bottom)
+            let topNavigationContentHeight = ScrollChromeLayout.topChromeContentHeight(
+                measuredTopBarHeight: topBarHeight,
+                safeAreaTop: safeAreaTop
+            )
             let topHiddenOffset = ScrollChromeLayout.topHiddenOffset(
-                topBarHeight: topBarHeight,
+                topBarHeight: topNavigationContentHeight,
                 safeAreaTop: safeAreaTop
             )
             let contentPadding = ScrollChromeLayout.feedContentPadding(
-                topBarHeight: topBarHeight + topNavigationToTabsSpacing,
+                topBarHeight: topNavigationContentHeight + topNavigationToTabsSpacing,
                 bottomBarHeight: bottomTabBarHeight,
                 safeAreaBottom: safeAreaBottom
             )

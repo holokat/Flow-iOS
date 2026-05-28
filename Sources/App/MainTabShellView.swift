@@ -746,6 +746,23 @@ struct ScrollChromeLayout {
         max(0, topBarHeight) + max(0, safeAreaTop)
     }
 
+    static func topChromeContentHeight(
+        measuredTopBarHeight: CGFloat,
+        safeAreaTop: CGFloat,
+        fallbackHeight: CGFloat = defaultTopBarHeight
+    ) -> CGFloat {
+        let measuredTopBarHeight = max(0, measuredTopBarHeight)
+        let safeAreaTop = max(0, safeAreaTop)
+        let heightWithoutSafeArea = measuredTopBarHeight - safeAreaTop
+        let minimumExpectedContentHeight = max(0, fallbackHeight) * 0.8
+
+        if heightWithoutSafeArea >= minimumExpectedContentHeight {
+            return heightWithoutSafeArea
+        }
+
+        return measuredTopBarHeight
+    }
+
     static func bottomHiddenOffset(
         bottomBarHeight: CGFloat,
         safeAreaBottom: CGFloat
