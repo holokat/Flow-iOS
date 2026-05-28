@@ -129,7 +129,7 @@ final class AuthManager: ObservableObject {
         _ credential: String,
         backupPrivateKeyToICloud: Bool? = nil
     ) throws -> AuthAccount {
-        let normalized = credential.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = normalizedPrivateKeyCredential(credential)
         guard !normalized.isEmpty else {
             throw AuthManagerError.invalidNsecOrHex
         }
@@ -158,6 +158,18 @@ final class AuthManager: ObservableObject {
             privateKey: keypair.privateKey.nsec,
             backupPrivateKeyToICloud: backupPrivateKeyToICloud
         )
+    }
+
+    private func normalizedPrivateKeyCredential(_ credential: String) -> String {
+        var normalized = credential
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .filter { !$0.isWhitespace }
+
+        if normalized.lowercased().hasPrefix("nostr:") {
+            normalized = String(normalized.dropFirst("nostr:".count))
+        }
+
+        return normalized
     }
 
     @discardableResult

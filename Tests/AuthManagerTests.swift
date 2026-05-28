@@ -34,6 +34,67 @@ final class AuthManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testLoginAcceptsNakGeneratedNsecAndHexPrivateKeys() throws {
+        let nsecSuiteName = "\(#function)-nsec"
+        let nsecDefaults = UserDefaults(suiteName: nsecSuiteName)!
+        nsecDefaults.removePersistentDomain(forName: nsecSuiteName)
+        let hexSuiteName = "\(#function)-hex"
+        let hexDefaults = UserDefaults(suiteName: hexSuiteName)!
+        hexDefaults.removePersistentDomain(forName: hexSuiteName)
+
+        let nakHexPrivateKey = "b2e083c553f7fac8389977a73ce4691c74955938c59680472fb2380086d9be20"
+        let nakNsecPrivateKey = "nsec1ktsg832n7lavswyew7nneerfr36f2kfccktgq3e0kguqppkehcsqfec5kp"
+        let expectedNpub = "npub1law6z3s3nnaxtlk39xuq9k0ckjax9878rflfaj5524ahnxjemyyq4e53fm"
+
+        let nsecAuth = AuthManager(
+            store: AuthStore(
+                defaults: nsecDefaults,
+                privateKeyStore: RecordingPrivateKeyStore()
+            )
+        )
+        let nsecAccount = try nsecAuth.loginWithNsecOrHex(nakNsecPrivateKey)
+
+        XCTAssertEqual(nsecAccount.npub, expectedNpub)
+        XCTAssertEqual(nsecAuth.currentNsec, nakNsecPrivateKey)
+
+        let hexAuth = AuthManager(
+            store: AuthStore(
+                defaults: hexDefaults,
+                privateKeyStore: RecordingPrivateKeyStore()
+            )
+        )
+        let hexAccount = try hexAuth.loginWithNsecOrHex(nakHexPrivateKey)
+
+        XCTAssertEqual(hexAccount.npub, expectedNpub)
+        XCTAssertEqual(hexAuth.currentNsec, nakNsecPrivateKey)
+
+        nsecDefaults.removePersistentDomain(forName: nsecSuiteName)
+        hexDefaults.removePersistentDomain(forName: hexSuiteName)
+    }
+
+    @MainActor
+    func testLoginAcceptsCopiedPrivateKeysWithWhitespaceAndNostrScheme() throws {
+        let suiteName = #function
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let privateKeyStore = RecordingPrivateKeyStore()
+        let store = AuthStore(defaults: defaults, privateKeyStore: privateKeyStore)
+        let auth = AuthManager(store: store)
+        let pastedNsec = """
+          nostr:nsec1ktsg832n7lavswyew7nneerfr36f2kfcc
+          ktgq3e0kguqppkehcsqfec5kp
+        """
+
+        let account = try auth.loginWithNsecOrHex(pastedNsec)
+
+        XCTAssertEqual(account.npub, "npub1law6z3s3nnaxtlk39xuq9k0ckjax9878rflfaj5524ahnxjemyyq4e53fm")
+        XCTAssertEqual(auth.currentNsec, "nsec1ktsg832n7lavswyew7nneerfr36f2kfccktgq3e0kguqppkehcsqfec5kp")
+
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    @MainActor
     func testGeneratedPrivateKeyAccountIsAddedWhenSecureStorageFails() throws {
         let suiteName = #function
         let defaults = UserDefaults(suiteName: suiteName)!
