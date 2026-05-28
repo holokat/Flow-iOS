@@ -669,7 +669,7 @@ struct AppThemePalette {
         navigationControlBackground: Color(red: 0.96, green: 0.96, blue: 0.97),
         sheetBackground: Self.whiteRaised,
         sheetCardBackground: .white,
-        sheetCardBorder: Self.holographicLightBorder,
+        sheetCardBorder: Self.whiteBorder,
         sheetInsetBackground: Self.whiteSurface,
         modalBackground: .white,
         elevatedBackground: Color(red: 0.96, green: 0.96, blue: 0.97),

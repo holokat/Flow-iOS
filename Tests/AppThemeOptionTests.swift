@@ -440,6 +440,10 @@ final class AppThemeOptionTests: XCTestCase {
             AppThemeOption.light.palette.linkPreviewBorder,
             matches: UIColor.black.withAlphaComponent(0.08)
         )
+        assertColor(
+            AppThemeOption.light.palette.sheetCardBorder,
+            matches: UIColor.black.withAlphaComponent(0.08)
+        )
         XCTAssertNotNil(AppThemeOption.light.palette.capsuleTabStyle)
         XCTAssertNotNil(AppThemeOption.light.palette.profileActionStyle)
         XCTAssertNotNil(AppThemeOption.light.palette.pollStyle)
@@ -487,6 +491,11 @@ final class AppThemeOptionTests: XCTestCase {
         )
         assertColor(
             AppThemeOption.system.palette.linkPreviewBorder,
+            matches: UIColor.black.withAlphaComponent(0.08),
+            style: .light
+        )
+        assertColor(
+            AppThemeOption.system.palette.sheetCardBorder,
             matches: UIColor.black.withAlphaComponent(0.08),
             style: .light
         )
