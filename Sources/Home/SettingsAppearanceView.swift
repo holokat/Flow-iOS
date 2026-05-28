@@ -42,45 +42,6 @@ struct SettingsAppearanceView: View {
                 .padding(.vertical, 2)
             }
 
-            Section("Click Sound") {
-                clickSoundSection
-                    .padding(.vertical, 2)
-            }
-
-            Section("Customize") {
-                SettingsNavigationRow(
-                    title: "Typography",
-                    subtitle: appSettings.activeFontOption.title,
-                    systemImage: "textformat"
-                ) {
-                    SettingsTypographyView()
-                }
-            }
-
-            Section("Font Size") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "textformat.size")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(appSettings.primaryColor)
-                        Text("Font Size")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    FlowCapsuleTabBar(
-                        selection: $appSettings.fontSize,
-                        items: AppFontSize.allCases,
-                        title: { $0.title }
-                    )
-
-                    Text("Applies to note text and interface labels.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 2)
-            }
-
             Section("Feed Layout") {
                 SettingsToggleRow(
                     title: "Full Width Notes",
@@ -114,8 +75,7 @@ struct SettingsAppearanceView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
             .background(appSettings.themePalette.secondaryBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .environment(\.dynamicTypeSize, appSettings.dynamicTypeSize)
-            .id("\(appSettings.fontSize.rawValue)-\(appSettings.activeFontOption.rawValue)-\(appSettings.fullWidthNoteRows)")
+            .id(appSettings.fullWidthNoteRows)
         }
         .padding(.vertical, 2)
     }
@@ -129,15 +89,15 @@ struct SettingsAppearanceView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text("alex")
-                            .font(appSettings.appFont(.subheadline, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
                         Text("@alex")
-                            .font(appSettings.appFont(.caption1))
+                            .font(.caption)
                             .foregroundStyle(.secondary)
 
                         Spacer(minLength: 0)
 
                         Text("2 hr")
-                            .font(appSettings.appFont(.caption2))
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -148,16 +108,16 @@ struct SettingsAppearanceView: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("alex")
-                        .font(appSettings.appFont(.subheadline, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                     Text("@alex")
-                        .font(appSettings.appFont(.caption1))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 0)
 
                 Text("2 hr")
-                    .font(appSettings.appFont(.caption2))
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
@@ -179,7 +139,6 @@ struct SettingsAppearanceView: View {
 
         return Button {
             guard option.isEnabled else { return }
-            AppClickSoundPlayer.play(appSettings.clickSoundEffect)
             appSettings.theme = option
         } label: {
             VStack(alignment: .leading, spacing: 10) {
@@ -271,44 +230,10 @@ struct SettingsAppearanceView: View {
         )
     }
 
-    private var clickSoundSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "speaker.wave.1")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(appSettings.primaryColor)
-                Text("Interface Clicks")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            FlowCapsuleTabBar(
-                selection: clickSoundBinding,
-                items: AppClickSoundEffect.allCases,
-                title: { $0.title }
-            )
-
-            Text("Adds a quiet tap sound to common buttons and controls. None keeps the app silent.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var clickSoundBinding: Binding<AppClickSoundEffect> {
-        Binding(
-            get: { appSettings.clickSoundEffect },
-            set: { newValue in
-                appSettings.clickSoundEffect = newValue
-                AppClickSoundPlayer.play(newValue)
-            }
-        )
-    }
-
     private func primaryColorOptionCard(for option: AppPrimaryColorOption) -> some View {
         let isSelected = appSettings.selectedPrimaryColorOption == option
 
         return Button {
-            AppClickSoundPlayer.play(appSettings.clickSoundEffect)
             appSettings.primaryColor = option.color
         } label: {
             Circle()

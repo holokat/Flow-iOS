@@ -135,9 +135,6 @@ struct SettingsToggleRow: View {
             }
         }
         .padding(.vertical, 4)
-        .onChange(of: isOn) { _, _ in
-            AppClickSoundPlayer.play(appSettings.clickSoundEffect)
-        }
     }
 }
 
@@ -149,7 +146,6 @@ struct SettingsInfoButton: View {
 
     var body: some View {
         Button {
-            AppClickSoundPlayer.play(AppSettingsStore.shared.clickSoundEffect)
             isPresented = true
         } label: {
             Image(systemName: "info.circle")
@@ -176,10 +172,12 @@ struct NotificationPreferencesView: View {
                 NotificationPreferencesToggleRow(
                     title: "Enable Notifications",
                     isOn: Binding(
-                        get: { appSettings.notificationsEnabled },
-                        set: { appSettings.notificationsEnabled = $0 }
+                        get: { false },
+                        set: { _ in appSettings.notificationsEnabled = false }
                     ),
-                    footer: appSettings.notificationsStatusDescription
+                    footer: appSettings.notificationsStatusDescription,
+                    badge: "Coming soon",
+                    isDisabled: true
                 )
             }
 
@@ -254,8 +252,6 @@ struct SettingsDetailNavigationHost<Content: View>: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var appSettings: AppSettingsStore
 
-    @State private var didPlayEntrySound = false
-
     private let title: String
     private let onBack: (() -> Void)?
     private let content: Content
@@ -281,7 +277,6 @@ struct SettingsDetailNavigationHost<Content: View>: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .toolbar(SettingsNavigationChrome.navigationBarVisibility(isShowingDetail: true), for: .navigationBar)
-        .onAppear(perform: playEntrySoundOnce)
     }
 
     private var surfaceStyle: SettingsFormSurfaceStyle {
@@ -290,18 +285,11 @@ struct SettingsDetailNavigationHost<Content: View>: View {
     }
 
     private func goBack() {
-        AppClickSoundPlayer.play(appSettings.clickSoundEffect)
         if let onBack {
             onBack()
         } else {
             dismiss()
         }
-    }
-
-    private func playEntrySoundOnce() {
-        guard !didPlayEntrySound else { return }
-        didPlayEntrySound = true
-        AppClickSoundPlayer.play(appSettings.clickSoundEffect)
     }
 }
 
@@ -482,7 +470,6 @@ struct ThemedToolbarDoneButton: View {
 
     var body: some View {
         Button {
-            AppClickSoundPlayer.play(appSettings.clickSoundEffect)
             action()
         } label: {
             Image(systemName: "xmark")
@@ -569,10 +556,23 @@ private struct NotificationPreferencesToggleRow: View {
     let title: String
     @Binding var isOn: Bool
     let footer: String
+    var badge: String?
+    var isDisabled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Toggle(title, isOn: $isOn)
+            Toggle(isOn: $isOn) {
+                HStack(spacing: 8) {
+                    Text(title)
+
+                    if let badge {
+                        Text(badge)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(appSettings.primaryColor)
+                    }
+                }
+            }
+            .disabled(isDisabled)
 
             Text(footer)
                 .font(.footnote)
@@ -580,5 +580,6 @@ private struct NotificationPreferencesToggleRow: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 4)
+        .opacity(isDisabled ? 0.68 : 1)
     }
 }

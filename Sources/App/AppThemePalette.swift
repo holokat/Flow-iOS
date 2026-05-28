@@ -799,7 +799,7 @@ struct AppThemePalette {
         )
     )
 
-    static let system = adaptivePalette(light: Self.white, dark: Self.dark)
+    static let system = adaptivePalette(light: Self.white, dark: Self.black)
 
     static let holographicLight = AppThemePalette(
         background: Self.holographicLightBackground,

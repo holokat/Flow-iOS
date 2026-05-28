@@ -6,157 +6,43 @@ import UIKit
 
 final class AppThemeOptionTests: XCTestCase {
     @MainActor
-    func testSakuraThemeIsLegacyAndNormalizesToLight() {
-        XCTAssertFalse(AppThemeOption.sakura.isEnabled)
-        XCTAssertEqual(AppThemeOption.sakura.normalizedSelection, .light)
-        XCTAssertEqual(AppThemeOption.sakura.preferredColorScheme, .light)
-        XCTAssertNil(AppThemeOption.sakura.fixedPrimaryColor)
-        XCTAssertNil(AppThemeOption.sakura.fixedPrimaryGradient)
-        XCTAssertNil(AppThemeOption.sakura.qrShareBackgroundResourceName)
-        assertColor(AppThemeOption.sakura.palette.background, matches: .white)
-        XCTAssertNotNil(AppThemeOption.sakura.palette.capsuleTabStyle)
-        XCTAssertNotNil(AppThemeOption.sakura.palette.profileActionStyle)
-        XCTAssertNotNil(AppThemeOption.sakura.palette.pollStyle)
+    func testRemovedLightAliasesNormalizeToClean() {
+        for theme in [AppThemeOption.white, .sakura, .holographicLight] {
+            XCTAssertFalse(theme.isEnabled)
+            XCTAssertEqual(theme.normalizedSelection, .light)
+            XCTAssertEqual(theme.preferredColorScheme, .light)
+            XCTAssertEqual(theme.title, "Clean")
+            assertColor(theme.palette.background, matches: .white)
+        }
     }
 
     @MainActor
-    func testMidnightPaletteIsFreeAndUsesDarkMode() {
-        XCTAssertTrue(AppThemeOption.dracula.isEnabled)
-        XCTAssertEqual(AppThemeOption.dracula.preferredColorScheme, .dark)
-        XCTAssertNil(AppThemeOption.dracula.fixedPrimaryColor)
-        XCTAssertNil(AppThemeOption.dracula.fixedPrimaryGradient)
-        XCTAssertNil(AppThemeOption.dracula.qrShareBackgroundResourceName)
-        assertColor(
-            AppThemeOption.dracula.palette.background,
-            matches: UIColor(red: 44.0 / 255.0, green: 45.0 / 255.0, blue: 60.0 / 255.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.dracula.palette.chromeBackground,
-            matches: UIColor(red: 43.0 / 255.0, green: 44.0 / 255.0, blue: 58.0 / 255.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.dracula.palette.secondaryBackground,
-            matches: UIColor(red: 0.204, green: 0.216, blue: 0.275, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.dracula.palette.navigationBackground,
-            matches: UIColor(red: 32.0 / 255.0, green: 32.0 / 255.0, blue: 43.0 / 255.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.dracula.palette.sheetBackground,
-            matches: UIColor(red: 44.0 / 255.0, green: 45.0 / 255.0, blue: 60.0 / 255.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.dracula.palette.sheetCardBackground,
-            matches: UIColor(red: 0.204, green: 0.216, blue: 0.275, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.dracula.palette.chromeBorder,
-            matches: UIColor(white: 1, alpha: 0.07)
-        )
-        assertColor(
-            AppThemeOption.dracula.palette.separator,
-            matches: UIColor(white: 1, alpha: 0.07)
-        )
-        assertColor(
-            AppThemeOption.dracula.palette.mutedForeground,
-            matches: UIColor(red: 0.537, green: 0.549, blue: 0.675, alpha: 1)
-        )
-        XCTAssertNotNil(AppThemeOption.dracula.palette.capsuleTabStyle)
-        XCTAssertNotNil(AppThemeOption.dracula.palette.profileActionStyle)
-        XCTAssertNotNil(AppThemeOption.dracula.palette.pollStyle)
-        assertColor(
-            AppThemeOption.dracula.palette.pollStyle!.optionWinningBackground,
-            matches: UIColor(red: 0.773, green: 0.565, blue: 1.0, alpha: 0.22)
-        )
-        assertColor(
-            AppThemeOption.dracula.palette.pollStyle!.optionWinningBorder,
-            matches: UIColor(red: 0.773, green: 0.565, blue: 1.0, alpha: 0.60)
-        )
-    }
-
-    @MainActor
-    func testNeonPaletteIsFreeAndUsesDarkMode() {
-        XCTAssertTrue(AppThemeOption.gamer.isEnabled)
-        XCTAssertEqual(AppThemeOption.gamer.preferredColorScheme, .dark)
-        XCTAssertNil(AppThemeOption.gamer.fixedPrimaryColor)
-        XCTAssertNil(AppThemeOption.gamer.fixedPrimaryGradient)
-        XCTAssertNil(AppThemeOption.gamer.qrShareBackgroundResourceName)
-        assertColor(
-            AppThemeOption.gamer.palette.background,
-            matches: UIColor(red: 0.035, green: 0.063, blue: 0.106, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.gamer.palette.chromeBackground,
-            matches: UIColor(red: 0.055, green: 0.086, blue: 0.141, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.gamer.palette.secondaryBackground,
-            matches: UIColor(red: 0.071, green: 0.114, blue: 0.188, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.gamer.palette.mutedForeground,
-            matches: UIColor(red: 0.592, green: 0.735, blue: 0.976, alpha: 1)
-        )
-        XCTAssertNotNil(AppThemeOption.gamer.palette.capsuleTabStyle)
-        XCTAssertNotNil(AppThemeOption.gamer.palette.profileActionStyle)
-        XCTAssertNotNil(AppThemeOption.gamer.palette.pollStyle)
-        assertColor(
-            AppThemeOption.gamer.palette.pollStyle!.optionWinningBorder,
-            matches: UIColor(red: 0.561, green: 1.0, blue: 0.369, alpha: 0.56)
-        )
-    }
-
-    @MainActor
-    func testLightPaletteUsesFormerAirPalette() {
-        XCTAssertTrue(AppThemeOption.holographicLight.isEnabled)
-        XCTAssertEqual(AppThemeOption.holographicLight.preferredColorScheme, .light)
-        XCTAssertEqual(AppThemeOption.holographicLight.title, "Light")
-        XCTAssertNil(AppThemeOption.holographicLight.fixedPrimaryColor)
-        XCTAssertNil(AppThemeOption.holographicLight.fixedPrimaryGradient)
-        XCTAssertNil(AppThemeOption.holographicLight.qrShareBackgroundResourceName)
-        assertColor(
-            AppThemeOption.holographicLight.palette.background,
-            matches: UIColor(red: 0.992, green: 0.996, blue: 1.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.holographicLight.palette.chromeBackground,
-            matches: UIColor(red: 0.988, green: 0.994, blue: 1.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.holographicLight.palette.secondaryBackground,
-            matches: UIColor(red: 0.957, green: 0.982, blue: 1.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.holographicLight.palette.linkPreviewBorder,
-            matches: UIColor(white: 0, alpha: 0.08)
-        )
-        XCTAssertNotNil(AppThemeOption.holographicLight.palette.capsuleTabStyle)
-        XCTAssertNotNil(AppThemeOption.holographicLight.palette.profileActionStyle)
-        XCTAssertNotNil(AppThemeOption.holographicLight.palette.pollStyle)
-        XCTAssertNil(AppThemeOption.holographicLight.palette.feedCardStyle)
-        assertColor(
-            AppThemeOption.holographicLight.palette.profileActionStyle!.primaryForeground,
-            matches: UIColor(red: 0.235, green: 0.612, blue: 1.0, alpha: 1)
-        )
+    func testRemovedDarkAliasesNormalizeToDark() {
+        for theme in [AppThemeOption.dracula, .gamer, .holographicDark, .dark] {
+            XCTAssertFalse(theme.isEnabled)
+            XCTAssertEqual(theme.normalizedSelection, .black)
+            XCTAssertEqual(theme.preferredColorScheme, .dark)
+            XCTAssertEqual(theme.title, "Dark")
+            assertColor(theme.palette.background, matches: .black)
+        }
     }
 
     @MainActor
     func testPaletteTitlesAndVisibleOptionsReflectRenamedChoices() {
         XCTAssertEqual(AppThemeOption.black.title, "Dark")
-        XCTAssertEqual(AppThemeOption.dark.title, "Charcoal")
-        XCTAssertEqual(AppThemeOption.dracula.title, "Midnight")
-        XCTAssertEqual(AppThemeOption.gamer.title, "Neon")
-        XCTAssertEqual(AppThemeOption.holographicLight.title, "Light")
+        XCTAssertEqual(AppThemeOption.dark.title, "Dark")
+        XCTAssertEqual(AppThemeOption.dracula.title, "Dark")
+        XCTAssertEqual(AppThemeOption.gamer.title, "Dark")
+        XCTAssertEqual(AppThemeOption.holographicLight.title, "Clean")
         XCTAssertEqual(AppThemeOption.light.title, "Clean")
         XCTAssertEqual(AppThemeOption.sakura.normalizedSelection, .light)
         XCTAssertEqual(
             AppThemeOption.onboardingOptions,
-            [.holographicLight, .black, .system, .dracula, .gamer, .dark]
+            [.light, .black, .system]
         )
         XCTAssertEqual(
             AppThemeOption.appearanceOptions,
-            [.holographicLight, .black, .system, .dracula, .gamer, .dark, .light]
+            [.light, .black, .system]
         )
     }
 
@@ -171,11 +57,11 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testLegacyHolographicDarkIsDisabledAndNormalizesToCharcoal() {
+    func testLegacyHolographicDarkIsDisabledAndNormalizesToDark() {
         XCTAssertFalse(AppThemeOption.holographicDark.isEnabled)
-        XCTAssertEqual(AppThemeOption.holographicDark.normalizedSelection, .dark)
+        XCTAssertEqual(AppThemeOption.holographicDark.normalizedSelection, .black)
         XCTAssertEqual(AppThemeOption.holographicDark.preferredColorScheme, .dark)
-        XCTAssertEqual(AppThemeOption.holographicDark.title, "Charcoal")
+        XCTAssertEqual(AppThemeOption.holographicDark.title, "Dark")
         XCTAssertNil(AppThemeOption.holographicDark.fixedPrimaryColor)
         XCTAssertNil(AppThemeOption.holographicDark.fixedPrimaryGradient)
         XCTAssertNil(AppThemeOption.holographicDark.qrShareBackgroundResourceName)
@@ -244,7 +130,7 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testClickSoundEffectDefaultsToNoneAndPersistsSelection() throws {
+    func testClickSoundEffectIsAlwaysSilent() throws {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
@@ -254,18 +140,14 @@ final class AppThemeOptionTests: XCTestCase {
         settings.configure(accountPubkey: pubkey)
 
         XCTAssertEqual(settings.clickSoundEffect, .none)
-        XCTAssertEqual(AppClickSoundEffect.audibleCases.count, 6)
-        for effect in AppClickSoundEffect.audibleCases {
-            let assetName = try XCTUnwrap(effect.dataAssetName)
-            XCTAssertNotNil(NSDataAsset(name: assetName), "Missing click sound asset \(assetName)")
-        }
+        XCTAssertTrue(AppClickSoundEffect.audibleCases.isEmpty)
 
-        settings.clickSoundEffect = .glassTap
+        settings.clickSoundEffect = .none
 
         let reloaded = AppSettingsStore(defaults: defaults, authStore: authStore)
         reloaded.configure(accountPubkey: pubkey)
 
-        XCTAssertEqual(reloaded.clickSoundEffect, .glassTap)
+        XCTAssertEqual(reloaded.clickSoundEffect, .none)
     }
 
     @MainActor
@@ -288,7 +170,7 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testLightThemePaletteKeepsChromeNeutralAndRetintsAccentControls() {
+    func testRemovedLightThemeSelectionUsesCleanPalette() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
@@ -300,20 +182,22 @@ final class AppThemeOptionTests: XCTestCase {
         settings.primaryColor = AppSettingsStore.availablePrimaryColorOptions[0].color
 
         let palette = settings.themePalette
-        let basePalette = AppThemeOption.holographicLight.palette
+        let basePalette = AppThemeOption.light.palette
+
+        XCTAssertEqual(settings.theme, .light)
 
         assertColor(
             palette.profileActionStyle!.primaryForeground,
-            matches: UIColor(red: 1, green: 0, blue: 0, alpha: 1)
+            matches: UIColor(basePalette.profileActionStyle!.primaryForeground)
         )
         assertColor(
             palette.capsuleTabStyle!.selectedForeground,
-            matches: UIColor(red: 1, green: 0, blue: 0, alpha: 1)
+            matches: UIColor(basePalette.capsuleTabStyle!.selectedForeground)
         )
         assertColor(palette.background, matches: UIColor.white)
         assertColor(palette.chromeBackground, matches: UIColor.white)
         assertColor(palette.navigationBackground, matches: UIColor.white)
-        assertColor(palette.sheetBackground, matches: UIColor.white)
+        assertColor(palette.sheetBackground, matches: UIColor(basePalette.sheetBackground))
         assertColor(
             palette.chromeBorder,
             matches: UIColor(white: 0, alpha: 0.04)
@@ -322,7 +206,7 @@ final class AppThemeOptionTests: XCTestCase {
             palette.linkPreviewBorder,
             matches: UIColor(white: 0, alpha: 0.08)
         )
-        XCTAssertFalse(colorsMatch(palette.secondaryFill, basePalette.secondaryFill))
+        XCTAssertTrue(colorsMatch(palette.secondaryFill, basePalette.secondaryFill))
     }
 
     @MainActor
@@ -404,11 +288,15 @@ final class AppThemeOptionTests: XCTestCase {
     @MainActor
     func testAppearanceThemesExposeUpdatedPaletteList() {
         XCTAssertTrue(AppThemeOption.light.isEnabled)
-        XCTAssertTrue(AppThemeOption.dark.isEnabled)
         XCTAssertTrue(AppThemeOption.black.isEnabled)
+        XCTAssertTrue(AppThemeOption.system.isEnabled)
+        XCTAssertFalse(AppThemeOption.dark.isEnabled)
+        XCTAssertFalse(AppThemeOption.holographicLight.isEnabled)
+        XCTAssertFalse(AppThemeOption.dracula.isEnabled)
+        XCTAssertFalse(AppThemeOption.gamer.isEnabled)
         XCTAssertEqual(
             AppThemeOption.appearanceOptions,
-            [.holographicLight, .black, .system, .dracula, .gamer, .dark, .light]
+            [.light, .black, .system]
         )
         XCTAssertFalse(AppThemeOption.appearanceOptions.contains(.white))
         XCTAssertFalse(AppThemeOption.appearanceOptions.contains(.holographicDark))
@@ -422,11 +310,11 @@ final class AppThemeOptionTests: XCTestCase {
         let settings = AppSettingsStore(defaults: defaults, authStore: authStore)
 
         settings.theme = .system
-        settings.beginThemePreview(.holographicLight)
+        settings.beginThemePreview(.light)
 
-        XCTAssertEqual(settings.activeTheme, .holographicLight)
+        XCTAssertEqual(settings.activeTheme, .light)
         XCTAssertEqual(settings.preferredColorScheme, .light)
-        XCTAssertEqual(settings.previewTheme, .holographicLight)
+        XCTAssertEqual(settings.previewTheme, .light)
     }
 
     @MainActor
@@ -458,7 +346,7 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testLegacyHolographicDarkSelectionNormalizesToCharcoal() {
+    func testLegacyHolographicDarkSelectionNormalizesToDark() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
@@ -466,8 +354,8 @@ final class AppThemeOptionTests: XCTestCase {
 
         settings.theme = .holographicDark
 
-        XCTAssertEqual(settings.theme, .dark)
-        XCTAssertEqual(settings.activeTheme, .dark)
+        XCTAssertEqual(settings.theme, .black)
+        XCTAssertEqual(settings.activeTheme, .black)
         XCTAssertEqual(settings.preferredColorScheme, .dark)
     }
 
@@ -486,14 +374,7 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testAllFontsAreEnabled() {
-        for option in AppFontOption.allCases {
-            XCTAssertTrue(option.isEnabled)
-        }
-    }
-
-    @MainActor
-    func testFontPreviewOverridesActiveFont() {
+    func testFontPreviewKeepsSystemFont() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
@@ -502,13 +383,13 @@ final class AppThemeOptionTests: XCTestCase {
         settings.fontOption = .system
         settings.beginFontPreview(.inter)
 
-        XCTAssertEqual(settings.activeFontOption, .inter)
-        XCTAssertEqual(settings.previewFontOption, .inter)
+        XCTAssertEqual(settings.activeFontOption, .system)
+        XCTAssertNil(settings.previewFontOption)
         XCTAssertEqual(settings.fontOption, .system)
     }
 
     @MainActor
-    func testFontSelectionPersistsWithoutUnlock() {
+    func testFontSelectionAlwaysResetsToSystem() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
@@ -521,40 +402,8 @@ final class AppThemeOptionTests: XCTestCase {
         let reloaded = AppSettingsStore(defaults: defaults, authStore: authStore)
         reloaded.configure(accountPubkey: pubkey)
 
-        XCTAssertEqual(reloaded.fontOption, .ebGaramond)
-        XCTAssertEqual(reloaded.activeFontOption, .ebGaramond)
-    }
-
-    @MainActor
-    func testBundledCustomFontsExistInMainBundle() {
-        let bundledFonts = [
-            "DMSans.ttf",
-            "EBGaramond.ttf",
-            "ElmsSans.ttf",
-            "GeistSans.ttf",
-            "HubotSans.ttf",
-            "Inter.ttf",
-            "MonaSans.ttf",
-            "Nacelle-Bold.otf",
-            "Nacelle-Italic.otf",
-            "Nacelle-Regular.otf",
-            "Nacelle-SemiBold.otf",
-            "Nunito.ttf",
-            "PublicSans.ttf",
-            "SpaceGrotesk.ttf"
-        ]
-
-        for fontFile in bundledFonts {
-            let parts = fontFile.split(separator: ".", maxSplits: 1)
-            XCTAssertEqual(parts.count, 2)
-            XCTAssertNotNil(
-                Bundle.main.url(
-                    forResource: String(parts[0]),
-                    withExtension: String(parts[1])
-                ),
-                "Missing bundled font: \(fontFile)"
-            )
-        }
+        XCTAssertEqual(reloaded.fontOption, .system)
+        XCTAssertEqual(reloaded.activeFontOption, .system)
     }
 
     @MainActor
@@ -611,45 +460,17 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testDarkThemeMatchesReferencePalette() {
+    func testLegacyDarkThemeUsesBlackPalette() {
         XCTAssertEqual(AppThemeOption.dark.preferredColorScheme, .dark)
         XCTAssertNil(AppThemeOption.dark.fixedPrimaryColor)
         XCTAssertNil(AppThemeOption.dark.fixedPrimaryGradient)
         assertColor(
             AppThemeOption.dark.palette.background,
-            matches: UIColor(red: 23.0 / 255.0, green: 23.0 / 255.0, blue: 25.0 / 255.0, alpha: 1)
+            matches: .black
         )
-        assertColor(
-            AppThemeOption.dark.palette.navigationBackground,
-            matches: UIColor(red: 19.0 / 255.0, green: 19.0 / 255.0, blue: 20.0 / 255.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.dark.palette.secondaryBackground,
-            matches: UIColor(red: 41.0 / 255.0, green: 41.0 / 255.0, blue: 41.0 / 255.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.dark.palette.sheetBackground,
-            matches: UIColor(red: 41.0 / 255.0, green: 41.0 / 255.0, blue: 41.0 / 255.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.dark.palette.sheetCardBackground,
-            matches: UIColor(red: 58.0 / 255.0, green: 58.0 / 255.0, blue: 58.0 / 255.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.dark.palette.sheetCardBorder,
-            matches: UIColor(red: 75.0 / 255.0, green: 75.0 / 255.0, blue: 75.0 / 255.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.dark.palette.foreground,
-            matches: UIColor(red: 226.0 / 255.0, green: 226.0 / 255.0, blue: 227.0 / 255.0, alpha: 1)
-        )
-        assertColor(
-            AppThemeOption.dark.palette.mutedForeground,
-            matches: UIColor(red: 125.0 / 255.0, green: 125.0 / 255.0, blue: 126.0 / 255.0, alpha: 1)
-        )
-        XCTAssertNotNil(AppThemeOption.dark.palette.capsuleTabStyle)
-        XCTAssertNotNil(AppThemeOption.dark.palette.profileActionStyle)
-        XCTAssertNotNil(AppThemeOption.dark.palette.pollStyle)
+        XCTAssertNil(AppThemeOption.dark.palette.capsuleTabStyle)
+        XCTAssertNil(AppThemeOption.dark.palette.profileActionStyle)
+        XCTAssertNil(AppThemeOption.dark.palette.pollStyle)
     }
 
     @MainActor
@@ -676,22 +497,22 @@ final class AppThemeOptionTests: XCTestCase {
         )
         assertColor(
             AppThemeOption.system.palette.background,
-            matches: UIColor(red: 23.0 / 255.0, green: 23.0 / 255.0, blue: 25.0 / 255.0, alpha: 1),
+            matches: .black,
             style: .dark
         )
         assertColor(
             AppThemeOption.system.palette.navigationBackground,
-            matches: UIColor(red: 19.0 / 255.0, green: 19.0 / 255.0, blue: 20.0 / 255.0, alpha: 1),
+            matches: .black,
             style: .dark
         )
         assertColor(
             AppThemeOption.system.palette.sheetCardBackground,
-            matches: UIColor(red: 58.0 / 255.0, green: 58.0 / 255.0, blue: 58.0 / 255.0, alpha: 1),
+            matches: UIColor(red: 0.137, green: 0.137, blue: 0.137, alpha: 1),
             style: .dark
         )
         assertColor(
             AppThemeOption.system.palette.sheetCardBorder,
-            matches: UIColor(red: 75.0 / 255.0, green: 75.0 / 255.0, blue: 75.0 / 255.0, alpha: 1),
+            matches: UIColor(red: 0.235, green: 0.235, blue: 0.235, alpha: 1),
             style: .dark
         )
     }
@@ -1275,9 +1096,13 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertTrue(feedsSource.contains("SettingsCustomFeedsSection()"))
         XCTAssertFalse(feedsSource.contains("SettingsNavigationRow(title: \"Custom Feeds\""))
+        XCTAssertFalse(feedsSource.contains("Choose what powers Interests and News."))
         XCTAssertTrue(customFeedsSource.contains("struct SettingsCustomFeedsSection"))
         XCTAssertTrue(customFeedsSource.contains("Label(\"Create Feed\", systemImage: \"plus.circle.fill\")"))
-        XCTAssertTrue(customFeedsSource.contains("ForEach(appSettings.customFeeds)"))
+        XCTAssertTrue(customFeedsSource.contains("ForEach(Array(appSettings.customFeeds.enumerated())"))
+        XCTAssertTrue(customFeedsSource.contains(".background(appSettings.themePalette.sheetCardBackground"))
+        XCTAssertFalse(customFeedsSource.contains("Text(\"Custom Feeds\")"))
+        XCTAssertFalse(customFeedsSource.contains("Mix hashtags, people, and phrases into feeds"))
     }
 
     func testCustomFeedEditorUsesSeparateConciseSourceCards() throws {
@@ -1708,8 +1533,7 @@ final class AppThemeOptionTests: XCTestCase {
 
     @MainActor
     private func expectedDefaultThemeForCurrentTime() -> AppThemeOption {
-        let hour = Calendar.current.component(.hour, from: Date())
-        return (6..<18).contains(hour) ? .holographicLight : .black
+        .system
     }
 
     private func sourceText(at relativePath: String) throws -> String {

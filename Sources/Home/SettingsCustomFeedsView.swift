@@ -3,9 +3,11 @@ import SwiftUI
 struct SettingsCustomFeedsView: View {
     var body: some View {
         ThemedSettingsForm {
-            SettingsCustomFeedsSection()
+            Section("Feed Setup") {
+                SettingsCustomFeedsSection()
+            }
         }
-        .navigationTitle("Custom Feeds")
+        .navigationTitle("Feeds")
         .navigationBarTitleDisplayMode(.large)
     }
 }
@@ -16,70 +18,101 @@ struct SettingsCustomFeedsSection: View {
     @State private var draft: SettingsCustomFeedDraft?
 
     var body: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 12) {
             Button {
                 draft = SettingsCustomFeedDraft()
             } label: {
-                Label("Create Feed", systemImage: "plus.circle.fill")
-                    .font(.body.weight(.semibold))
+                HStack(spacing: 10) {
+                    Label("Create Feed", systemImage: "plus.circle.fill")
+                        .font(.body.weight(.semibold))
+
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(appSettings.primaryColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)
 
             if appSettings.customFeeds.isEmpty {
                 Text("No custom feeds yet.")
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
             } else {
-                ForEach(appSettings.customFeeds) { feed in
-                    customFeedRow(feed)
-                        .swipeActions {
-                            Button(role: .destructive) {
-                                appSettings.removeCustomFeed(id: feed.id)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
+                VStack(spacing: 0) {
+                    ForEach(Array(appSettings.customFeeds.enumerated()), id: \.element.id) { index, feed in
+                        customFeedRow(feed)
+
+                        if index < appSettings.customFeeds.count - 1 {
+                            Divider()
+                                .padding(.leading, 34)
                         }
+                    }
                 }
             }
-        } header: {
-            Text("Custom Feeds")
-        } footer: {
-            Text("Mix hashtags, people, and phrases into feeds that appear in Feed Source.")
         }
+        .padding(14)
+        .background(appSettings.themePalette.sheetCardBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(appSettings.settingsCardBorder, lineWidth: 1)
+        }
+        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+        .listRowBackground(Color.clear)
         .sheet(item: $draft) { currentDraft in
             SettingsCustomFeedEditorSheet(initialDraft: currentDraft)
         }
     }
 
     private func customFeedRow(_ feed: CustomFeedDefinition) -> some View {
-        Button {
-            draft = SettingsCustomFeedDraft(feed: feed)
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 10) {
-                    Image(systemName: feed.iconSystemName)
-                        .font(.headline)
-                        .foregroundStyle(appSettings.primaryColor)
-                        .frame(width: 24, alignment: .center)
+        HStack(alignment: .center, spacing: 10) {
+            Button {
+                draft = SettingsCustomFeedDraft(feed: feed)
+            } label: {
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 10) {
+                            Image(systemName: feed.iconSystemName)
+                                .font(.headline)
+                                .foregroundStyle(appSettings.primaryColor)
+                                .frame(width: 24, alignment: .center)
 
-                    Text(feed.name)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
+                            Text(feed.name)
+                                .font(.body.weight(.medium))
+                                .foregroundStyle(.primary)
 
-                    Spacer(minLength: 8)
+                            Spacer(minLength: 8)
 
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+
+                        Text(criteriaSummary(for: feed))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-
-                Text(criteriaSummary(for: feed))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
+
+            Button(role: .destructive) {
+                appSettings.removeCustomFeed(id: feed.id)
+            } label: {
+                Image(systemName: "trash")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.red)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Delete \(feed.name)")
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 8)
     }
 
     private func criteriaSummary(for feed: CustomFeedDefinition) -> String {

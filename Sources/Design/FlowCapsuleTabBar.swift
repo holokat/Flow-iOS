@@ -61,9 +61,6 @@ struct FlowCapsuleTabBar<Selection: Hashable>: View {
 
         return Button {
             guard selection != item else { return }
-            if Selection.self != AppClickSoundEffect.self {
-                AppClickSoundPlayer.play(appSettings.clickSoundEffect)
-            }
             withAnimation(.snappy(duration: 0.2, extraBounce: 0)) {
                 selection = item
             }

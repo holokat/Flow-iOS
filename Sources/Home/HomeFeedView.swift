@@ -1374,7 +1374,6 @@ struct HomeFeedView: View {
     }
 
     private func openFeedsSettingsFromFeedSourcePicker() {
-        AppClickSoundPlayer.play(appSettings.clickSoundEffect)
         isShowingFeedSourcePicker = false
         settingsSheetState.show(.feeds)
 

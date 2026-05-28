@@ -61,10 +61,8 @@ struct FlowApp: App {
             .environmentObject(composeSheetCoordinator)
             .environmentObject(composeDraftStore)
             .environmentObject(breakReminderCoordinator)
-            .font(appSettings.appFont(.body))
             .tint(appSettings.primaryColor)
             .preferredColorScheme(appSettings.preferredColorScheme)
-            .environment(\.dynamicTypeSize, appSettings.dynamicTypeSize)
             .task {
                 appSettings.configure(accountPubkey: authManager.currentAccount?.pubkey)
                 relaySettings.configure(
@@ -72,7 +70,7 @@ struct FlowApp: App {
                     nsec: authManager.currentNsec
                 )
                 await presentLaunchSplashIfNeeded()
-                updateGlobalTypographyAppearance()
+                updateGlobalNavigationAppearance()
                 updateBreakReminderMonitoring()
                 await MainActor.run {
                     AppIconRotator.rotateWeeklyIfNeeded()
@@ -97,17 +95,11 @@ struct FlowApp: App {
             .onChange(of: appSettings.breakReminderInterval) { _, _ in
                 updateBreakReminderMonitoring()
             }
-            .onChange(of: appSettings.activeFontOption.rawValue) { _, _ in
-                updateGlobalTypographyAppearance()
-            }
-            .onChange(of: appSettings.fontSize) { _, _ in
-                updateGlobalTypographyAppearance()
-            }
             .onChange(of: appSettings.activeTheme.rawValue) { _, _ in
-                updateGlobalTypographyAppearance()
+                updateGlobalNavigationAppearance()
             }
             .onChange(of: appSettings.previewTheme?.rawValue) { _, _ in
-                updateGlobalTypographyAppearance()
+                updateGlobalNavigationAppearance()
             }
             .onChange(of: composeSheetCoordinator.draft?.id) { _, newValue in
                 guard newValue == nil else { return }
@@ -152,29 +144,23 @@ struct FlowApp: App {
     }
 
     @MainActor
-    private func updateGlobalTypographyAppearance() {
+    private func updateGlobalNavigationAppearance() {
         let navigationBar = UINavigationBar.appearance()
         let navigationTitleColor = UIColor(appSettings.themePalette.foreground)
 
         navigationBar.titleTextAttributes = [
-            .font: appSettings.appUIFont(.headline, weight: .semibold),
+            .font: UIFont.preferredFont(forTextStyle: .headline),
             .foregroundColor: navigationTitleColor
         ]
         navigationBar.largeTitleTextAttributes = [
-            .font: appSettings.appUIFont(.largeTitle, weight: .bold),
+            .font: UIFont.preferredFont(forTextStyle: .largeTitle),
             .foregroundColor: navigationTitleColor
         ]
 
-        // Scope to UINavigationBar only. UIBarButtonItem.appearance() unscoped
-        // applies the custom font to every UIBarButtonItem in the process,
-        // including the prediction chips iOS renders inside the keyboard's
-        // QuickType bar. Custom fonts without emoji glyphs (and most do not)
-        // can cause the keyboard to suppress emoji predictions.
-        let barButtonFont = appSettings.appUIFont(.body, weight: .semibold)
         let scopedBarButton = UIBarButtonItem.appearance(whenContainedInInstancesOf: [UINavigationBar.self])
-        scopedBarButton.setTitleTextAttributes([.font: barButtonFont], for: .normal)
-        scopedBarButton.setTitleTextAttributes([.font: barButtonFont], for: .highlighted)
-        scopedBarButton.setTitleTextAttributes([.font: barButtonFont], for: .disabled)
+        scopedBarButton.setTitleTextAttributes(nil, for: .normal)
+        scopedBarButton.setTitleTextAttributes(nil, for: .highlighted)
+        scopedBarButton.setTitleTextAttributes(nil, for: .disabled)
     }
 
     private func updateBreakReminderMonitoring() {

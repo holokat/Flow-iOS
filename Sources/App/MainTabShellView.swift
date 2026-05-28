@@ -307,7 +307,6 @@ struct MainTabShellView: View {
         Binding(
             get: { selectedTab },
             set: { newValue in
-                AppClickSoundPlayer.play(appSettings.clickSoundEffect)
                 guard newValue != .compose else {
                     handleComposeTap()
                     return

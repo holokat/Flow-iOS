@@ -23,11 +23,9 @@ extension AppSettingsStore {
     }
 
     func appUIFont(_ textStyle: UIFont.TextStyle, weight: UIFont.Weight = .regular) -> UIFont {
-        activeFontOption.uiFont(
-            textStyle: textStyle,
-            weight: weight,
-            contentSizeCategory: fontSize.uiContentSizeCategory
-        )
+        let metrics = UIFontMetrics(forTextStyle: textStyle)
+        let baseFont = UIFont.systemFont(ofSize: textStyle.basePointSize, weight: weight)
+        return metrics.scaledFont(for: baseFont)
     }
 
     func appFont(size: CGFloat, weight: UIFont.Weight = .regular) -> Font {
@@ -35,7 +33,7 @@ extension AppSettingsStore {
     }
 
     func appUIFont(size: CGFloat, weight: UIFont.Weight = .regular) -> UIFont {
-        activeFontOption.uiFont(size: size, weight: weight)
+        UIFont.systemFont(ofSize: size, weight: weight)
     }
 }
 

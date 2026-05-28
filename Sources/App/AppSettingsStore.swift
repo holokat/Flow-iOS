@@ -19,31 +19,24 @@ enum AppThemeOption: String, CaseIterable, Codable, Identifiable, Hashable, Send
     var id: String { rawValue }
 
     static let onboardingOptions: [AppThemeOption] = [
-        .holographicLight,
+        .light,
         .black,
-        .system,
-        .dracula,
-        .gamer,
-        .dark
+        .system
     ]
 
     static let appearanceOptions: [AppThemeOption] = [
-        .holographicLight,
+        .light,
         .black,
-        .system,
-        .dracula,
-        .gamer,
-        .dark,
-        .light
+        .system
     ]
 
     var normalizedSelection: AppThemeOption {
         switch self {
-        case .white, .sakura:
+        case .white, .sakura, .holographicLight:
             return .light
-        case .holographicDark:
-            return .dark
-        case .system, .black, .dracula, .gamer, .holographicLight, .dark, .light:
+        case .dracula, .gamer, .holographicDark, .dark:
+            return .black
+        case .system, .black, .light:
             return self
         }
     }
@@ -54,22 +47,10 @@ enum AppThemeOption: String, CaseIterable, Codable, Identifiable, Hashable, Send
             return "System"
         case .black:
             return "Dark"
-        case .white:
+        case .white, .sakura, .holographicLight, .light:
             return "Clean"
-        case .sakura:
-            return "Clean"
-        case .dracula:
-            return "Midnight"
-        case .gamer:
-            return "Neon"
-        case .holographicLight:
-            return "Light"
-        case .holographicDark:
-            return "Charcoal"
-        case .dark:
-            return "Charcoal"
-        case .light:
-            return "Clean"
+        case .dracula, .gamer, .holographicDark, .dark:
+            return "Dark"
         }
     }
 
@@ -79,53 +60,31 @@ enum AppThemeOption: String, CaseIterable, Codable, Identifiable, Hashable, Send
             return "circle.lefthalf.filled"
         case .black:
             return "moon.fill"
-        case .white:
+        case .white, .sakura, .holographicLight, .light:
             return "sun.haze.fill"
-        case .sakura:
-            return "sun.haze.fill"
-        case .dracula:
+        case .dracula, .gamer, .holographicDark, .dark:
             return "moon.stars.fill"
-        case .gamer:
-            return "gamecontroller.fill"
-        case .holographicLight, .holographicDark:
-            return "sparkles"
-        case .dark:
-            return "moon.stars.fill"
-        case .light:
-            return "sun.haze.fill"
         }
     }
 
     var subtitle: String {
         switch self {
         case .system:
-            return "Switches between Light and Dark"
+            return "Matches your device setting"
         case .black:
-            return "Pure black appearance"
-        case .white:
-            return "Classic bright appearance"
-        case .sakura:
-            return "Classic bright appearance"
-        case .dracula:
-            return "Deep shadows with cool violet surfaces"
-        case .gamer:
-            return "Carbon black with electric cyan surfaces"
-        case .holographicLight:
-            return "Bright surfaces with soft sky chrome"
-        case .holographicDark:
-            return "Soft graphite contrast"
-        case .dark:
-            return "Soft graphite contrast"
-        case .light:
-            return "Classic bright appearance"
+            return "Dark appearance"
+        case .white, .sakura, .holographicLight, .light:
+            return "Clean bright appearance"
+        case .dracula, .gamer, .holographicDark, .dark:
+            return "Dark appearance"
         }
     }
 
     var isEnabled: Bool {
         switch self {
-        case .system, .black, .dracula, .gamer, .holographicLight, .dark, .light:
+        case .system, .black, .light:
             return true
-        case .white, .sakura, .holographicDark:
+        case .white, .sakura, .dracula, .gamer, .holographicLight, .holographicDark, .dark:
             return false
         }
     }
@@ -162,30 +121,18 @@ enum AppThemeOption: String, CaseIterable, Codable, Identifiable, Hashable, Send
             return AppThemePalette.system
         case .black:
             return AppThemePalette.black
-        case .white:
+        case .white, .sakura, .holographicLight, .light:
             return AppThemePalette.white
-        case .sakura:
-            return AppThemePalette.white
-        case .dracula:
-            return AppThemePalette.dracula
-        case .gamer:
-            return AppThemePalette.gamer
-        case .holographicLight:
-            return AppThemePalette.holographicLight
-        case .holographicDark:
-            return AppThemePalette.dark
-        case .dark:
-            return AppThemePalette.dark
-        case .light:
-            return AppThemePalette.white
+        case .dracula, .gamer, .holographicDark, .dark:
+            return AppThemePalette.black
         }
     }
 
     var usesDarkGradientTreatment: Bool {
         switch normalizedSelection {
-        case .black, .dark, .dracula, .gamer:
+        case .black:
             return true
-        case .system, .white, .sakura, .holographicLight, .holographicDark, .light:
+        case .system, .white, .sakura, .dracula, .gamer, .holographicLight, .holographicDark, .dark, .light:
             return false
         }
     }
@@ -301,7 +248,7 @@ enum HolographicGradientOption: String, CaseIterable, Codable, Identifiable, Has
         case .holographicChromeLook:
             return "Holographic chrome look"
         case .neonHolographicBlend:
-            return "Neon holographic blend"
+            return "Prismatic holographic blend"
         case .pearlHolographicGradient:
             return "Pearl holographic gradient"
         case .strongRainbowFoil:
@@ -839,55 +786,19 @@ enum ExpressiveGradientOption: String, CaseIterable, Codable, Identifiable, Hash
 
 enum AppClickSoundEffect: String, CaseIterable, Codable, Identifiable, Sendable {
     case none
-    case softTap
-    case lightTick
-    case mutedClick
-    case tinyPop
-    case glassTap
-    case warmBlip
 
     var id: String { rawValue }
 
     var title: String {
-        switch self {
-        case .none:
-            return "None"
-        case .softTap:
-            return "Soft Tap"
-        case .lightTick:
-            return "Light Tick"
-        case .mutedClick:
-            return "Muted Click"
-        case .tinyPop:
-            return "Tiny Pop"
-        case .glassTap:
-            return "Glass Tap"
-        case .warmBlip:
-            return "Warm Blip"
-        }
+        "None"
     }
 
     var dataAssetName: String? {
-        switch self {
-        case .none:
-            return nil
-        case .softTap:
-            return "AppClickSoftTap"
-        case .lightTick:
-            return "AppClickLightTick"
-        case .mutedClick:
-            return "AppClickMutedClick"
-        case .tinyPop:
-            return "AppClickTinyPop"
-        case .glassTap:
-            return "AppClickGlassTap"
-        case .warmBlip:
-            return "AppClickWarmBlip"
-        }
+        nil
     }
 
     static var audibleCases: [AppClickSoundEffect] {
-        allCases.filter { $0 != .none }
+        []
     }
 }
 
@@ -1511,9 +1422,12 @@ final class AppSettingsStore: ObservableObject {
             buttonGradientOption = nil
             generatedButtonGradient = nil
             buttonTextColor = nil
-            fontOption = (try? container.decode(AppFontOption.self, forKey: .fontOption)) ?? .system
-            fontSize = (try? container.decode(AppFontSize.self, forKey: .fontSize)) ?? .medium
-            clickSoundEffect = (try? container.decode(AppClickSoundEffect.self, forKey: .clickSoundEffect)) ?? .none
+            _ = try? container.decode(AppFontOption.self, forKey: .fontOption)
+            _ = try? container.decode(AppFontSize.self, forKey: .fontSize)
+            _ = try? container.decode(AppClickSoundEffect.self, forKey: .clickSoundEffect)
+            fontOption = .system
+            fontSize = .medium
+            clickSoundEffect = .none
             breakReminderInterval = (try? container.decode(BreakReminderInterval.self, forKey: .breakReminderInterval)) ?? .fortyMinutes
             liveReactsEnabled = try container.decodeIfPresent(Bool.self, forKey: .liveReactsEnabled) ?? true
             hideNSFWContent = try container.decodeIfPresent(Bool.self, forKey: .hideNSFWContent) ?? true
@@ -1720,9 +1634,9 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var clickSoundEffect: AppClickSoundEffect {
-        get { persistedSettings.clickSoundEffect }
+        get { .none }
         set {
-            persistedSettings.clickSoundEffect = newValue
+            persistedSettings.clickSoundEffect = .none
             persist()
         }
     }
@@ -1867,18 +1781,18 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var fontSize: AppFontSize {
-        get { persistedSettings.fontSize }
+        get { .medium }
         set {
-            persistedSettings.fontSize = newValue
+            persistedSettings.fontSize = .medium
             persist()
         }
     }
 
     var fontOption: AppFontOption {
-        get { persistedSettings.fontOption }
+        get { .system }
         set {
             previewFontOption = nil
-            persistedSettings.fontOption = newValue
+            persistedSettings.fontOption = .system
             persist()
         }
     }
@@ -2076,17 +1990,12 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var notificationsEnabled: Bool {
-        get { persistedSettings.notificationsEnabled }
+        get { false }
         set {
-            persistedSettings.notificationsEnabled = newValue
+            persistedSettings.notificationsEnabled = false
             persist()
-
-            if newValue {
-                scheduleNotificationAuthorizationCheck()
-            } else {
-                notificationAuthorizationTask?.cancel()
-                notificationAuthorizationTask = nil
-            }
+            notificationAuthorizationTask?.cancel()
+            notificationAuthorizationTask = nil
         }
     }
 
@@ -2320,23 +2229,16 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var themePalette: AppThemePalette {
-        let palette = activeTheme.palette
-
-        switch activeTheme.normalizedSelection {
-        case .holographicLight:
-            return palette.applyingLightPrimaryAccent(primaryColor)
-        case .system, .black, .white, .sakura, .dracula, .gamer, .holographicDark, .dark, .light:
-            return palette
-        }
+        activeTheme.palette
     }
 
     var settingsCardBorder: Color {
-        activeTheme == .gamer ? themePalette.chromeBorder : themePalette.sheetCardBorder
+        themePalette.sheetCardBorder
     }
 
     func themeSeparator(defaultOpacity: Double) -> Color {
         switch activeTheme.normalizedSelection {
-        case .gamer, .holographicLight, .light:
+        case .light:
             return themePalette.separator
         case .system:
             return Color(
@@ -2353,11 +2255,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var activeFontOption: AppFontOption {
-        if let previewFontOption, previewFontOption.isEnabled {
-            return previewFontOption
-        }
-        let requestedFontOption = persistedSettings.fontOption
-        return requestedFontOption.isEnabled ? requestedFontOption : .system
+        .system
     }
 
     var canCustomizePrimaryColor: Bool {
@@ -2380,8 +2278,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     func beginFontPreview(_ option: AppFontOption) {
-        guard option.isEnabled else { return }
-        previewFontOption = option
+        previewFontOption = nil
     }
 
     func endFontPreview() {
@@ -2393,7 +2290,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var dynamicTypeSize: DynamicTypeSize {
-        fontSize.dynamicTypeSize
+        .medium
     }
 
     var reactionsVisibleInFeeds: Bool {
@@ -2423,20 +2320,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var notificationsStatusDescription: String {
-        switch notificationAuthorizationStatus {
-        case .notDetermined:
-            return notificationsEnabled
-                ? "Waiting for iOS to ask for permission."
-                : "Turn this on to request permission."
-        case .authorized, .provisional, .ephemeral:
-            return notificationsEnabled
-                ? "Notifications are enabled on this device."
-                : "Notifications are allowed, but this app setting is off."
-        case .denied:
-            return "Notifications are blocked in iOS Settings."
-        @unknown default:
-            return "Notification status is unavailable."
-        }
+        "Coming soon."
     }
 
     var activityNotificationPreferenceSignature: String {
@@ -2479,53 +2363,22 @@ final class AppSettingsStore: ObservableObject {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         notificationAuthorizationStatus = settings.authorizationStatus
 
-        if settings.authorizationStatus == .denied {
-            if persistedSettings.notificationsEnabled {
-                persistedSettings.notificationsEnabled = false
-                persist()
-            }
+        if persistedSettings.notificationsEnabled {
+            persistedSettings.notificationsEnabled = false
+            persist()
         }
     }
 
     private func scheduleNotificationAuthorizationCheck() {
         notificationAuthorizationTask?.cancel()
-        notificationAuthorizationTask = Task { [weak self] in
-            guard let self else { return }
-            await self.resolveNotificationAuthorization()
-        }
+        notificationAuthorizationTask = nil
     }
 
     private func resolveNotificationAuthorization() async {
-        let center = UNUserNotificationCenter.current()
-        let settings = await center.notificationSettings()
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
         notificationAuthorizationStatus = settings.authorizationStatus
-
-        switch settings.authorizationStatus {
-        case .authorized, .provisional, .ephemeral:
-            return
-        case .denied:
-            if persistedSettings.notificationsEnabled {
-                persistedSettings.notificationsEnabled = false
-                persist()
-            }
-        case .notDetermined:
-            let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
-            let refreshed = await center.notificationSettings()
-            notificationAuthorizationStatus = refreshed.authorizationStatus
-
-            if !granted || !(refreshed.authorizationStatus == .authorized || refreshed.authorizationStatus == .provisional || refreshed.authorizationStatus == .ephemeral) {
-                if persistedSettings.notificationsEnabled {
-                    persistedSettings.notificationsEnabled = false
-                    persist()
-                }
-            }
-        @unknown default:
-            if persistedSettings.notificationsEnabled {
-                persistedSettings.notificationsEnabled = false
-                persist()
-            }
-        }
-
+        persistedSettings.notificationsEnabled = false
+        persist()
         notificationAuthorizationTask = nil
     }
 
@@ -2573,8 +2426,7 @@ final class AppSettingsStore: ObservableObject {
         date: Date = Date(),
         calendar: Calendar = .current
     ) -> AppThemeOption {
-        let hour = calendar.component(.hour, from: date)
-        return (6..<18).contains(hour) ? .holographicLight : .black
+        .system
     }
 
     nonisolated static func normalizedPrimaryColorOption(for color: Color) -> AppPrimaryColorOption {

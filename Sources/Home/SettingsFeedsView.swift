@@ -24,13 +24,11 @@ struct SettingsFeedsView: View {
                 SettingsNavigationRow(title: "News", systemImage: "newspaper.fill") {
                     SettingsNewsFeedView()
                 }
+
+                SettingsCustomFeedsSection()
             } header: {
                 Text("Feed Setup")
-            } footer: {
-                Text("Choose what powers Interests and News.")
             }
-
-            SettingsCustomFeedsSection()
         }
         .navigationTitle("Feeds")
         .navigationBarTitleDisplayMode(.inline)

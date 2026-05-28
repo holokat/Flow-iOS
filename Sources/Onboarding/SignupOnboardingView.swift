@@ -74,7 +74,6 @@ struct SignupOnboardingView: View {
     @State private var hasEditedHandle = false
     @State private var selectedTopics = Set<InterestTopic>()
     @State private var signupPrivateKeyBackupEnabled = true
-    @State private var signupNotificationsEnabled = false
     @State private var selectedAvatarItem: PhotosPickerItem?
     @State private var selectedAvatarData: Data?
     @State private var selectedAvatarPreviewImage: UIImage?
@@ -399,14 +398,15 @@ struct SignupOnboardingView: View {
                             Text("Stay in Halo")
                                 .font(.headline)
 
-                            Text("Enable notifications here and iOS will ask for permission right away.")
+                            Text("Coming soon.")
                                 .font(.footnote)
                                 .foregroundStyle(previewThemePalette.secondaryForeground)
                         }
                     }
 
-                    Toggle("Enable Notifications", isOn: notificationsBinding)
+                    Toggle("Enable Notifications (Coming soon)", isOn: notificationsBinding)
                         .tint(onboardingToggleTint)
+                        .disabled(true)
 
                     Text(signupNotificationsStatusDescription)
                         .font(.footnote)
@@ -827,8 +827,8 @@ struct SignupOnboardingView: View {
 
     private var notificationsBinding: Binding<Bool> {
         Binding(
-            get: { signupNotificationsEnabled },
-            set: { signupNotificationsEnabled = $0 }
+            get: { false },
+            set: { _ in }
         )
     }
 
@@ -846,9 +846,7 @@ struct SignupOnboardingView: View {
     }
 
     private var signupNotificationsStatusDescription: String {
-        signupNotificationsEnabled
-            ? "iOS will ask for permission when you finish."
-            : "Off for now. You can change this later in Settings."
+        "Coming soon."
     }
 
     private var welcomeName: String {
@@ -1036,10 +1034,6 @@ struct SignupOnboardingView: View {
                 HomePrimaryFeedSource.trending.storageValue,
                 forKey: HomeFeedViewModel.persistedFeedSourceKey(pubkey: account.pubkey.lowercased())
             )
-
-            if signupNotificationsEnabled {
-                appSettings.notificationsEnabled = true
-            }
 
             appSettings.endThemePreview()
             onComplete()
