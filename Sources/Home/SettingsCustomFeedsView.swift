@@ -1,58 +1,36 @@
 import SwiftUI
 
 struct SettingsCustomFeedsView: View {
+    var body: some View {
+        ThemedSettingsForm {
+            SettingsCustomFeedsSection()
+        }
+        .navigationTitle("Custom Feeds")
+        .navigationBarTitleDisplayMode(.large)
+    }
+}
+
+struct SettingsCustomFeedsSection: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     @State private var draft: SettingsCustomFeedDraft?
 
     var body: some View {
-        ThemedSettingsForm {
-            Section {
-                Button {
-                    draft = SettingsCustomFeedDraft()
-                } label: {
-                    Label("Create Feed", systemImage: "plus.circle.fill")
-                }
-                .buttonStyle(.plain)
-            } footer: {
-                Text("Custom feeds appear in the main feed selector and can blend hashtags, specific people, and phrases.")
+        Section {
+            Button {
+                draft = SettingsCustomFeedDraft()
+            } label: {
+                Label("Create Feed", systemImage: "plus.circle.fill")
+                    .font(.body.weight(.semibold))
             }
+            .buttonStyle(.plain)
 
-            Section("Saved Feeds") {
-                if appSettings.customFeeds.isEmpty {
-                    Text("No custom feeds yet.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(appSettings.customFeeds) { feed in
-                        Button {
-                            draft = SettingsCustomFeedDraft(feed: feed)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 10) {
-                                    Image(systemName: feed.iconSystemName)
-                                        .font(.headline)
-                                        .foregroundStyle(appSettings.primaryColor)
-                                        .frame(width: 24, alignment: .center)
-
-                                    Text(feed.name)
-                                        .font(.body.weight(.medium))
-                                        .foregroundStyle(.primary)
-
-                                    Spacer(minLength: 8)
-
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.tertiary)
-                                }
-
-                                Text(criteriaSummary(for: feed))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
+            if appSettings.customFeeds.isEmpty {
+                Text("No custom feeds yet.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(appSettings.customFeeds) { feed in
+                    customFeedRow(feed)
                         .swipeActions {
                             Button(role: .destructive) {
                                 appSettings.removeCustomFeed(id: feed.id)
@@ -60,15 +38,48 @@ struct SettingsCustomFeedsView: View {
                                 Label("Delete", systemImage: "trash")
                             }
                         }
-                    }
                 }
             }
+        } header: {
+            Text("Custom Feeds")
+        } footer: {
+            Text("Mix hashtags, people, and phrases into feeds that appear in Feed Source.")
         }
-        .navigationTitle("Custom Feeds")
-        .navigationBarTitleDisplayMode(.large)
         .sheet(item: $draft) { currentDraft in
             SettingsCustomFeedEditorSheet(initialDraft: currentDraft)
         }
+    }
+
+    private func customFeedRow(_ feed: CustomFeedDefinition) -> some View {
+        Button {
+            draft = SettingsCustomFeedDraft(feed: feed)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Image(systemName: feed.iconSystemName)
+                        .font(.headline)
+                        .foregroundStyle(appSettings.primaryColor)
+                        .frame(width: 24, alignment: .center)
+
+                    Text(feed.name)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+
+                Text(criteriaSummary(for: feed))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
     }
 
     private func criteriaSummary(for feed: CustomFeedDefinition) -> String {
@@ -161,7 +172,7 @@ private struct SettingsCustomFeedEditorSheet: View {
                         }
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Choose an icon for this feed")
+                            Text("Feed icon")
                                 .font(.subheadline.weight(.medium))
                             Button("Randomize Icon") {
                                 draft.iconSystemName = CustomFeedIconCatalog.randomIconName()
@@ -196,7 +207,22 @@ private struct SettingsCustomFeedEditorSheet: View {
                     .padding(.top, 4)
                 }
 
-                Section {
+                Section("Hashtags") {
+                    HStack(spacing: 10) {
+                        TextField("#soccer", text: $hashtagInput)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .onSubmit(addHashtag)
+
+                        Button(action: addHashtag) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title3.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(hashtagInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel("Add hashtag")
+                    }
+
                     if draft.hashtags.isEmpty {
                         Text("No hashtags added yet.")
                             .foregroundStyle(.secondary)
@@ -219,26 +245,9 @@ private struct SettingsCustomFeedEditorSheet: View {
                             }
                         }
                     }
-                } header: {
-                    Text("Hashtags")
-                } footer: {
-                    Text("Hashtags pull in topic-based notes for this feed.")
                 }
 
-                Section("Add Hashtag") {
-                    TextField("#soccer", text: $hashtagInput)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .onSubmit(addHashtag)
-
-                    Button("Add Hashtag") {
-                        addHashtag()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(hashtagInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-
-                Section {
+                Section("People") {
                     NavigationLink {
                         SettingsDetailNavigationHost(title: "Add Person") {
                             SettingsCustomFeedPersonPickerView(
@@ -248,6 +257,7 @@ private struct SettingsCustomFeedEditorSheet: View {
                         }
                     } label: {
                         Label("Add Person", systemImage: "person.crop.circle.badge.plus")
+                            .font(.body.weight(.semibold))
                     }
 
                     if draft.authorPubkeys.isEmpty {
@@ -264,13 +274,24 @@ private struct SettingsCustomFeedEditorSheet: View {
                             }
                         }
                     }
-                } header: {
-                    Text("People")
-                } footer: {
-                    Text("People always pull notes from those authors into this feed.")
                 }
 
-                Section {
+                Section("Phrases") {
+                    HStack(spacing: 10) {
+                        TextField("soccer scores", text: $phraseInput)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .onSubmit(addPhrase)
+
+                        Button(action: addPhrase) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title3.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(phraseInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel("Add phrase")
+                    }
+
                     if draft.phrases.isEmpty {
                         Text("No phrases added yet.")
                             .foregroundStyle(.secondary)
@@ -293,23 +314,6 @@ private struct SettingsCustomFeedEditorSheet: View {
                             }
                         }
                     }
-                } header: {
-                    Text("Phrases")
-                } footer: {
-                    Text("Phrases search across note content, like \"soccer scores\" or \"matchday\".")
-                }
-
-                Section("Add Phrase") {
-                    TextField("soccer scores", text: $phraseInput)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .onSubmit(addPhrase)
-
-                    Button("Add Phrase") {
-                        addPhrase()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(phraseInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
 
                 if isEditingExistingFeed {

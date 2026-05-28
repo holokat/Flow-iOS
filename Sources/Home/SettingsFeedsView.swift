@@ -24,13 +24,13 @@ struct SettingsFeedsView: View {
                 SettingsNavigationRow(title: "News", systemImage: "newspaper.fill") {
                     SettingsNewsFeedView()
                 }
-
-                SettingsNavigationRow(title: "Custom Feeds", systemImage: "square.stack.3d.up.fill") {
-                    SettingsCustomFeedsView()
-                }
+            } header: {
+                Text("Feed Setup")
             } footer: {
-                Text("Choose what powers each feed. Interests uses hashtags from onboarding, News can combine relays, curated people, and hashtags, and Custom Feeds let you mix your own people, phrases, and topics.")
+                Text("Choose what powers Interests and News.")
             }
+
+            SettingsCustomFeedsSection()
         }
         .navigationTitle("Feeds")
         .navigationBarTitleDisplayMode(.inline)

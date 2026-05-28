@@ -1257,6 +1257,43 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("handleScroll(currentScrollY: scrollY"))
     }
 
+    func testFeedSourcePickerCanOpenFeedsSettingsForCreateFeed() throws {
+        let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let pickerRange = try XCTUnwrap(source.range(of: "private var feedSourcePickerSheet"))
+        let optionRange = try XCTUnwrap(source.range(of: "private func feedSourceOptionButton", range: pickerRange.upperBound..<source.endIndex))
+        let pickerSource = source[pickerRange.lowerBound..<optionRange.lowerBound]
+
+        XCTAssertTrue(pickerSource.contains("Label(\"Create Feed\", systemImage: \"plus.circle.fill\")"))
+        XCTAssertTrue(source.contains("private func openFeedsSettingsFromFeedSourcePicker()"))
+        XCTAssertTrue(source.contains("settingsSheetState.show(.feeds)"))
+        XCTAssertTrue(source.contains("isShowingSettings = true"))
+    }
+
+    func testFeedsSettingsShowsCustomFeedsInline() throws {
+        let feedsSource = try sourceText(at: "Sources/Home/SettingsFeedsView.swift")
+        let customFeedsSource = try sourceText(at: "Sources/Home/SettingsCustomFeedsView.swift")
+
+        XCTAssertTrue(feedsSource.contains("SettingsCustomFeedsSection()"))
+        XCTAssertFalse(feedsSource.contains("SettingsNavigationRow(title: \"Custom Feeds\""))
+        XCTAssertTrue(customFeedsSource.contains("struct SettingsCustomFeedsSection"))
+        XCTAssertTrue(customFeedsSource.contains("Label(\"Create Feed\", systemImage: \"plus.circle.fill\")"))
+        XCTAssertTrue(customFeedsSource.contains("ForEach(appSettings.customFeeds)"))
+    }
+
+    func testCustomFeedEditorUsesSeparateConciseSourceCards() throws {
+        let source = try sourceText(at: "Sources/Home/SettingsCustomFeedsView.swift")
+
+        XCTAssertTrue(source.contains("Section(\"Hashtags\")"))
+        XCTAssertTrue(source.contains("Section(\"People\")"))
+        XCTAssertTrue(source.contains("Section(\"Phrases\")"))
+        XCTAssertTrue(source.contains("Text(\"Feed icon\")"))
+        XCTAssertFalse(source.contains("Section(\"Add Hashtag\")"))
+        XCTAssertFalse(source.contains("Section(\"Add Phrase\")"))
+        XCTAssertFalse(source.contains("Hashtags pull in topic-based notes"))
+        XCTAssertFalse(source.contains("People always pull notes"))
+        XCTAssertFalse(source.contains("Phrases search across note content"))
+    }
+
     func testBottomNavigationUsesNativeTabViewItems() throws {
         let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
 

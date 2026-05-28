@@ -150,6 +150,10 @@ struct SettingsView: View {
 final class SettingsSheetState: ObservableObject {
     @Published var navigationPath: [SettingsDestination] = []
 
+    func show(_ destination: SettingsDestination) {
+        navigationPath = [destination]
+    }
+
     func reset() {
         navigationPath.removeAll()
     }

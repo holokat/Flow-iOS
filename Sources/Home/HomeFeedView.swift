@@ -1332,6 +1332,27 @@ struct HomeFeedView: View {
                 )
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
+
+                Button {
+                    openFeedsSettingsFromFeedSourcePicker()
+                } label: {
+                    Label("Create Feed", systemImage: "plus.circle.fill")
+                        .font(appSettings.appFont(.body, weight: .semibold))
+                        .foregroundStyle(appSettings.primaryColor)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(feedSourcePickerSurfaceStyle.cardBackground)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(appSettings.themeSeparator(defaultOpacity: 0.18), lineWidth: 0.8)
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
                 .padding(.bottom, 44)
             }
             .background(feedSourcePickerBackground)
@@ -1350,6 +1371,17 @@ struct HomeFeedView: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackground(feedSourcePickerBackground)
+    }
+
+    private func openFeedsSettingsFromFeedSourcePicker() {
+        AppClickSoundPlayer.play(appSettings.clickSoundEffect)
+        isShowingFeedSourcePicker = false
+        settingsSheetState.show(.feeds)
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            isShowingSettings = true
+        }
     }
 
     private func feedSourceOptionButton(_ source: HomePrimaryFeedSource) -> some View {

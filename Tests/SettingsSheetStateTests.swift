@@ -11,4 +11,13 @@ final class SettingsSheetStateTests: XCTestCase {
 
         XCTAssertTrue(state.navigationPath.isEmpty)
     }
+
+    func testShowReplacesNavigationPathWithDestination() {
+        let state = SettingsSheetState()
+        state.navigationPath = [.appearance]
+
+        state.show(.feeds)
+
+        XCTAssertEqual(state.navigationPath, [.feeds])
+    }
 }
