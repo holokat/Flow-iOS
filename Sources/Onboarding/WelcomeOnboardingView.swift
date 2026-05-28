@@ -12,7 +12,7 @@ struct WelcomeOnboardingView: View {
         ZStack {
             WelcomeScratchRevealBackgroundView(
                 initialArtwork: welcomeSelection.artwork,
-                overlayOpacity: 0.28
+                overlayOpacity: 0.34
             )
 
             VStack(spacing: 0) {
@@ -35,9 +35,6 @@ struct WelcomeOnboardingView: View {
                 }
                 .padding(.vertical, 24)
                 .frame(maxWidth: .infinity)
-                .background {
-                    welcomeHeroTitleContrastScrim
-                }
                 .padding(.horizontal, 32)
                 .opacity(hasAnimatedIn ? 1 : 0)
                 .offset(y: hasAnimatedIn ? 0 : 22)
@@ -72,22 +69,6 @@ struct WelcomeOnboardingView: View {
             .environmentObject(appSettings)
             .environmentObject(relaySettings)
         }
-    }
-
-    private var welcomeHeroTitleContrastScrim: some View {
-        LinearGradient(
-            colors: [
-                Color.clear,
-                Color.black.opacity(0.32),
-                Color.black.opacity(0.26),
-                Color.clear
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .blur(radius: 8)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 
     private func openAuth(tab: AuthSheetTab) {

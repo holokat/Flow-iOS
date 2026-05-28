@@ -206,10 +206,11 @@ struct WelcomeArtworkBackgroundView: View {
                 .scaledToFill()
 
             LinearGradient(
-                colors: [
-                    Color.black.opacity(0.08),
-                    Color.black.opacity(overlayOpacity * 0.5),
-                    Color.black.opacity(overlayOpacity)
+                stops: [
+                    .init(color: Color.black.opacity(overlayOpacity * 0.42), location: 0),
+                    .init(color: Color.black.opacity(overlayOpacity * 0.58), location: 0.32),
+                    .init(color: Color.black.opacity(overlayOpacity * 0.78), location: 0.58),
+                    .init(color: Color.black.opacity(overlayOpacity), location: 1)
                 ],
                 startPoint: .top,
                 endPoint: .bottom

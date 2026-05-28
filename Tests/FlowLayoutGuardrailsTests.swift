@@ -529,16 +529,19 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         }
     }
 
-    func testWelcomeHeroTextUsesArtworkPreservingContrastOverlay() throws {
-        let source = try Self.sourceText(at: "Sources/Onboarding/WelcomeOnboardingView.swift")
+    func testWelcomeHeroTextUsesFullScreenArtworkContrastOverlay() throws {
+        let welcomeSource = try Self.sourceText(at: "Sources/Onboarding/WelcomeOnboardingView.swift")
+        let artworkSource = try Self.sourceText(at: "Sources/Onboarding/WelcomeArtwork.swift")
 
-        XCTAssertTrue(source.contains("welcomeHeroTitleContrastScrim"))
-        XCTAssertTrue(source.contains("Color.black.opacity(0.32)"))
-        XCTAssertTrue(source.contains("Color.black.opacity(0.26)"))
-        XCTAssertTrue(source.contains(".blur(radius: 8)"))
-        XCTAssertTrue(source.contains(".foregroundStyle(.white.opacity(0.92))"))
-        XCTAssertFalse(source.contains(".background(.ultraThinMaterial"))
-        XCTAssertFalse(source.contains("RoundedRectangle(cornerRadius"))
+        XCTAssertTrue(welcomeSource.contains("overlayOpacity: 0.34"))
+        XCTAssertTrue(welcomeSource.contains(".foregroundStyle(.white.opacity(0.92))"))
+        XCTAssertFalse(welcomeSource.contains("welcomeHeroTitleContrastScrim"))
+        XCTAssertFalse(welcomeSource.contains(".background {\n                    welcomeHeroTitleContrastScrim"))
+        XCTAssertFalse(welcomeSource.contains(".background(.ultraThinMaterial"))
+        XCTAssertFalse(welcomeSource.contains("RoundedRectangle(cornerRadius"))
+        XCTAssertTrue(artworkSource.contains("LinearGradient(\n                stops: ["))
+        XCTAssertTrue(artworkSource.contains("Color.black.opacity(overlayOpacity * 0.42)"))
+        XCTAssertTrue(artworkSource.contains("Color.black.opacity(overlayOpacity)"))
     }
 
     func testWelcomeScratchRevealCompletionUsesCoverageThreshold() {
