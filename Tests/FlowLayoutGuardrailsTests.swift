@@ -529,6 +529,18 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         }
     }
 
+    func testWelcomeHeroTextUsesArtworkPreservingContrastOverlay() throws {
+        let source = try Self.sourceText(at: "Sources/Onboarding/WelcomeOnboardingView.swift")
+
+        XCTAssertTrue(source.contains("welcomeHeroTitleContrastScrim"))
+        XCTAssertTrue(source.contains("Color.black.opacity(0.32)"))
+        XCTAssertTrue(source.contains("Color.black.opacity(0.26)"))
+        XCTAssertTrue(source.contains(".blur(radius: 8)"))
+        XCTAssertTrue(source.contains(".foregroundStyle(.white.opacity(0.92))"))
+        XCTAssertFalse(source.contains(".background(.ultraThinMaterial"))
+        XCTAssertFalse(source.contains("RoundedRectangle(cornerRadius"))
+    }
+
     func testWelcomeScratchRevealCompletionUsesCoverageThreshold() {
         XCTAssertEqual(WelcomeScratchRevealLayout.completionThreshold, 0.90, accuracy: 0.0001)
         XCTAssertFalse(

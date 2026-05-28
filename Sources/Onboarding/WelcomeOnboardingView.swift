@@ -23,13 +23,20 @@ struct WelcomeOnboardingView: View {
                         .font(.custom("SF Pro Display", size: 56).weight(.bold))
                         .foregroundStyle(.white.opacity(0.97))
                         .kerning(-1.1)
-                        .shadow(color: Color.black.opacity(0.22), radius: 18, y: 10)
+                        .shadow(color: Color.black.opacity(0.40), radius: 20, y: 10)
+                        .shadow(color: Color.black.opacity(0.24), radius: 2, y: 1)
 
                     Text("A calmer place for conversations.")
                         .font(.custom("SF Pro Display", size: 24).weight(.medium))
-                        .foregroundStyle(.white.opacity(0.84))
+                        .foregroundStyle(.white.opacity(0.92))
                         .multilineTextAlignment(.center)
-                        .shadow(color: Color.black.opacity(0.18), radius: 14, y: 8)
+                        .shadow(color: Color.black.opacity(0.36), radius: 16, y: 8)
+                        .shadow(color: Color.black.opacity(0.22), radius: 2, y: 1)
+                }
+                .padding(.vertical, 24)
+                .frame(maxWidth: .infinity)
+                .background {
+                    welcomeHeroTitleContrastScrim
                 }
                 .padding(.horizontal, 32)
                 .opacity(hasAnimatedIn ? 1 : 0)
@@ -65,6 +72,22 @@ struct WelcomeOnboardingView: View {
             .environmentObject(appSettings)
             .environmentObject(relaySettings)
         }
+    }
+
+    private var welcomeHeroTitleContrastScrim: some View {
+        LinearGradient(
+            colors: [
+                Color.clear,
+                Color.black.opacity(0.32),
+                Color.black.opacity(0.26),
+                Color.clear
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .blur(radius: 8)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func openAuth(tab: AuthSheetTab) {
