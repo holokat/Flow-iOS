@@ -187,19 +187,19 @@ struct MainTabShellView: View {
             SwiftUI.Tab(value: Tab.home) {
                 homeTabContent
             } label: {
-                tabBarIcon(for: .home, showsUnreadDot: false)
+                tabBarIcon(for: .home)
             }
 
             SwiftUI.Tab(value: Tab.search) {
                 searchTabContent
             } label: {
-                tabBarIcon(for: .search, showsUnreadDot: false)
+                tabBarIcon(for: .search)
             }
 
             SwiftUI.Tab(value: Tab.dms) {
                 directMessagesTabContent
             } label: {
-                tabBarIcon(for: .dms, showsUnreadDot: false)
+                tabBarIcon(for: .dms)
             }
 
             activityTabContentEntry
@@ -207,7 +207,7 @@ struct MainTabShellView: View {
             SwiftUI.Tab(value: Tab.compose, role: .search) {
                 Color.clear
             } label: {
-                tabBarIcon(for: .compose, showsUnreadDot: false)
+                tabBarIcon(for: .compose)
             }
         }
         .toolbar(nativeTabBarVisibility, for: .tabBar)
@@ -217,13 +217,19 @@ struct MainTabShellView: View {
     @available(iOS 26.0, *)
     @TabContentBuilder<Tab>
     private var activityTabContentEntry: some TabContent<Tab> {
-        SwiftUI.Tab(value: Tab.activity) {
-            activityTabContent
-        } label: {
-            tabBarIcon(
-                for: .activity,
-                showsUnreadDot: activityViewModel.hasUnread && !isActivityListVisible
-            )
+        if activityTabShowsUnreadBadge {
+            SwiftUI.Tab(value: Tab.activity) {
+                activityTabContent
+            } label: {
+                tabBarIcon(for: .activity)
+            }
+            .badge("")
+        } else {
+            SwiftUI.Tab(value: Tab.activity) {
+                activityTabContent
+            } label: {
+                tabBarIcon(for: .activity)
+            }
         }
     }
 
@@ -231,28 +237,24 @@ struct MainTabShellView: View {
         TabView(selection: tabSelection) {
             homeTabContent
                 .tag(Tab.home)
-                .tabItem { tabBarIcon(for: .home, showsUnreadDot: false) }
+                .tabItem { tabBarIcon(for: .home) }
 
             searchTabContent
                 .tag(Tab.search)
-                .tabItem { tabBarIcon(for: .search, showsUnreadDot: false) }
+                .tabItem { tabBarIcon(for: .search) }
 
             directMessagesTabContent
                 .tag(Tab.dms)
-                .tabItem { tabBarIcon(for: .dms, showsUnreadDot: false) }
+                .tabItem { tabBarIcon(for: .dms) }
 
             activityTabContent
                 .tag(Tab.activity)
-                .tabItem {
-                    tabBarIcon(
-                        for: .activity,
-                        showsUnreadDot: activityViewModel.hasUnread && !isActivityListVisible
-                    )
-                }
+                .tabItem { tabBarIcon(for: .activity) }
+                .modifier(ActivityTabUnreadBadgeModifier(isVisible: activityTabShowsUnreadBadge))
 
             Color.clear
                 .tag(Tab.compose)
-                .tabItem { tabBarIcon(for: .compose, showsUnreadDot: false) }
+                .tabItem { tabBarIcon(for: .compose) }
         }
         .toolbar(nativeTabBarVisibility, for: .tabBar)
         .flowNativeTabBarBehavior()
@@ -294,20 +296,10 @@ struct MainTabShellView: View {
     }
 
     @ViewBuilder
-    private func tabBarIcon(for tab: Tab, showsUnreadDot: Bool) -> some View {
-        ZStack(alignment: .topTrailing) {
-            Image(systemName: tab.symbolName)
-                .symbolRenderingMode(.monochrome)
-                .environment(\.symbolVariants, .none)
-
-            if showsUnreadDot {
-                Circle()
-                    .fill(appSettings.primaryColor)
-                    .frame(width: 8, height: 8)
-                    .offset(x: 6, y: -3)
-                    .accessibilityHidden(true)
-            }
-        }
+    private func tabBarIcon(for tab: Tab) -> some View {
+        Image(systemName: tab.symbolName)
+            .symbolRenderingMode(.monochrome)
+            .environment(\.symbolVariants, .none)
             .accessibilityLabel(tab.accessibilityLabel)
     }
 
@@ -529,6 +521,10 @@ struct MainTabShellView: View {
         selectedTab == .activity && isActivityRootVisible
     }
 
+    private var activityTabShowsUnreadBadge: Bool {
+        activityViewModel.hasUnread && !isActivityListVisible
+    }
+
     private func resetActivityTabToRoot() {
         isActivityRootVisible = true
         activityRootResetID = UUID()
@@ -536,6 +532,19 @@ struct MainTabShellView: View {
 
     private func syncActivityTabActiveState() {
         activityViewModel.setActivityTabActive(isActivityListVisible)
+    }
+}
+
+private struct ActivityTabUnreadBadgeModifier: ViewModifier {
+    let isVisible: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isVisible {
+            content.badge("")
+        } else {
+            content
+        }
     }
 }
 
