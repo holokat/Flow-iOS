@@ -797,22 +797,14 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         )
     }
 
-    func testThreadDetailNoteTopContentCompensatesForInheritedSafeAreaUnderlap() {
-        XCTAssertEqual(
-            ThreadDetailViewLayout.noteTopContentSafeAreaCompensation(safeAreaInset: 0),
-            0,
-            accuracy: 0.0001
-        )
-        XCTAssertEqual(
-            ThreadDetailViewLayout.noteTopContentSafeAreaCompensation(safeAreaInset: 47),
-            47,
-            accuracy: 0.0001
-        )
-        XCTAssertEqual(
-            ThreadDetailViewLayout.noteTopContentSafeAreaCompensation(safeAreaInset: -8),
-            0,
-            accuracy: 0.0001
-        )
+    func testThreadDetailNoteDoesNotAddManualTopSafeAreaPadding() throws {
+        let source = try Self.sourceText(at: "Sources/Thread/ThreadDetailView.swift")
+        let noteBodyStart = try XCTUnwrap(source.range(of: "private var noteDetailBody: some View"))
+        let articleBodyStart = try XCTUnwrap(source.range(of: "private func articleDetailBody", range: noteBodyStart.upperBound..<source.endIndex))
+        let noteBodySource = source[noteBodyStart.lowerBound..<articleBodyStart.lowerBound]
+
+        XCTAssertFalse(source.contains("noteTopContentSafeAreaCompensation"))
+        XCTAssertFalse(noteBodySource.contains(".padding(\n                        .top,"))
     }
 
     func testThreadDetailNoteReservesBottomClearanceForReplyActions() {
@@ -840,7 +832,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         let articleBodyStart = try XCTUnwrap(source.range(of: "private func articleDetailBody", range: noteBodyStart.upperBound..<source.endIndex))
         let noteBodySource = source[noteBodyStart.lowerBound..<articleBodyStart.lowerBound]
 
-        XCTAssertTrue(noteBodySource.contains(".padding(\n                        .top,\n                        ThreadDetailViewLayout.noteTopContentSafeAreaCompensation("))
+        XCTAssertFalse(noteBodySource.contains(".padding(\n                        .top,\n                        ThreadDetailViewLayout.noteTopContentSafeAreaCompensation("))
         XCTAssertTrue(source.contains(".toolbarBackground(appSettings.themePalette.background, for: .navigationBar)"))
         XCTAssertTrue(source.contains(".toolbarBackground(.visible, for: .navigationBar)"))
     }
