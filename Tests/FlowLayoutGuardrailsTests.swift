@@ -451,6 +451,22 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         )
     }
 
+    func testAuthSheetCustomHeaderPadsBelowTopSafeArea() throws {
+        let source = try Self.sourceText(at: "Sources/Auth/AuthSheetView.swift")
+
+        XCTAssertTrue(source.contains("customHeaderTopPadding(safeAreaInset: geometry.safeAreaInsets.top)"))
+        XCTAssertEqual(
+            AuthSheetChromeLayout.customHeaderTopPadding(safeAreaInset: 0),
+            AuthSheetChromeLayout.headerTopPadding,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            AuthSheetChromeLayout.customHeaderTopPadding(safeAreaInset: 47),
+            AuthSheetChromeLayout.headerTopPadding + 47,
+            accuracy: 0.0001
+        )
+    }
+
     func testAuthSheetPresentationsUseFreshIdentityForRequestedInitialTab() throws {
         let sourceFiles = [
             "Sources/Home/HomeFeedView.swift",

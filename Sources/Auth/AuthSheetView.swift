@@ -143,6 +143,10 @@ enum AuthSheetChromeLayout {
     static func contentHorizontalPadding(for tab: AuthSheetTab) -> CGFloat {
         showsCustomHeader(for: tab) ? sharedContentHorizontalPadding : 0
     }
+
+    static func customHeaderTopPadding(safeAreaInset: CGFloat) -> CGFloat {
+        max(0, safeAreaInset) + headerTopPadding
+    }
 }
 
 private struct AccountSwitchPulse: Equatable {
@@ -286,42 +290,47 @@ struct AuthSheetView: View {
     }
 
     private var signInExperience: some View {
-        ZStack {
-            signInBackdrop
-                .ignoresSafeArea()
+        GeometryReader { geometry in
+            ZStack {
+                signInBackdrop
+                    .ignoresSafeArea()
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 18) {
-                    Color.clear.frame(height: AuthSheetChromeLayout.contentTopSpacerHeight(for: .signIn))
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 18) {
+                        Color.clear.frame(height: AuthSheetChromeLayout.contentTopSpacerHeight(for: .signIn))
 
-                    if availableTabs.count > 1 {
-                        authTabBarCard
-                    }
-
-                    if #available(iOS 26.0, *) {
-                        VStack(spacing: 24) {
-                            signInGlassCard
-                            signInRestoreCard
+                        if availableTabs.count > 1 {
+                            authTabBarCard
                         }
-                    } else {
-                        VStack(spacing: 18) {
-                            legacySignInCard
-                            legacyRestoreCard
-                        }
-                    }
 
+                        if #available(iOS 26.0, *) {
+                            VStack(spacing: 24) {
+                                signInGlassCard
+                                signInRestoreCard
+                            }
+                        } else {
+                            VStack(spacing: 18) {
+                                legacySignInCard
+                                legacyRestoreCard
+                            }
+                        }
+
+                    }
+                    .padding(.horizontal, AuthSheetChromeLayout.contentHorizontalPadding(for: .signIn))
+                    .padding(.bottom, AuthSheetChromeLayout.sharedContentBottomPadding)
                 }
-                .padding(.horizontal, AuthSheetChromeLayout.contentHorizontalPadding(for: .signIn))
-                .padding(.bottom, AuthSheetChromeLayout.sharedContentBottomPadding)
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                authSheetHeader
-                    .padding(.horizontal, AuthSheetChromeLayout.headerHorizontalPadding)
-                    .padding(.top, AuthSheetChromeLayout.headerTopPadding)
-                    .padding(.bottom, AuthSheetChromeLayout.headerBottomPadding)
-            }
-            .safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: AuthSheetChromeLayout.bottomSafeAreaSpacerHeight)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    authSheetHeader
+                        .padding(.horizontal, AuthSheetChromeLayout.headerHorizontalPadding)
+                        .padding(
+                            .top,
+                            AuthSheetChromeLayout.customHeaderTopPadding(safeAreaInset: geometry.safeAreaInsets.top)
+                        )
+                        .padding(.bottom, AuthSheetChromeLayout.headerBottomPadding)
+                }
+                .safeAreaInset(edge: .bottom) {
+                    Color.clear.frame(height: AuthSheetChromeLayout.bottomSafeAreaSpacerHeight)
+                }
             }
         }
     }
@@ -478,41 +487,46 @@ struct AuthSheetView: View {
     }
 
     private var accountsExperience: some View {
-        ZStack(alignment: .bottom) {
-            accountsBackdrop
-                .ignoresSafeArea()
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                accountsBackdrop
+                    .ignoresSafeArea()
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 18) {
-                    Color.clear.frame(height: AuthSheetChromeLayout.contentTopSpacerHeight(for: .accounts))
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 18) {
+                        Color.clear.frame(height: AuthSheetChromeLayout.contentTopSpacerHeight(for: .accounts))
 
-                    if availableTabs.count > 1 {
-                        authTabBarCard
+                        if availableTabs.count > 1 {
+                            authTabBarCard
+                        }
+
+                        accountsListCard
+
+                        if auth.isLoggedIn {
+                            accountsLogoutCard
+                        }
                     }
-
-                    accountsListCard
-
-                    if auth.isLoggedIn {
-                        accountsLogoutCard
-                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AuthSheetChromeLayout.contentHorizontalPadding(for: .accounts))
+                    .padding(.bottom, AuthSheetChromeLayout.sharedContentBottomPadding)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, AuthSheetChromeLayout.contentHorizontalPadding(for: .accounts))
-                .padding(.bottom, AuthSheetChromeLayout.sharedContentBottomPadding)
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                authSheetHeader
-                    .padding(.horizontal, AuthSheetChromeLayout.headerHorizontalPadding)
-                    .padding(.top, AuthSheetChromeLayout.headerTopPadding)
-                    .padding(.bottom, AuthSheetChromeLayout.headerBottomPadding)
-            }
-            .safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: AuthSheetChromeLayout.bottomSafeAreaSpacerHeight)
-            }
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    authSheetHeader
+                        .padding(.horizontal, AuthSheetChromeLayout.headerHorizontalPadding)
+                        .padding(
+                            .top,
+                            AuthSheetChromeLayout.customHeaderTopPadding(safeAreaInset: geometry.safeAreaInsets.top)
+                        )
+                        .padding(.bottom, AuthSheetChromeLayout.headerBottomPadding)
+                }
+                .safeAreaInset(edge: .bottom) {
+                    Color.clear.frame(height: AuthSheetChromeLayout.bottomSafeAreaSpacerHeight)
+                }
 
-            accountSwitchToastOverlay
-                .padding(.horizontal, 28)
-                .padding(.bottom, 24)
+                accountSwitchToastOverlay
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 24)
+            }
         }
         .onDisappear {
             accountSwitchFeedbackTask?.cancel()
