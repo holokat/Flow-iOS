@@ -2,12 +2,15 @@ import SwiftUI
 
 struct ICloudKeyRestoreView: View {
     @EnvironmentObject private var auth: AuthManager
+    @EnvironmentObject private var appSettings: AppSettingsStore
+    @EnvironmentObject private var relaySettings: RelaySettingsStore
 
     let onRestore: () -> Void
 
     @State private var candidates: [AuthICloudRestoreCandidate] = []
     @State private var restoreError: String?
     @State private var restoringAccountID: String?
+    @State private var displayNamesByPubkey: [String: String] = [:]
 
     var body: some View {
         Form {
@@ -43,7 +46,7 @@ struct ICloudKeyRestoreView: View {
                         } label: {
                             HStack(alignment: .top, spacing: 12) {
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Text(shortNostrIdentifier(candidate.pubkey))
+                                    Text(displayTitle(for: candidate))
                                         .font(.body.weight(.semibold))
                                         .foregroundStyle(.primary)
 
@@ -104,6 +107,54 @@ struct ICloudKeyRestoreView: View {
         if clearError {
             restoreError = nil
         }
+        hydrateDisplayNames()
+    }
+
+    private func displayTitle(for candidate: AuthICloudRestoreCandidate) -> String {
+        if let name = displayNamesByPubkey[candidate.pubkey.lowercased()], !name.isEmpty {
+            return name
+        }
+        return shortNostrIdentifier(candidate.pubkey)
+    }
+
+    private func hydrateDisplayNames() {
+        let pubkeys = candidates.map { $0.pubkey.lowercased() }
+        guard !pubkeys.isEmpty else {
+            displayNamesByPubkey = [:]
+            return
+        }
+
+        let relayURLs = appSettings.effectiveReadRelayURLs(from: relaySettings.readRelayURLs)
+
+        Task {
+            let cached = await ProfileCache.shared.resolve(pubkeys: pubkeys).hits
+            applyDisplayNames(from: cached)
+
+            let fetched = await NostrFeedService().fetchProfiles(
+                relayURLs: relayURLs,
+                pubkeys: pubkeys
+            )
+            applyDisplayNames(from: fetched)
+        }
+    }
+
+    @MainActor
+    private func applyDisplayNames(from profiles: [String: NostrProfile]) {
+        for (pubkey, profile) in profiles {
+            guard let name = preferredDisplayName(from: profile) else { continue }
+            displayNamesByPubkey[pubkey.lowercased()] = name
+        }
+    }
+
+    private func preferredDisplayName(from profile: NostrProfile) -> String? {
+        let candidates = [profile.displayName, profile.name]
+        for candidate in candidates {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
     }
 
     private func restore(_ candidate: AuthICloudRestoreCandidate) {
