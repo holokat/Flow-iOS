@@ -23,17 +23,42 @@ struct FlowApp: App {
 
     init() {
         FlowMediaCache.configureSharedURLCache()
-        Self.configureTabBarBadgeAppearance()
+        Self.configureTabBarAppearance()
     }
 
-    // The activity tab uses an empty-string badge to show a dot. The system
-    // default renders that dot quite large; shrinking the badge font scales the
-    // dot down to a subtler indicator without touching the tab bar background.
-    private static func configureTabBarBadgeAppearance() {
-        UITabBarItem.appearance().setBadgeTextAttributes(
-            [.font: UIFont.systemFont(ofSize: 6, weight: .semibold)],
-            for: .normal
-        )
+    // Configure the tab bar globally via the UIKit appearance proxy so the look
+    // survives navigation and scroll. The SwiftUI `.toolbarBackground(.hidden,
+    // for: .tabBar)` modifier is view-state-scoped: pushed destinations and the
+    // scroll-edge transition drop it, which let the bar background re-materialize
+    // after clicking around. Setting both standardAppearance and
+    // scrollEdgeAppearance keeps the feed visible behind the floating Liquid
+    // Glass buttons in every state.
+    //
+    // Also shrink the activity tab's empty-string badge dot, which the system
+    // otherwise renders much too large.
+    private static func configureTabBarAppearance() {
+        let appearance = UITabBarAppearance()
+        appearance.configureWithTransparentBackground()
+
+        let badgeAttributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 6, weight: .semibold)
+        ]
+        for layout in [
+            appearance.stackedLayoutAppearance,
+            appearance.inlineLayoutAppearance,
+            appearance.compactInlineLayoutAppearance
+        ] {
+            layout.normal.badgeTextAttributes = badgeAttributes
+            layout.selected.badgeTextAttributes = badgeAttributes
+        }
+
+        let tabBar = UITabBar.appearance()
+        tabBar.standardAppearance = appearance
+        tabBar.scrollEdgeAppearance = appearance
+
+        // Belt-and-suspenders: keep the item proxy badge font in case a tab bar
+        // is created before the appearance above is applied.
+        UITabBarItem.appearance().setBadgeTextAttributes(badgeAttributes, for: .normal)
     }
 
     var body: some Scene {
