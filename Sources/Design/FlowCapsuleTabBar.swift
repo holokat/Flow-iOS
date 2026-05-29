@@ -107,9 +107,6 @@ struct FlowCapsuleTabBar<Selection: Hashable>: View {
         if let selectedBackgroundOverride {
             return selectedBackgroundOverride
         }
-        if usesCustomPrimarySelection {
-            return appSettings.primaryColor.opacity(colorScheme == .dark ? 0.20 : 0.12)
-        }
         return appSettings.themePalette.capsuleTabStyle?.selectedBackground
             ?? (colorScheme == .dark
                 ? Color.white.opacity(0.12)
@@ -126,9 +123,6 @@ struct FlowCapsuleTabBar<Selection: Hashable>: View {
     private var selectedStroke: Color {
         if let selectedStrokeOverride {
             return selectedStrokeOverride
-        }
-        if usesCustomPrimarySelection {
-            return appSettings.primaryColor.opacity(colorScheme == .dark ? 0.54 : 0.36)
         }
         return appSettings.themePalette.capsuleTabStyle?.selectedBorder
             ?? (colorScheme == .dark
@@ -147,16 +141,9 @@ struct FlowCapsuleTabBar<Selection: Hashable>: View {
         if let selectedForegroundOverride {
             return selectedForegroundOverride
         }
-        if usesCustomPrimarySelection {
-            return appSettings.primaryColor
-        }
         return appSettings.themePalette.capsuleTabStyle?.selectedForeground
             ?? (colorScheme == .dark
                 ? .white
                 : .black)
-    }
-
-    private var usesCustomPrimarySelection: Bool {
-        appSettings.canCustomizePrimaryColor
     }
 }

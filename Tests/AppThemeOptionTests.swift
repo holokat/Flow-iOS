@@ -460,7 +460,15 @@ final class AppThemeOptionTests: XCTestCase {
         )
         assertColor(
             AppThemeOption.black.palette.capsuleTabStyle!.selectedBackground,
-            matches: UIColor.systemBlue.withAlphaComponent(0.20)
+            matches: UIColor.white.withAlphaComponent(0.14)
+        )
+        assertColor(
+            AppThemeOption.black.palette.capsuleTabStyle!.selectedBorder,
+            matches: UIColor.white.withAlphaComponent(0.24)
+        )
+        assertColor(
+            AppThemeOption.black.palette.capsuleTabStyle!.selectedForeground,
+            matches: UIColor.white.withAlphaComponent(0.95)
         )
         assertColor(
             AppThemeOption.black.palette.profileActionStyle!.background,

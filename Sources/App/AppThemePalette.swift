@@ -648,9 +648,9 @@ struct AppThemePalette {
             background: Self.blackSheetCard,
             border: Self.blackSheetCardBorder,
             foreground: Color.white.opacity(0.58),
-            selectedBackground: Color.accentColor.opacity(0.20),
-            selectedBorder: Color.accentColor.opacity(0.54),
-            selectedForeground: Color.accentColor
+            selectedBackground: Color.white.opacity(0.14),
+            selectedBorder: Color.white.opacity(0.24),
+            selectedForeground: Color.white.opacity(0.95)
         ),
         profileActionStyle: AppThemeProfileActionStyle(
             background: Self.blackSheetCard,
