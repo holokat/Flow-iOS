@@ -11,6 +11,7 @@ struct ICloudKeyRestoreView: View {
     @State private var restoreError: String?
     @State private var restoringAccountID: String?
     @State private var displayNamesByPubkey: [String: String] = [:]
+    @State private var avatarURLsByPubkey: [String: URL] = [:]
 
     var body: some View {
         Form {
@@ -45,6 +46,12 @@ struct ICloudKeyRestoreView: View {
                             restore(candidate)
                         } label: {
                             HStack(alignment: .top, spacing: 12) {
+                                AvatarView(
+                                    url: avatarURL(for: candidate),
+                                    fallback: displayTitle(for: candidate),
+                                    size: 44
+                                )
+
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text(displayTitle(for: candidate))
                                         .font(.body.weight(.semibold))
@@ -117,10 +124,15 @@ struct ICloudKeyRestoreView: View {
         return shortNostrIdentifier(candidate.pubkey)
     }
 
+    private func avatarURL(for candidate: AuthICloudRestoreCandidate) -> URL? {
+        avatarURLsByPubkey[candidate.pubkey.lowercased()]
+    }
+
     private func hydrateDisplayNames() {
         let pubkeys = candidates.map { $0.pubkey.lowercased() }
         guard !pubkeys.isEmpty else {
             displayNamesByPubkey = [:]
+            avatarURLsByPubkey = [:]
             return
         }
 
@@ -128,21 +140,26 @@ struct ICloudKeyRestoreView: View {
 
         Task {
             let cached = await ProfileCache.shared.resolve(pubkeys: pubkeys).hits
-            applyDisplayNames(from: cached)
+            applyProfiles(from: cached)
 
             let fetched = await NostrFeedService().fetchProfiles(
                 relayURLs: relayURLs,
                 pubkeys: pubkeys
             )
-            applyDisplayNames(from: fetched)
+            applyProfiles(from: fetched)
         }
     }
 
     @MainActor
-    private func applyDisplayNames(from profiles: [String: NostrProfile]) {
+    private func applyProfiles(from profiles: [String: NostrProfile]) {
         for (pubkey, profile) in profiles {
-            guard let name = preferredDisplayName(from: profile) else { continue }
-            displayNamesByPubkey[pubkey.lowercased()] = name
+            let key = pubkey.lowercased()
+            if let name = preferredDisplayName(from: profile) {
+                displayNamesByPubkey[key] = name
+            }
+            if let avatarURL = profile.resolvedAvatarURL {
+                avatarURLsByPubkey[key] = avatarURL
+            }
         }
     }
 
