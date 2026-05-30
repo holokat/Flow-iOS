@@ -179,9 +179,9 @@ struct NostrDiscoveryFeedResolver: Sendable {
         guard let trendingRelayURL = trendingRelayURL(at: archiveRangeIndex) else {
             return []
         }
-        let fetchLimit = min(
-            expandedTimelineLimit(for: cappedLimit, moderationSnapshot: moderationSnapshot),
-            240
+        let fetchLimit = trendingProbeLimit(
+            pageLimit: cappedLimit,
+            moderationSnapshot: moderationSnapshot
         )
         let filter = NostrFilter(
             kinds: [1],
@@ -447,5 +447,20 @@ struct NostrDiscoveryFeedResolver: Sendable {
         guard !trendingRelayURLs.isEmpty else { return nil }
         guard index >= 0, index < trendingRelayURLs.count else { return nil }
         return trendingRelayURLs[index]
+    }
+
+    private func trendingProbeLimit(
+        pageLimit: Int,
+        moderationSnapshot: MuteFilterSnapshot?
+    ) -> Int {
+        let clampedPageLimit = max(1, pageLimit)
+        let baselineProbeLimit = max(clampedPageLimit * 4, 100)
+        return min(
+            expandedTimelineLimit(
+                for: baselineProbeLimit,
+                moderationSnapshot: moderationSnapshot
+            ),
+            500
+        )
     }
 }

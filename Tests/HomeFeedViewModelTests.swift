@@ -1200,6 +1200,47 @@ final class HomeFeedLoadingRegressionTests: XCTestCase {
     }
 
     @MainActor
+    func testTrendingPaginationBackfillsWhenArchiveWindowIgnoresUntilCursor() async throws {
+        let todayNote = makeEvent(
+            id: hex("5"),
+            pubkey: hex("6"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Today trending note",
+            createdAt: 1_700_000_530
+        )
+        let previousWindowNote = makeEvent(
+            id: hex("7"),
+            pubkey: hex("8"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Earlier trending note behind an ignored cursor",
+            createdAt: todayNote.createdAt - 86_400
+        )
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                NostrFeedService.nostrArchivesTrendingRelayURL: [todayNote],
+                NostrFeedService.nostrArchivesTrendingSevenDayRelayURL: [todayNote, previousWindowNote]
+            ],
+            pageSize: 1
+        )
+        await harness.setIgnoringUntil(true, for: NostrFeedService.nostrArchivesTrendingSevenDayRelayURL)
+
+        harness.viewModel.selectFeedSource(.trending)
+        try await harness.waitUntilIdle(timeout: 4)
+
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [todayNote.id])
+
+        let currentItem = try XCTUnwrap(harness.viewModel.visibleItems.last)
+        await harness.viewModel.loadMoreIfNeeded(currentItem: currentItem)
+
+        XCTAssertEqual(
+            harness.viewModel.visibleItems.map(\.id),
+            [todayNote.id, previousWindowNote.id]
+        )
+    }
+
+    @MainActor
     func testPollsFeedShowsOnlyFollowedPolls() async throws {
         let currentUserPubkey = hex("7")
         let followedAuthorPubkey = hex("8")
@@ -1465,6 +1506,7 @@ private actor HomeFeedTestRelayClient: NostrRelayEventFetching {
     private var eventsByRelay: [String: [Flow.NostrEvent]]
     private var delaysByRelay: [String: UInt64] = [:]
     private var delaysByKind: [Int: UInt64] = [:]
+    private var ignoreUntilRelayKeys = Set<String>()
 
     init(eventsByRelay: [URL: [Flow.NostrEvent]]) {
         var normalized: [String: [Flow.NostrEvent]] = [:]
@@ -1494,6 +1536,15 @@ private actor HomeFeedTestRelayClient: NostrRelayEventFetching {
         }
     }
 
+    func setIgnoringUntil(_ isIgnoringUntil: Bool, for relayURL: URL) {
+        let relayKey = canonicalRelayString(relayURL)
+        if isIgnoringUntil {
+            ignoreUntilRelayKeys.insert(relayKey)
+        } else {
+            ignoreUntilRelayKeys.remove(relayKey)
+        }
+    }
+
     func fetchEvents(
         relayURL: URL,
         filter: NostrFilter,
@@ -1514,7 +1565,7 @@ private actor HomeFeedTestRelayClient: NostrRelayEventFetching {
         let authors = Set(filter.authors ?? [])
         let kinds = Set(filter.kinds ?? [])
         let ids = Set(filter.ids ?? [])
-        let until = filter.until
+        let until = ignoreUntilRelayKeys.contains(canonicalRelayURL) ? nil : filter.until
         let since = filter.since
         let limit = filter.limit ?? Int.max
 
@@ -1633,6 +1684,10 @@ private final class HomeFeedViewModelHarness {
 
     func setRelayDelay(_ delayNanoseconds: UInt64?, forKind kind: Int) async {
         await relayClient.setDelay(delayNanoseconds, for: kind)
+    }
+
+    func setIgnoringUntil(_ isIgnoringUntil: Bool, for relayURL: URL) async {
+        await relayClient.setIgnoringUntil(isIgnoringUntil, for: relayURL)
     }
 
     func storeLocalEvents(_ events: [NostrEvent]) async {
