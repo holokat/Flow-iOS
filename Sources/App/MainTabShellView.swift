@@ -69,16 +69,14 @@ struct MainTabShellView: View {
 
             nativeTabView
         }
-        .overlay(alignment: .bottomTrailing) {
+        .overlay {
             GeometryReader { proxy in
-                let horizontalPadding: CGFloat = 10
-                let slotWidth = max((proxy.size.width - (horizontalPadding * 2)) / 5, 56)
                 let bottomAnchor = proxy.safeAreaInsets.bottom + 50
+                let fountainHeight = max(proxy.size.height - bottomAnchor, 1)
 
                 LiveReactsOverlayHost(coordinator: liveReactsCoordinator)
-                    .frame(width: slotWidth * 1.15, height: 250, alignment: .bottom)
-                    .offset(x: -(slotWidth * 0.04), y: -bottomAnchor)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .frame(width: proxy.size.width, height: fountainHeight, alignment: .bottom)
+                    .position(x: proxy.size.width / 2, y: fountainHeight / 2)
             }
             .allowsHitTesting(false)
         }

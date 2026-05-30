@@ -7,14 +7,14 @@ final class LiveReactsCoordinator: ObservableObject {
     func emit(_ reaction: ActivityReaction) {
         let emission = LiveReactionEmission(
             reaction: reaction,
-            horizontalDrift: CGFloat.random(in: 0.28...0.48) * (Bool.random() ? -1 : 1),
-            sway: CGFloat.random(in: -0.1...0.1),
+            horizontalDrift: CGFloat.random(in: 0.42...0.72) * (Bool.random() ? -1 : 1),
+            sway: CGFloat.random(in: -0.18...0.18),
             rotation: Double.random(in: -28...28),
-            startScale: CGFloat.random(in: 0.9...1.08),
-            middleScaleMultiplier: CGFloat.random(in: 1.02...1.16),
-            endScaleMultiplier: CGFloat.random(in: 1.36...1.7),
-            size: CGFloat.random(in: 58...76),
-            duration: Double.random(in: 2.05...2.8),
+            startScale: CGFloat.random(in: 0.52...0.74),
+            middleScaleMultiplier: CGFloat.random(in: 2.85...3.35),
+            endScaleMultiplier: CGFloat.random(in: 4.1...5.2),
+            size: CGFloat.random(in: 42...56),
+            duration: Double.random(in: 3.0...4.1),
             opacity: Double.random(in: 0.78...0.98)
         )
         emissions.append(emission)
@@ -439,7 +439,7 @@ private struct LiveReactionFountainModifier: ViewModifier {
 
         let drift = containerSize.width * emission.horizontalDrift
         let sway = sin(clampedProgress * .pi * 2.6) * containerSize.width * emission.sway
-        let fadeOutProgress = max(0, (clampedProgress - 0.76) / 0.24)
+        let fadeOutProgress = max(0, (clampedProgress - 0.88) / 0.12)
 
         return (
             x: drift * clampedProgress + sway,
