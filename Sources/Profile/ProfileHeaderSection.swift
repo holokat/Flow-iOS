@@ -2,12 +2,12 @@ import SwiftUI
 
 enum ProfileHeaderBannerMetrics {
     static let height: CGFloat = LongFormArticleReaderLayout.heroMinHeight
-    static let fadeHeight: CGFloat = LongFormArticleReaderLayout.heroMinHeight * 0.34
+    static let fadeHeight: CGFloat = LongFormArticleReaderLayout.heroMinHeight * 0.21
     static let topScrimOpacity: Double = 0.04
-    static let bottomFadeMidOpacity: Double = 0.2
-    static let bottomFadeStrongOpacity: Double = 0.68
-    static let loadedImageOpacity: Double = 0.7
-    static let loadedImageSaturation: Double = 0.92
+    static let bottomFadeMidOpacity: Double = 0.08
+    static let bottomFadeStrongOpacity: Double = 0.48
+    static let loadedImageOpacity: Double = 1
+    static let loadedImageSaturation: Double = 1
 }
 
 private let profileHeaderAvatarSize: CGFloat = 104

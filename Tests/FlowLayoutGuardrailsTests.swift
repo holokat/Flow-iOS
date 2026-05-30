@@ -142,18 +142,18 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertEqual(ProfileHeaderBannerMetrics.height, LongFormArticleReaderLayout.heroMinHeight)
         XCTAssertEqual(
             ProfileHeaderBannerMetrics.fadeHeight,
-            ProfileHeaderBannerMetrics.height * 0.34,
+            ProfileHeaderBannerMetrics.height * 0.21,
             accuracy: 0.0001
         )
-        XCTAssertLessThan(ProfileHeaderBannerMetrics.fadeHeight, ProfileHeaderBannerMetrics.height * 0.4)
+        XCTAssertLessThan(ProfileHeaderBannerMetrics.fadeHeight, ProfileHeaderBannerMetrics.height * 0.24)
         XCTAssertLessThan(ProfileHeaderBannerMetrics.topScrimOpacity, 0.06)
-        XCTAssertLessThanOrEqual(ProfileHeaderBannerMetrics.bottomFadeMidOpacity, 0.22)
-        XCTAssertGreaterThanOrEqual(ProfileHeaderBannerMetrics.bottomFadeStrongOpacity, 0.66)
+        XCTAssertLessThanOrEqual(ProfileHeaderBannerMetrics.bottomFadeMidOpacity, 0.1)
+        XCTAssertLessThanOrEqual(ProfileHeaderBannerMetrics.bottomFadeStrongOpacity, 0.5)
     }
 
-    func testLoadedProfileBannerImagesAreMutedIntoChrome() {
-        XCTAssertLessThanOrEqual(ProfileHeaderBannerMetrics.loadedImageOpacity, 0.72)
-        XCTAssertGreaterThan(ProfileHeaderBannerMetrics.loadedImageOpacity, 0.5)
+    func testLoadedProfileBannerImagesStayClearAboveBottomFade() {
+        XCTAssertGreaterThanOrEqual(ProfileHeaderBannerMetrics.loadedImageOpacity, 0.94)
+        XCTAssertEqual(ProfileHeaderBannerMetrics.loadedImageSaturation, 1, accuracy: 0.0001)
     }
 
     func testProfileHeaderTopControlsRespectTopSafeArea() {
