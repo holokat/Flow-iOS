@@ -1245,8 +1245,10 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains(".tabItem { tabBarIcon(for: .dms) }"))
         XCTAssertTrue(source.contains("private var activityTabShowsUnreadBadge: Bool"))
         XCTAssertTrue(source.contains("activityViewModel.hasUnread && !isActivityListVisible"))
-        XCTAssertTrue(source.contains(".badge(\"\")"))
+        XCTAssertTrue(source.contains(".badge(activityTabBadgeLabel)"))
+        XCTAssertTrue(source.contains("content.badge(isVisible ? Text(\"\") : nil)"))
         XCTAssertTrue(source.contains("ActivityTabUnreadBadgeModifier"))
+        XCTAssertFalse(source.contains("if activityTabShowsUnreadBadge"))
         XCTAssertFalse(source.contains("showsUnreadDot"))
         XCTAssertFalse(source.contains(".frame(width: 8, height: 8)"))
         XCTAssertFalse(source.contains("homeCollapsedTabAffordance"))
@@ -1450,6 +1452,26 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertTrue(effects.resetsSearchRoot)
         XCTAssertFalse(effects.resetsHomeRoot)
+        XCTAssertFalse(effects.resetsActivityRoot)
+    }
+
+    func testLeavingActivityTabRequestsActivityRootReset() {
+        let effects = MainTabSelectionPolicy.effects(
+            previousTab: .activity,
+            selectedTab: .home,
+            wasActivityRootVisible: false
+        )
+
+        XCTAssertTrue(effects.resetsActivityRoot)
+    }
+
+    func testRedundantActivitySelectionDoesNotResetDetailNavigation() {
+        let effects = MainTabSelectionPolicy.effects(
+            previousTab: .activity,
+            selectedTab: .activity,
+            wasActivityRootVisible: false
+        )
+
         XCTAssertFalse(effects.resetsActivityRoot)
     }
 

@@ -216,20 +216,12 @@ struct MainTabShellView: View {
     @available(iOS 26.0, *)
     @TabContentBuilder<Tab>
     private var activityTabContentEntry: some TabContent<Tab> {
-        if activityTabShowsUnreadBadge {
-            SwiftUI.Tab(value: Tab.activity) {
-                activityTabContent
-            } label: {
-                tabBarIcon(for: .activity)
-            }
-            .badge("")
-        } else {
-            SwiftUI.Tab(value: Tab.activity) {
-                activityTabContent
-            } label: {
-                tabBarIcon(for: .activity)
-            }
+        SwiftUI.Tab(value: Tab.activity) {
+            activityTabContent
+        } label: {
+            tabBarIcon(for: .activity)
         }
+        .badge(activityTabBadgeLabel)
     }
 
     private var legacyNativeTabView: some View {
@@ -524,6 +516,10 @@ struct MainTabShellView: View {
         activityViewModel.hasUnread && !isActivityListVisible
     }
 
+    private var activityTabBadgeLabel: Text? {
+        activityTabShowsUnreadBadge ? Text("") : nil
+    }
+
     private func resetActivityTabToRoot() {
         isActivityRootVisible = true
         activityRootResetID = UUID()
@@ -537,13 +533,8 @@ struct MainTabShellView: View {
 private struct ActivityTabUnreadBadgeModifier: ViewModifier {
     let isVisible: Bool
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if isVisible {
-            content.badge("")
-        } else {
-            content
-        }
+        content.badge(isVisible ? Text("") : nil)
     }
 }
 
@@ -905,7 +896,7 @@ enum MainTabSelectionPolicy {
             resetsHomeRoot: selectedTab == .home,
             resetsSearchRoot: selectedTab == .search,
             resetsActivityRoot: previousTab == .activity &&
-                (selectedTab != .activity || !wasActivityRootVisible)
+                selectedTab != .activity
         )
     }
 }
