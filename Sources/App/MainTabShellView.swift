@@ -262,11 +262,6 @@ struct MainTabShellView: View {
             appSettings.themePalette.chromeBackground
                 .ignoresSafeArea(edges: .bottom)
         )
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(appSettings.themePalette.chromeBorder)
-                .frame(height: 0.5)
-        }
     }
 
     private func bottomNavButton(for tab: Tab) -> some View {
