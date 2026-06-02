@@ -50,6 +50,8 @@ struct MainTabShellView: View {
     @State private var isDMRootVisible = true
     @State private var isHomeSideMenuPresented = false
     private let bottomTabBarHeight: CGFloat = ScrollChromeLayout.defaultBottomTabBarHeight
+    // Custom bottom nav icon size, reduced ~4px from the previous native tab icons.
+    private static let bottomNavIconSize: CGFloat = 22
     @State private var homeScrollChromeStore = ScrollChromeStore()
 
     @StateObject private var homeViewModel = HomeFeedViewModel(
@@ -79,6 +81,11 @@ struct MainTabShellView: View {
                     .position(x: proxy.size.width / 2, y: fountainHeight / 2)
             }
             .allowsHitTesting(false)
+        }
+        .overlay(alignment: .bottom) {
+            if isBottomTabBarVisible {
+                customBottomNavBar
+            }
         }
         .sheet(item: composeSheetDraftBinding, onDismiss: {
             composeSheetCoordinator.dismiss()
@@ -179,6 +186,9 @@ struct MainTabShellView: View {
         }
     }
 
+    // The native tab bar is hidden on both paths; `customBottomNavBar` (a standard
+    // condensed bottom navigation) is overlaid instead. The TabView is retained
+    // only to switch content and preserve each tab's navigation state.
     @available(iOS 26.0, *)
     private var modernNativeTabView: some View {
         TabView(selection: tabSelection) {
@@ -200,28 +210,19 @@ struct MainTabShellView: View {
                 tabBarIcon(for: .dms)
             }
 
-            activityTabContentEntry
+            SwiftUI.Tab(value: Tab.activity) {
+                activityTabContent
+            } label: {
+                tabBarIcon(for: .activity)
+            }
 
-            SwiftUI.Tab(value: Tab.compose, role: .search) {
+            SwiftUI.Tab(value: Tab.compose) {
                 Color.clear
             } label: {
                 tabBarIcon(for: .compose)
             }
         }
-        .toolbar(nativeTabBarVisibility, for: .tabBar)
-        .flowHiddenTabBarBackground()
-        .flowNativeTabBarBehavior()
-    }
-
-    @available(iOS 26.0, *)
-    @TabContentBuilder<Tab>
-    private var activityTabContentEntry: some TabContent<Tab> {
-        SwiftUI.Tab(value: Tab.activity) {
-            activityTabContent
-        } label: {
-            tabBarIcon(for: .activity)
-        }
-        .badge(activityTabBadgeLabel)
+        .toolbar(.hidden, for: .tabBar)
     }
 
     private var legacyNativeTabView: some View {
@@ -241,15 +242,61 @@ struct MainTabShellView: View {
             activityTabContent
                 .tag(Tab.activity)
                 .tabItem { tabBarIcon(for: .activity) }
-                .modifier(ActivityTabUnreadBadgeModifier(isVisible: activityTabShowsUnreadBadge))
 
             Color.clear
                 .tag(Tab.compose)
                 .tabItem { tabBarIcon(for: .compose) }
         }
-        .toolbar(nativeTabBarVisibility, for: .tabBar)
-        .flowHiddenTabBarBackground()
-        .flowNativeTabBarBehavior()
+        .toolbar(.hidden, for: .tabBar)
+    }
+
+    private var customBottomNavBar: some View {
+        HStack(spacing: 0) {
+            ForEach(Tab.allCases, id: \.self) { tab in
+                bottomNavButton(for: tab)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)
+        .background(
+            appSettings.themePalette.chromeBackground
+                .ignoresSafeArea(edges: .bottom)
+        )
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(appSettings.themePalette.chromeBorder)
+                .frame(height: 0.5)
+        }
+    }
+
+    private func bottomNavButton(for tab: Tab) -> some View {
+        let isSelected = tab != .compose && selectedTab == tab
+        return Button {
+            handleTabSelection(tab)
+        } label: {
+            ZStack {
+                Image(systemName: tab.symbolName)
+                    .font(.system(size: Self.bottomNavIconSize, weight: .regular))
+                    .environment(\.symbolVariants, .none)
+                    .foregroundStyle(
+                        isSelected
+                            ? appSettings.primaryColor
+                            : appSettings.themePalette.mutedForeground
+                    )
+
+                if tab == .activity, activityTabShowsUnreadBadge {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 7, height: 7)
+                        .offset(x: Self.bottomNavIconSize * 0.55, y: -Self.bottomNavIconSize * 0.5)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(tab.accessibilityLabel)
     }
 
     private var homeTabContent: some View {
@@ -262,7 +309,6 @@ struct MainTabShellView: View {
         )
         .environment(\.flowScrollChromeStore, homeScrollChromeStore)
         .environment(\.flowBottomTabBarHeight, bottomTabBarHeight)
-        .flowNativeTabBarBehavior()
         .id(homeRootResetID)
     }
 
@@ -307,10 +353,6 @@ struct MainTabShellView: View {
                 handleTabSelection(newValue)
             }
         )
-    }
-
-    private var nativeTabBarVisibility: Visibility {
-        isBottomTabBarVisible ? .automatic : .hidden
     }
 
     private var effectiveWriteRelayURLs: [URL] {
@@ -516,10 +558,6 @@ struct MainTabShellView: View {
         activityViewModel.hasUnread && !isActivityListVisible
     }
 
-    private var activityTabBadgeLabel: Text? {
-        activityTabShowsUnreadBadge ? Text("") : nil
-    }
-
     private func resetActivityTabToRoot() {
         isActivityRootVisible = true
         activityRootResetID = UUID()
@@ -527,33 +565,6 @@ struct MainTabShellView: View {
 
     private func syncActivityTabActiveState() {
         activityViewModel.setActivityTabActive(isActivityListVisible)
-    }
-}
-
-private struct ActivityTabUnreadBadgeModifier: ViewModifier {
-    let isVisible: Bool
-
-    func body(content: Content) -> some View {
-        content.badge(isVisible ? Text("") : nil)
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func flowNativeTabBarBehavior() -> some View {
-        if #available(iOS 26.0, *) {
-            self.tabBarMinimizeBehavior(.onScrollDown)
-        } else {
-            self
-        }
-    }
-
-    // Controlled test: drop the tab bar's background material so the feed scrolls
-    // fully behind the floating Liquid Glass buttons instead of sitting over an
-    // opaque platter.
-    @ViewBuilder
-    func flowHiddenTabBarBackground() -> some View {
-        self.toolbarBackground(.hidden, for: .tabBar)
     }
 }
 
@@ -639,7 +650,8 @@ struct ScrollChromeContentPadding: Equatable {
 
 struct ScrollChromeLayout {
     static let defaultTopBarHeight: CGFloat = 55
-    static let defaultBottomTabBarHeight: CGFloat = 67
+    // Condensed standard bottom navigation bar (replaced the Liquid Glass tab bar).
+    static let defaultBottomTabBarHeight: CGFloat = 50
     static let topOfFeedRestoreThreshold: CGFloat = 8
     static let visualOffsetPublishThreshold: CGFloat = 0.5
 
