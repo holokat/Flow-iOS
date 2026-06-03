@@ -259,7 +259,9 @@ struct MainTabShellView: View {
         .frame(maxWidth: .infinity)
         .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)
         .background(
-            appSettings.themePalette.chromeBackground
+            // Match the page background exactly so the bar reads as flat — no box,
+            // no border, no shadow — across every theme.
+            appSettings.themePalette.background
                 .ignoresSafeArea(edges: .bottom)
         )
     }
@@ -271,7 +273,7 @@ struct MainTabShellView: View {
         } label: {
             ZStack {
                 Image(systemName: tab.symbolName)
-                    .font(.system(size: Self.bottomNavIconSize, weight: .regular))
+                    .font(.system(size: Self.bottomNavIconSize, weight: .medium))
                     .environment(\.symbolVariants, .none)
                     .foregroundStyle(
                         isSelected
