@@ -70,6 +70,7 @@ struct MainTabShellView: View {
                 .ignoresSafeArea()
 
             nativeTabView
+                .flowHiddenBottomScrollEdgeEffect()
         }
         .overlay {
             GeometryReader { proxy in
@@ -562,6 +563,20 @@ struct MainTabShellView: View {
 
     private func syncActivityTabActiveState() {
         activityViewModel.setActivityTabActive(isActivityListVisible)
+    }
+}
+
+private extension View {
+    // The custom bottom navigation is opaque, so the iOS 26 automatic scroll edge
+    // effect would render a soft shadow/fade above it. Hide the bottom scroll edge
+    // effect across every tab's scroll views so the bar reads as flat.
+    @ViewBuilder
+    func flowHiddenBottomScrollEdgeEffect() -> some View {
+        if #available(iOS 26.0, *) {
+            self.scrollEdgeEffectHidden(true, for: .bottom)
+        } else {
+            self
+        }
     }
 }
 

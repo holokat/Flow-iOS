@@ -1814,10 +1814,13 @@ private struct HomeFeedSheets: ViewModifier {
 }
 
 private extension View {
+    // The custom bottom navigation is opaque and sits over the feed, so the iOS 26
+    // automatic scroll edge effect renders a soft shadow/fade at the bar's top edge.
+    // Hide the bottom scroll edge effect so the bar reads as flat.
     @ViewBuilder
     func homeFeedNativeTabBarMinimizeBehavior() -> some View {
         if #available(iOS 26.0, *) {
-            self.tabBarMinimizeBehavior(.onScrollDown)
+            self.scrollEdgeEffectHidden(true, for: .bottom)
         } else {
             self
         }
