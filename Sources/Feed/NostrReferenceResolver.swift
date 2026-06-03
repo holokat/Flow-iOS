@@ -1,6 +1,10 @@
 import Foundation
 
 struct NostrReferenceResolver: Sendable {
+    // Upper bound for the fast (hints + user read relays) referenced-event pass,
+    // so a miss falls through to the outbox fallback without a long stall.
+    static let fastReferenceFetchTimeout: TimeInterval = 5
+
     private let relayTimelineFetcher: RelayTimelineFetcher
     private let seenEventStore: any SeenEventStoring
     private let resolveOutboxRelayPlan: @Sendable ([String], [URL], [String: [URL]]) async -> AuthorRelayPlan
@@ -337,20 +341,39 @@ struct NostrReferenceResolver: Sendable {
         let uniqueReferences = Array(Set(references))
         guard !uniqueReferences.isEmpty else { return [:] }
 
-        let targetPubkeys = normalizedUniquePubkeys(
-            uniqueReferences.compactMap(\.targetPubkey)
+        // Phase 1 — fast path: try the in-memory cache, the reference's own relay
+        // hints, and the logged-in user's read relays. This avoids the serial
+        // author-relay-directory ("outbox") fetch in the common case, where the
+        // referenced event is already cached, on the embedded relay hint, or on a
+        // relay the user already reads. A shorter timeout keeps misses from
+        // delaying the outbox fallback.
+        let fastTimeout = min(fetchTimeout, Self.fastReferenceFetchTimeout)
+        var resolved = await fetchReferencedEvents(
+            references: uniqueReferences,
+            baseRelayURLs: baseReadRelayURLs,
+            fetchTimeout: fastTimeout,
+            relayFetchMode: relayFetchMode
         )
-        let seedHintRelayURLsByPubkey = relayHintsByTargetPubkey(from: uniqueReferences)
-        let relayPlan = targetPubkeys.isEmpty
-            ? nil
-            : await resolveOutboxRelayPlan(
-                targetPubkeys,
-                baseReadRelayURLs,
-                seedHintRelayURLsByPubkey
-            )
+
+        let unresolved = uniqueReferences.filter { resolved[$0] == nil }
+        guard !unresolved.isEmpty else { return resolved }
+
+        // Phase 2 — fallback: resolve each still-missing author's outbox relays and
+        // retry only those references.
+        let targetPubkeys = normalizedUniquePubkeys(
+            unresolved.compactMap(\.targetPubkey)
+        )
+        guard !targetPubkeys.isEmpty else { return resolved }
+
+        let seedHintRelayURLsByPubkey = relayHintsByTargetPubkey(from: unresolved)
+        let relayPlan = await resolveOutboxRelayPlan(
+            targetPubkeys,
+            baseReadRelayURLs,
+            seedHintRelayURLsByPubkey
+        )
 
         var enrichedToOriginals: [NostrEventReferencePointer: [NostrEventReferencePointer]] = [:]
-        let enrichedReferences = uniqueReferences.map { reference in
+        let enrichedReferences = unresolved.map { reference in
             let enriched = outboxEnrichedReference(
                 reference,
                 baseReadRelayURLs: baseReadRelayURLs,
@@ -367,7 +390,6 @@ struct NostrReferenceResolver: Sendable {
             relayFetchMode: relayFetchMode
         )
 
-        var resolved: [NostrEventReferencePointer: NostrEvent] = [:]
         for (enrichedReference, event) in resolvedByEnrichedReference {
             for originalReference in enrichedToOriginals[enrichedReference] ?? [] {
                 resolved[originalReference] = event
