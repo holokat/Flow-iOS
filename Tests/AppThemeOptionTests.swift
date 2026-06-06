@@ -1123,7 +1123,7 @@ final class AppThemeOptionTests: XCTestCase {
                 bottomBarHeight: 50,
                 safeAreaBottom: 0
             ),
-            0.79,
+            0.70,
             accuracy: 0.0001
         )
         XCTAssertEqual(
