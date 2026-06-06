@@ -941,10 +941,15 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("@State private var homeScrollChromeStore = ScrollChromeStore()"))
         XCTAssertFalse(shellSource.contains("@State private var homeScrollChrome = ScrollChromeOffsets()"))
         XCTAssertTrue(shellSource.contains("scrollChromeStore: homeScrollChromeStore"))
+        XCTAssertTrue(shellSource.contains("ScrollChromeOpacityReader("))
+        XCTAssertTrue(shellSource.contains("ScrollChromeLayout.chromeOpacity("))
+        XCTAssertTrue(shellSource.contains("}\n            .opacity(chromeOpacity)\n            .frame(maxWidth: .infinity)\n            .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)\n            .background("))
         XCTAssertTrue(shellSource.contains("TabView(selection: tabSelection)"))
+        XCTAssertTrue(shellSource.contains("func flowNativeTabBarHidden() -> some View"))
         XCTAssertTrue(shellSource.contains(".environment(\\.flowBottomTabBarHeight, bottomTabBarHeight)"))
-        XCTAssertTrue(shellSource.contains("usesNativeBottomNavigationBar"))
+        XCTAssertTrue(shellSource.contains("private var customBottomNavBar: some View"))
         XCTAssertTrue(homeSource.contains("let scrollChromeStore: ScrollChromeStore"))
+        XCTAssertTrue(homeSource.contains("@ObservedObject var scrollChromeStore: ScrollChromeStore"))
         XCTAssertTrue(homeSource.contains("HomeFeedTopNavigationChromeView("))
         XCTAssertTrue(homeSource.contains("HomeFeedNewNotesChromeOverlay("))
         XCTAssertTrue(profileSource.contains("@Environment(\\.flowScrollChromeStore)"))
@@ -961,8 +966,9 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("VStack(spacing: 0) {\n                HomeFeedTopNavigationChromeView("))
         XCTAssertFalse(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
         XCTAssertTrue(source.contains("feedContent(\n                    contentPadding.bottom,\n                    0,\n                    safeAreaBottom\n                )"))
-        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                    topNavigationBar: topNavigationBar\n                )"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)"))
+        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                    scrollChromeStore: scrollChromeStore,\n                    bottomBarHeight: bottomTabBarHeight,\n                    safeAreaBottom: safeAreaBottom,\n                    topNavigationBar: topNavigationBar\n                )"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .opacity(chromeOpacity)\n            .background(topNavigationBarBackground)"))
+        XCTAssertTrue(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertFalse(source.contains("let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)"))
         XCTAssertFalse(source.contains("topNavigationContentHeight"))
@@ -1011,7 +1017,7 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertFalse(source.contains(".background(topNavigationBackground)"))
         XCTAssertFalse(source.contains("private var topNavigationBackground"))
-        XCTAssertFalse(topNavChromeSource.contains(".opacity("))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .opacity(chromeOpacity)\n            .background(topNavigationBarBackground)"))
         XCTAssertTrue(source.contains(".background(topNavigationBarBackground)"))
         XCTAssertTrue(source.contains("private var topNavigationBarBackground: some View"))
         XCTAssertTrue(source.contains("appSettings.themePalette.background"))
@@ -1025,6 +1031,8 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains("topNavigationBarVisibleFraction"))
         XCTAssertFalse(source.contains("ScrollChromeLayout.visibleFraction"))
         XCTAssertFalse(source.contains("offset: -topBarOffset"))
+        XCTAssertTrue(source.contains("private var chromeOpacity: Double"))
+        XCTAssertTrue(source.contains("ScrollChromeLayout.chromeOpacity("))
     }
 
     func testHomePullToRefreshUsesNativeRefreshControl() throws {
@@ -1095,6 +1103,36 @@ final class AppThemeOptionTests: XCTestCase {
                 bottomBarHeight: 65
             ),
             0,
+            accuracy: 0.0001
+        )
+    }
+
+    func testScrollChromeOpacityDimsOnScrollDownAndRestoresOnScrollUp() {
+        XCTAssertEqual(
+            ScrollChromeLayout.chromeOpacity(
+                bottomBarOffset: 0,
+                bottomBarHeight: 50,
+                safeAreaBottom: 0
+            ),
+            1,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            ScrollChromeLayout.chromeOpacity(
+                bottomBarOffset: 25,
+                bottomBarHeight: 50,
+                safeAreaBottom: 0
+            ),
+            0.79,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            ScrollChromeLayout.chromeOpacity(
+                bottomBarOffset: 50,
+                bottomBarHeight: 50,
+                safeAreaBottom: 0
+            ),
+            ScrollChromeLayout.dimmedChromeOpacity,
             accuracy: 0.0001
         )
     }
@@ -1220,7 +1258,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains("Phrases search across note content"))
     }
 
-    func testBottomNavigationUsesCustomRootBarWithNativeNestedFallback() throws {
+    func testBottomNavigationUsesCustomBarAndKeepsNativeTabBarHidden() throws {
         let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
 
         XCTAssertTrue(source.contains("TabView(selection: tabSelection)"))
@@ -1233,19 +1271,21 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("private var activityTabShowsUnreadBadge: Bool"))
         XCTAssertTrue(source.contains("activityViewModel.hasUnread && !isActivityListVisible"))
         XCTAssertTrue(source.contains("if tab == .activity, activityTabShowsUnreadBadge"))
-        XCTAssertTrue(source.contains("private var usesNativeBottomNavigationBar: Bool"))
-        XCTAssertTrue(source.contains("return !isHomeRootVisible"))
-        XCTAssertTrue(source.contains("return !isActivityRootVisible"))
-        XCTAssertTrue(source.contains("private var usesCustomBottomNavigationBar: Bool"))
-        XCTAssertTrue(source.contains("private var nativeBottomNavigationVisibility: Visibility"))
-        XCTAssertTrue(source.contains("usesNativeBottomNavigationBar ? .visible : .hidden"))
+        XCTAssertTrue(source.contains("if isBottomTabBarVisible {\n                customBottomNavBar\n            }"))
+        XCTAssertTrue(source.contains("func flowNativeTabBarHidden() -> some View"))
+        XCTAssertEqual(source.components(separatedBy: ".flowNativeTabBarHidden()").count - 1, 10)
+        XCTAssertTrue(source.contains(".toolbar(.hidden, for: .tabBar)"))
+        XCTAssertFalse(source.contains("private var usesNativeBottomNavigationBar: Bool"))
+        XCTAssertFalse(source.contains("private var usesCustomBottomNavigationBar: Bool"))
+        XCTAssertFalse(source.contains("private var nativeBottomNavigationVisibility: Visibility"))
+        XCTAssertFalse(source.contains("usesNativeBottomNavigationBar ? .visible : .hidden"))
         XCTAssertFalse(source.contains(".badge(activityTabBadgeLabel)"))
         XCTAssertFalse(source.contains("ActivityTabUnreadBadgeModifier"))
         XCTAssertFalse(source.contains("showsUnreadDot"))
         XCTAssertFalse(source.contains(".frame(width: 8, height: 8)"))
         XCTAssertFalse(source.contains("homeCollapsedTabAffordance"))
         XCTAssertFalse(source.contains("shouldShowCollapsedHomeTabAffordance"))
-        XCTAssertTrue(source.contains(".toolbar(nativeBottomNavigationVisibility, for: .tabBar)"))
+        XCTAssertFalse(source.contains(".toolbar(nativeBottomNavigationVisibility, for: .tabBar)"))
         XCTAssertTrue(source.contains(".environment(\\.symbolVariants, .none)"))
         XCTAssertFalse(source.contains("private func tabBarLabel"))
         XCTAssertFalse(source.contains("GlassEffectContainer"))
@@ -1255,8 +1295,8 @@ final class AppThemeOptionTests: XCTestCase {
     func testComposeTabUsesNativeItemAsActionWithoutSelectingPlaceholder() throws {
         let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
         let selectionRange = try XCTUnwrap(source.range(of: "private var tabSelection: Binding<Tab>"))
-        let visibilityRange = try XCTUnwrap(source.range(of: "private var usesNativeBottomNavigationBar"))
-        let selectionSource = source[selectionRange.lowerBound..<visibilityRange.lowerBound]
+        let effectiveRelayRange = try XCTUnwrap(source.range(of: "private var effectiveWriteRelayURLs"))
+        let selectionSource = source[selectionRange.lowerBound..<effectiveRelayRange.lowerBound]
 
         XCTAssertTrue(source.contains("case compose"))
         XCTAssertTrue(source.contains("Color.clear"))
@@ -1288,8 +1328,10 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("@State private var isHomeRootVisible = true"))
         XCTAssertTrue(shellSource.contains("isRootVisible: $isHomeRootVisible"))
         XCTAssertTrue(homeSource.contains("@Binding var isRootVisible: Bool"))
-        XCTAssertTrue(shellSource.contains("private var nativeBottomNavigationVisibility: Visibility"))
-        XCTAssertTrue(shellSource.contains("usesNativeBottomNavigationBar ? .visible : .hidden"))
+        XCTAssertTrue(shellSource.contains("if isBottomTabBarVisible {\n                customBottomNavBar\n            }"))
+        XCTAssertTrue(shellSource.contains("func flowNativeTabBarHidden() -> some View"))
+        XCTAssertFalse(shellSource.contains("private var nativeBottomNavigationVisibility: Visibility"))
+        XCTAssertFalse(shellSource.contains("usesNativeBottomNavigationBar ? .visible : .hidden"))
         XCTAssertFalse(shellSource.contains("private func shouldHideNativeTabBarForHomeScroll"))
     }
 

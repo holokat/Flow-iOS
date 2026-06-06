@@ -195,30 +195,35 @@ struct MainTabShellView: View {
         TabView(selection: tabSelection) {
             SwiftUI.Tab(value: Tab.home) {
                 homeTabContent
+                    .flowNativeTabBarHidden()
             } label: {
                 tabBarIcon(for: .home)
             }
 
             SwiftUI.Tab(value: Tab.search) {
                 searchTabContent
+                    .flowNativeTabBarHidden()
             } label: {
                 tabBarIcon(for: .search)
             }
 
             SwiftUI.Tab(value: Tab.dms) {
                 directMessagesTabContent
+                    .flowNativeTabBarHidden()
             } label: {
                 tabBarIcon(for: .dms)
             }
 
             SwiftUI.Tab(value: Tab.activity) {
                 activityTabContent
+                    .flowNativeTabBarHidden()
             } label: {
                 tabBarIcon(for: .activity)
             }
 
             SwiftUI.Tab(value: Tab.compose) {
                 Color.clear
+                    .flowNativeTabBarHidden()
             } label: {
                 tabBarIcon(for: .compose)
             }
@@ -229,22 +234,27 @@ struct MainTabShellView: View {
     private var legacyNativeTabView: some View {
         TabView(selection: tabSelection) {
             homeTabContent
+                .flowNativeTabBarHidden()
                 .tag(Tab.home)
                 .tabItem { tabBarIcon(for: .home) }
 
             searchTabContent
+                .flowNativeTabBarHidden()
                 .tag(Tab.search)
                 .tabItem { tabBarIcon(for: .search) }
 
             directMessagesTabContent
+                .flowNativeTabBarHidden()
                 .tag(Tab.dms)
                 .tabItem { tabBarIcon(for: .dms) }
 
             activityTabContent
+                .flowNativeTabBarHidden()
                 .tag(Tab.activity)
                 .tabItem { tabBarIcon(for: .activity) }
 
             Color.clear
+                .flowNativeTabBarHidden()
                 .tag(Tab.compose)
                 .tabItem { tabBarIcon(for: .compose) }
         }
@@ -252,19 +262,27 @@ struct MainTabShellView: View {
     }
 
     private var customBottomNavBar: some View {
-        HStack(spacing: 0) {
-            ForEach(Tab.allCases, id: \.self) { tab in
-                bottomNavButton(for: tab)
+        ScrollChromeOpacityReader(
+            scrollChromeStore: homeScrollChromeStore,
+            isActive: selectedTab == .home && isHomeRootVisible,
+            bottomBarHeight: bottomTabBarHeight,
+            safeAreaBottom: 0
+        ) { chromeOpacity in
+            HStack(spacing: 0) {
+                ForEach(Tab.allCases, id: \.self) { tab in
+                    bottomNavButton(for: tab)
+                }
             }
+            .opacity(chromeOpacity)
+            .frame(maxWidth: .infinity)
+            .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)
+            .background(
+                // Match the page background exactly so the bar reads as flat — no box,
+                // no border, no shadow — across every theme.
+                appSettings.themePalette.background
+                    .ignoresSafeArea(edges: .bottom)
+            )
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)
-        .background(
-            // Match the page background exactly so the bar reads as flat — no box,
-            // no border, no shadow — across every theme.
-            appSettings.themePalette.background
-                .ignoresSafeArea(edges: .bottom)
-        )
     }
 
     private func bottomNavButton(for tab: Tab) -> some View {
@@ -567,6 +585,10 @@ struct MainTabShellView: View {
 }
 
 private extension View {
+    func flowNativeTabBarHidden() -> some View {
+        self.toolbar(.hidden, for: .tabBar)
+    }
+
     // The custom bottom navigation is opaque, so the iOS 26 automatic scroll edge
     // effect would render a soft shadow/fade above it. Hide the bottom scroll edge
     // effect across every tab's scroll views so the bar reads as flat.
@@ -660,12 +682,36 @@ struct ScrollChromeContentPadding: Equatable {
     let bottom: CGFloat
 }
 
+private struct ScrollChromeOpacityReader<Content: View>: View {
+    @ObservedObject var scrollChromeStore: ScrollChromeStore
+
+    let isActive: Bool
+    let bottomBarHeight: CGFloat
+    let safeAreaBottom: CGFloat
+    let content: (Double) -> Content
+
+    var body: some View {
+        content(chromeOpacity)
+    }
+
+    private var chromeOpacity: Double {
+        guard isActive else { return 1 }
+
+        return ScrollChromeLayout.chromeOpacity(
+            bottomBarOffset: scrollChromeStore.offsets.bottomBarOffset,
+            bottomBarHeight: bottomBarHeight,
+            safeAreaBottom: safeAreaBottom
+        )
+    }
+}
+
 struct ScrollChromeLayout {
     static let defaultTopBarHeight: CGFloat = 55
     // Condensed standard bottom navigation bar used throughout the app.
     static let defaultBottomTabBarHeight: CGFloat = 50
     static let topOfFeedRestoreThreshold: CGFloat = 8
     static let visualOffsetPublishThreshold: CGFloat = 0.5
+    static let dimmedChromeOpacity: Double = 0.58
 
     static func isBottomTabBarVisible(
         isHomeSideMenuPresented: Bool,
@@ -793,6 +839,24 @@ struct ScrollChromeLayout {
             offset: offset,
             hiddenOffset: bottomBarHeight
         )
+    }
+
+    static func chromeOpacity(
+        bottomBarOffset: CGFloat,
+        bottomBarHeight: CGFloat,
+        safeAreaBottom: CGFloat
+    ) -> Double {
+        let hiddenOffset = bottomHiddenOffset(
+            bottomBarHeight: bottomBarHeight,
+            safeAreaBottom: safeAreaBottom
+        )
+        let hiddenProgress = hiddenProgress(
+            offset: bottomBarOffset,
+            hiddenOffset: hiddenOffset
+        )
+        let visibleOpacity = 1 - hiddenProgress * (1 - CGFloat(dimmedChromeOpacity))
+
+        return Double(clamp(visibleOpacity, min: CGFloat(dimmedChromeOpacity), max: 1))
     }
 
     static func feedContentPadding(

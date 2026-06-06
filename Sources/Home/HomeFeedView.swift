@@ -236,6 +236,7 @@ struct HomeFeedView: View {
         NavigationStack {
             HomeFeedRootContent(
                 isShowingSideMenu: $isShowingSideMenu,
+                scrollChromeStore: scrollChromeStore,
                 bottomTabBarHeight: bottomTabBarHeight,
                 topNavigationBar: { topNavigationBar },
                 feedContent: { bottomPadding, topBarHeight, safeAreaBottom in
@@ -1472,6 +1473,7 @@ private struct HomeFeedRootContent<
 >: View {
     @Binding var isShowingSideMenu: Bool
 
+    let scrollChromeStore: ScrollChromeStore
     let bottomTabBarHeight: CGFloat
     let topNavigationBar: () -> TopNavigationBar
     let feedContent: (_ bottomPadding: CGFloat, _ topBarHeight: CGFloat, _ safeAreaBottom: CGFloat) -> FeedContent
@@ -1518,6 +1520,9 @@ private struct HomeFeedRootContent<
 
             VStack(spacing: 0) {
                 HomeFeedTopNavigationChromeView(
+                    scrollChromeStore: scrollChromeStore,
+                    bottomBarHeight: bottomTabBarHeight,
+                    safeAreaBottom: safeAreaBottom,
                     topNavigationBar: topNavigationBar
                 )
 
@@ -1535,16 +1540,28 @@ private struct HomeFeedRootContent<
 
 private struct HomeFeedTopNavigationChromeView<TopNavigationBar: View>: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
+    @ObservedObject var scrollChromeStore: ScrollChromeStore
 
+    let bottomBarHeight: CGFloat
+    let safeAreaBottom: CGFloat
     let topNavigationBar: () -> TopNavigationBar
 
     var body: some View {
         topNavigationBar()
+            .opacity(chromeOpacity)
             .background(topNavigationBarBackground)
     }
 
     private var topNavigationBarBackground: some View {
         appSettings.themePalette.background
+    }
+
+    private var chromeOpacity: Double {
+        ScrollChromeLayout.chromeOpacity(
+            bottomBarOffset: scrollChromeStore.offsets.bottomBarOffset,
+            bottomBarHeight: bottomBarHeight,
+            safeAreaBottom: safeAreaBottom
+        )
     }
 }
 
