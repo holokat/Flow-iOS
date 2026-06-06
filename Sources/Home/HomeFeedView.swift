@@ -278,6 +278,9 @@ struct HomeFeedView: View {
         safeAreaBottom: CGFloat
     ) -> some View {
         let list = List {
+            feedTopChromeClearance(height: topBarHeight)
+                .homeFeedListRow()
+
             if showsFeedModeHeader {
                 topTrackedRow(feedModeHeaderRow.homeFeedListRow(), isFirst: true)
             }
@@ -335,6 +338,12 @@ struct HomeFeedView: View {
     }
 
     private func feedBottomPadding(height: CGFloat) -> some View {
+        Color.clear
+            .frame(height: max(0, height))
+            .accessibilityHidden(true)
+    }
+
+    private func feedTopChromeClearance(height: CGFloat) -> some View {
         Color.clear
             .frame(height: max(0, height))
             .accessibilityHidden(true)
@@ -1483,7 +1492,7 @@ private struct HomeFeedRootContent<
         GeometryReader { geometry in
             let safeAreaBottom = max(0, geometry.safeAreaInsets.bottom)
             let contentPadding = ScrollChromeLayout.feedContentPadding(
-                topBarHeight: 0,
+                topBarHeight: ScrollChromeLayout.defaultTopBarHeight,
                 bottomBarHeight: bottomTabBarHeight,
                 safeAreaBottom: safeAreaBottom
             )
@@ -1518,22 +1527,19 @@ private struct HomeFeedRootContent<
             AppThemeBackgroundView(holographicSpotlight: .feed)
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                HomeFeedTopNavigationChromeView(
-                    scrollChromeStore: scrollChromeStore,
-                    bottomBarHeight: bottomTabBarHeight,
-                    safeAreaBottom: safeAreaBottom,
-                    topNavigationBar: topNavigationBar
-                )
-
-                feedContent(
-                    contentPadding.bottom,
-                    0,
-                    safeAreaBottom
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            feedContent(
+                contentPadding.bottom,
+                contentPadding.top,
+                safeAreaBottom
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            HomeFeedTopNavigationChromeView(
+                scrollChromeStore: scrollChromeStore,
+                bottomBarHeight: bottomTabBarHeight,
+                safeAreaBottom: safeAreaBottom,
+                topNavigationBar: topNavigationBar
+            )
         }
     }
 }

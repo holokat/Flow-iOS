@@ -964,10 +964,11 @@ final class AppThemeOptionTests: XCTestCase {
         let topNavChromeSource = source[topNavChromeStart.lowerBound..<topNavChromeEnd.lowerBound]
 
         XCTAssertFalse(source.contains("topNavigationToTabsSpacing"))
-        XCTAssertTrue(source.contains("VStack(spacing: 0) {\n                HomeFeedTopNavigationChromeView("))
+        XCTAssertTrue(source.contains("ZStack(alignment: .top) {"))
         XCTAssertFalse(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
-        XCTAssertTrue(source.contains("feedContent(\n                    contentPadding.bottom,\n                    0,\n                    safeAreaBottom\n                )"))
-        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                    scrollChromeStore: scrollChromeStore,\n                    bottomBarHeight: bottomTabBarHeight,\n                    safeAreaBottom: safeAreaBottom,\n                    topNavigationBar: topNavigationBar\n                )"))
+        XCTAssertTrue(source.contains("feedContent(\n                contentPadding.bottom,\n                contentPadding.top,\n                safeAreaBottom\n            )"))
+        XCTAssertTrue(source.contains("feedTopChromeClearance(height: topBarHeight)\n                .homeFeedListRow()"))
+        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                scrollChromeStore: scrollChromeStore,\n                bottomBarHeight: bottomTabBarHeight,\n                safeAreaBottom: safeAreaBottom,\n                topNavigationBar: topNavigationBar\n            )"))
         XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
         XCTAssertTrue(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))

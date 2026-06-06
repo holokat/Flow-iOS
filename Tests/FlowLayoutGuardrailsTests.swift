@@ -698,9 +698,10 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         let topNavChromeSource = source[topNavChromeStart.lowerBound..<topNavChromeEnd.lowerBound]
 
         XCTAssertTrue(source.contains(".refreshable {\n            await refreshFeed()"))
-        XCTAssertTrue(source.contains("VStack(spacing: 0) {\n                HomeFeedTopNavigationChromeView("))
+        XCTAssertTrue(source.contains("ZStack(alignment: .top) {"))
         XCTAssertFalse(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
         XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView("))
+        XCTAssertTrue(source.contains("feedTopChromeClearance(height: topBarHeight)\n                .homeFeedListRow()"))
         XCTAssertTrue(source.contains("topTrackedRow(feedModeHeaderRow.homeFeedListRow(), isFirst: true)"))
         XCTAssertTrue(source.contains("tracksFirstRowTop: !showsFeedModeHeader"))
         XCTAssertTrue(source.contains(".background(feedTopOffsetReader)\n                .id(Self.feedTopAnchorID)"))
@@ -709,8 +710,8 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(source.contains("topContentPadding"))
         XCTAssertTrue(source.contains("if showsFeedModeHeader {\n                topTrackedRow(feedModeHeaderRow.homeFeedListRow(), isFirst: true)\n            }"))
         XCTAssertTrue(source.contains("private var showsFeedModeHeader: Bool {"))
-        XCTAssertTrue(source.contains("feedContent(\n                    contentPadding.bottom,\n                    0,\n                    safeAreaBottom\n                )"))
-        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                    scrollChromeStore: scrollChromeStore,\n                    bottomBarHeight: bottomTabBarHeight,\n                    safeAreaBottom: safeAreaBottom,\n                    topNavigationBar: topNavigationBar\n                )"))
+        XCTAssertTrue(source.contains("feedContent(\n                contentPadding.bottom,\n                contentPadding.top,\n                safeAreaBottom\n            )"))
+        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                scrollChromeStore: scrollChromeStore,\n                bottomBarHeight: bottomTabBarHeight,\n                safeAreaBottom: safeAreaBottom,\n                topNavigationBar: topNavigationBar\n            )"))
         XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
         XCTAssertTrue(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
         XCTAssertFalse(source.contains("pullToRefreshDistance"))
