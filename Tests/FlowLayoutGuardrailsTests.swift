@@ -693,13 +693,24 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
 
     func testHomeFeedKeepsNativeRefreshControlTopInsetAvailable() throws {
         let source = try Self.sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let topNavChromeStart = try XCTUnwrap(source.range(of: "private struct HomeFeedTopNavigationChromeView"))
+        let topNavChromeEnd = try XCTUnwrap(source.range(of: "private struct HomeFeedNewNotesChromeOverlay"))
+        let topNavChromeSource = source[topNavChromeStart.lowerBound..<topNavChromeEnd.lowerBound]
 
         XCTAssertTrue(source.contains(".refreshable {\n            await refreshFeed()"))
         XCTAssertTrue(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
         XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView("))
         XCTAssertTrue(source.contains("feedTopPadding(height: topContentPadding)\n                .homeFeedListRow()"))
+        XCTAssertTrue(source.contains("feedContent(\n                contentPadding.top,\n                contentPadding.bottom,\n                0,\n                safeAreaBottom\n            )"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)"))
         XCTAssertFalse(source.contains("pullToRefreshDistance"))
         XCTAssertFalse(source.contains("refreshRevealOpacity"))
+        XCTAssertFalse(source.contains("HomeFeedTopNavigationBarHeightPreferenceKey"))
+        XCTAssertFalse(source.contains("topHiddenOffset"))
+        XCTAssertFalse(topNavChromeSource.contains("topBarOffset"))
+        XCTAssertFalse(topNavChromeSource.contains(".offset(y:"))
+        XCTAssertFalse(topNavChromeSource.contains(".opacity("))
+        XCTAssertFalse(topNavChromeSource.contains(".allowsHitTesting("))
     }
 
     func testProfileAvatarFullscreenViewerUsesThemeAwareBackdropAndToolbarChrome() throws {

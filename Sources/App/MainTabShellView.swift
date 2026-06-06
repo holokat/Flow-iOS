@@ -762,30 +762,6 @@ struct ScrollChromeLayout {
         )
     }
 
-    static func topHiddenOffset(
-        topBarHeight: CGFloat,
-        safeAreaTop: CGFloat
-    ) -> CGFloat {
-        max(0, topBarHeight) + max(0, safeAreaTop)
-    }
-
-    static func topChromeContentHeight(
-        measuredTopBarHeight: CGFloat,
-        safeAreaTop: CGFloat,
-        fallbackHeight: CGFloat = defaultTopBarHeight
-    ) -> CGFloat {
-        let measuredTopBarHeight = max(0, measuredTopBarHeight)
-        let safeAreaTop = max(0, safeAreaTop)
-        let heightWithoutSafeArea = measuredTopBarHeight - safeAreaTop
-        let minimumExpectedContentHeight = max(0, fallbackHeight) * 0.8
-
-        if heightWithoutSafeArea >= minimumExpectedContentHeight {
-            return heightWithoutSafeArea
-        }
-
-        return measuredTopBarHeight
-    }
-
     static func bottomHiddenOffset(
         bottomBarHeight: CGFloat,
         safeAreaBottom: CGFloat
@@ -852,15 +828,6 @@ struct ScrollChromeLayout {
     ) -> Bool {
         abs(candidate.topBarOffset - current.topBarOffset) >= threshold
             || abs(candidate.bottomBarOffset - current.bottomBarOffset) >= threshold
-    }
-
-    static func chromeHitTestingEnabled(
-        offset: CGFloat,
-        hiddenOffset: CGFloat
-    ) -> Bool {
-        let hiddenOffset = max(0, hiddenOffset)
-        guard hiddenOffset > 0 else { return true }
-        return abs(offset) < hiddenOffset * 0.5
     }
 
     static func visibleFraction(

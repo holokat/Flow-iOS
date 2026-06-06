@@ -951,52 +951,24 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(profileSource.contains("@Environment(\\.flowScrollChromeOffsets)"))
     }
 
-    func testScrollChromeTopHiddenOffsetIncludesSafeArea() {
-        XCTAssertEqual(
-            ScrollChromeLayout.topHiddenOffset(
-                topBarHeight: 58,
-                safeAreaTop: 62
-            ),
-            120,
-            accuracy: 0.0001
-        )
-    }
-
-    func testScrollChromeTopContentHeightRemovesDoubleCountedSafeArea() {
-        XCTAssertEqual(
-            ScrollChromeLayout.topChromeContentHeight(
-                measuredTopBarHeight: 117,
-                safeAreaTop: 62,
-                fallbackHeight: 55
-            ),
-            55,
-            accuracy: 0.0001
-        )
-
-        XCTAssertEqual(
-            ScrollChromeLayout.topChromeContentHeight(
-                measuredTopBarHeight: 58,
-                safeAreaTop: 62,
-                fallbackHeight: 55
-            ),
-            58,
-            accuracy: 0.0001
-        )
-    }
-
-    func testHomeTopChromeStartsBelowSystemSafeAreaAndCollapsesWithIt() throws {
+    func testHomeTopChromeUsesStickySafeAreaInset() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let topNavChromeStart = try XCTUnwrap(source.range(of: "private struct HomeFeedTopNavigationChromeView"))
+        let topNavChromeEnd = try XCTUnwrap(source.range(of: "private struct HomeFeedNewNotesChromeOverlay"))
+        let topNavChromeSource = source[topNavChromeStart.lowerBound..<topNavChromeEnd.lowerBound]
 
         XCTAssertTrue(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertTrue(source.contains("let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)"))
-        XCTAssertTrue(source.contains("let topNavigationContentHeight = ScrollChromeLayout.topChromeContentHeight"))
-        XCTAssertTrue(source.contains("let topHiddenOffset = ScrollChromeLayout.topHiddenOffset"))
-        XCTAssertTrue(source.contains("topBarHeight: topNavigationContentHeight"))
         XCTAssertTrue(source.contains("private let topNavigationToTabsSpacing: CGFloat = 8"))
-        XCTAssertTrue(source.contains("topNavigationContentHeight + topNavigationToTabsSpacing"))
-        XCTAssertTrue(source.contains(".padding(.top, safeAreaTop)"))
-        XCTAssertTrue(source.contains(".offset(y: topBarOffset)"))
-        XCTAssertTrue(source.contains("hiddenOffset: topHiddenOffset"))
+        XCTAssertTrue(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
+        XCTAssertTrue(source.contains("feedContent(\n                contentPadding.top,\n                contentPadding.bottom,\n                0,\n                safeAreaBottom\n            )"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)"))
+        XCTAssertFalse(source.contains("topNavigationContentHeight"))
+        XCTAssertFalse(source.contains("topHiddenOffset"))
+        XCTAssertFalse(source.contains("topBarHeight: topNavigationContentHeight"))
+        XCTAssertFalse(source.contains("topNavigationContentHeight + topNavigationToTabsSpacing"))
+        XCTAssertFalse(topNavChromeSource.contains(".padding(.top, safeAreaTop)"))
+        XCTAssertFalse(topNavChromeSource.contains(".offset(y: topBarOffset)"))
     }
 
     func testHomeFeedCapturesSafeAreaBeforeRootIgnoresIt() throws {
@@ -1027,12 +999,15 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("}\n        .ignoresSafeArea(edges: .top)\n        .toolbar(.hidden, for: .navigationBar)"))
     }
 
-    func testHomeTopChromeBackgroundMovesAndFadesWithVisibleChrome() throws {
+    func testHomeTopChromeUsesStaticThemeBackground() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let topNavChromeStart = try XCTUnwrap(source.range(of: "private struct HomeFeedTopNavigationChromeView"))
+        let topNavChromeEnd = try XCTUnwrap(source.range(of: "private struct HomeFeedNewNotesChromeOverlay"))
+        let topNavChromeSource = source[topNavChromeStart.lowerBound..<topNavChromeEnd.lowerBound]
 
         XCTAssertFalse(source.contains(".background(topNavigationBackground)"))
         XCTAssertFalse(source.contains("private var topNavigationBackground"))
-        XCTAssertTrue(source.contains(".opacity(topNavigationBarVisibleFraction(topBarOffset: topBarOffset, topHiddenOffset: topHiddenOffset))"))
+        XCTAssertFalse(topNavChromeSource.contains(".opacity("))
         XCTAssertTrue(source.contains(".background(topNavigationBarBackground)"))
         XCTAssertTrue(source.contains("private var topNavigationBarBackground: some View"))
         XCTAssertTrue(source.contains("appSettings.themePalette.background"))
@@ -1040,12 +1015,12 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains(".fill(topNavigationControlFill)"))
     }
 
-    func testHomeTopChromeFadesWithHiddenOffset() throws {
+    func testHomeTopChromeDoesNotFadeWithHiddenOffset() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
-        XCTAssertTrue(source.contains(".opacity(topNavigationBarVisibleFraction(topBarOffset: topBarOffset, topHiddenOffset: topHiddenOffset))"))
-        XCTAssertTrue(source.contains("ScrollChromeLayout.visibleFraction"))
-        XCTAssertTrue(source.contains("offset: -topBarOffset"))
+        XCTAssertFalse(source.contains("topNavigationBarVisibleFraction"))
+        XCTAssertFalse(source.contains("ScrollChromeLayout.visibleFraction"))
+        XCTAssertFalse(source.contains("offset: -topBarOffset"))
     }
 
     func testHomePullToRefreshUsesNativeRefreshControl() throws {

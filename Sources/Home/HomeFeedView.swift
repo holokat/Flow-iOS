@@ -246,7 +246,6 @@ struct HomeFeedView: View {
                 // manual top padding, which then double-counts into a large gap).
                 HomeFeedRootContent(
                     isShowingSideMenu: $isShowingSideMenu,
-                    scrollChromeStore: scrollChromeStore,
                     bottomTabBarHeight: bottomTabBarHeight,
                     topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top),
                     bottomSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.bottom),
@@ -1482,7 +1481,6 @@ private struct HomeFeedRootContent<
     SideMenuContent: View
 >: View {
     @Binding var isShowingSideMenu: Bool
-    let scrollChromeStore: ScrollChromeStore
 
     let bottomTabBarHeight: CGFloat
     let topSafeAreaInset: CGFloat
@@ -1491,21 +1489,12 @@ private struct HomeFeedRootContent<
     let feedContent: (_ topPadding: CGFloat, _ bottomPadding: CGFloat, _ topBarHeight: CGFloat, _ safeAreaBottom: CGFloat) -> FeedContent
     let sideMenuContent: () -> SideMenuContent
 
-    @State private var topBarHeight = ScrollChromeLayout.defaultTopBarHeight
     private let topNavigationToTabsSpacing: CGFloat = 8
 
     var body: some View {
         GeometryReader { geometry in
             let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)
             let safeAreaBottom = max(max(0, bottomSafeAreaInset), geometry.safeAreaInsets.bottom)
-            let topNavigationContentHeight = ScrollChromeLayout.topChromeContentHeight(
-                measuredTopBarHeight: topBarHeight,
-                safeAreaTop: safeAreaTop
-            )
-            let topHiddenOffset = ScrollChromeLayout.topHiddenOffset(
-                topBarHeight: topNavigationContentHeight,
-                safeAreaTop: safeAreaTop
-            )
             let contentPadding = ScrollChromeLayout.feedContentPadding(
                 topBarHeight: topNavigationToTabsSpacing,
                 bottomBarHeight: bottomTabBarHeight,
@@ -1521,23 +1510,15 @@ private struct HomeFeedRootContent<
                     } content: {
                         primaryContent(
                             contentPadding: contentPadding,
-                            topHiddenOffset: topHiddenOffset,
-                            safeAreaTop: safeAreaTop,
                             safeAreaBottom: safeAreaBottom
                         )
                     }
                 } else {
                     primaryContent(
                         contentPadding: contentPadding,
-                        topHiddenOffset: topHiddenOffset,
-                        safeAreaTop: safeAreaTop,
                         safeAreaBottom: safeAreaBottom
                     )
                 }
-            }
-            .onPreferenceChange(HomeFeedTopNavigationBarHeightPreferenceKey.self) { newValue in
-                guard newValue > 0, abs(topBarHeight - newValue) >= 0.5 else { return }
-                topBarHeight = newValue
             }
         }
         .ignoresSafeArea(edges: .top)
@@ -1546,8 +1527,6 @@ private struct HomeFeedRootContent<
 
     private func primaryContent(
         contentPadding: ScrollChromeContentPadding,
-        topHiddenOffset: CGFloat,
-        safeAreaTop: CGFloat,
         safeAreaBottom: CGFloat
     ) -> some View {
         ZStack(alignment: .top) {
@@ -1557,14 +1536,11 @@ private struct HomeFeedRootContent<
             feedContent(
                 contentPadding.top,
                 contentPadding.bottom,
-                topHiddenOffset,
+                0,
                 safeAreaBottom
             )
             .safeAreaInset(edge: .top, spacing: 0) {
                 HomeFeedTopNavigationChromeView(
-                    scrollChromeStore: scrollChromeStore,
-                    safeAreaTop: safeAreaTop,
-                    topHiddenOffset: topHiddenOffset,
                     topNavigationBar: topNavigationBar
                 )
             }
@@ -1575,57 +1551,12 @@ private struct HomeFeedRootContent<
 
 private struct HomeFeedTopNavigationChromeView<TopNavigationBar: View>: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
-    @ObservedObject var scrollChromeStore: ScrollChromeStore
 
-    let safeAreaTop: CGFloat
-    let topHiddenOffset: CGFloat
     let topNavigationBar: () -> TopNavigationBar
 
     var body: some View {
-        let topBarOffset = scrollChromeStore.offsets.topBarOffset
-        let hitTestingEnabled = topNavigationBarHitTestingEnabled(
-            topBarOffset: topBarOffset,
-            topHiddenOffset: topHiddenOffset
-        )
-
         topNavigationBar()
-            .background(topNavigationBarHeightReader)
-            .padding(.top, safeAreaTop)
             .background(topNavigationBarBackground)
-            .offset(y: topBarOffset)
-            .opacity(topNavigationBarVisibleFraction(topBarOffset: topBarOffset, topHiddenOffset: topHiddenOffset))
-            .allowsHitTesting(hitTestingEnabled)
-            .accessibilityHidden(!hitTestingEnabled)
-    }
-
-    private func topNavigationBarHitTestingEnabled(
-        topBarOffset: CGFloat,
-        topHiddenOffset: CGFloat
-    ) -> Bool {
-        ScrollChromeLayout.chromeHitTestingEnabled(
-            offset: topBarOffset,
-            hiddenOffset: topHiddenOffset
-        )
-    }
-
-    private func topNavigationBarVisibleFraction(
-        topBarOffset: CGFloat,
-        topHiddenOffset: CGFloat
-    ) -> CGFloat {
-        ScrollChromeLayout.visibleFraction(
-            offset: -topBarOffset,
-            hiddenOffset: topHiddenOffset
-        )
-    }
-
-    private var topNavigationBarHeightReader: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .preference(
-                    key: HomeFeedTopNavigationBarHeightPreferenceKey.self,
-                    value: proxy.size.height
-                )
-        }
     }
 
     private var topNavigationBarBackground: some View {
@@ -1839,14 +1770,6 @@ private struct HomeFeedTopOffsetPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
-    }
-}
-
-private struct HomeFeedTopNavigationBarHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
     }
 }
 
