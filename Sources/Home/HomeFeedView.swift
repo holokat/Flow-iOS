@@ -277,16 +277,15 @@ struct HomeFeedView: View {
         safeAreaBottom: CGFloat
     ) -> some View {
         let list = List {
-            feedTopAnchorRow
-                .homeFeedListRow()
-                .environment(\.defaultMinListRowHeight, 0)
-
             if showsFeedModeHeader {
-                feedModeHeaderRow
-                    .homeFeedListRow()
+                topTrackedRow(feedModeHeaderRow.homeFeedListRow(), isFirst: true)
             }
 
-            feedRows(visibleItems, visibleReplyCounts: visibleReplyCounts)
+            feedRows(
+                visibleItems,
+                visibleReplyCounts: visibleReplyCounts,
+                tracksFirstRowTop: !showsFeedModeHeader
+            )
 
             loadingMoreRow
                 .homeFeedListRow()
@@ -332,14 +331,6 @@ struct HomeFeedView: View {
                     handleNearTopChange(currentScrollY: currentScrollY)
                 }
         }
-    }
-
-    private var feedTopAnchorRow: some View {
-        Color.clear
-            .frame(height: 0)
-            .background(feedTopOffsetReader)
-            .id(Self.feedTopAnchorID)
-            .accessibilityHidden(true)
     }
 
     private func feedBottomPadding(height: CGFloat) -> some View {
@@ -389,23 +380,44 @@ struct HomeFeedView: View {
     @ViewBuilder
     private func feedRows(
         _ visibleItems: [FeedItem],
-        visibleReplyCounts: [String: Int]
+        visibleReplyCounts: [String: Int],
+        tracksFirstRowTop: Bool
     ) -> some View {
         if viewModel.isShowingLoadingPlaceholder {
-            ForEach(0..<6, id: \.self) { _ in
-                loadingRow
-                    .padding(.horizontal, Self.feedHorizontalInset)
-                    .homeFeedListRow()
+            ForEach(0..<6, id: \.self) { index in
+                topTrackedRow(
+                    loadingRow
+                        .padding(.horizontal, Self.feedHorizontalInset)
+                        .homeFeedListRow(),
+                    isFirst: tracksFirstRowTop && index == 0
+                )
             }
         } else if visibleItems.isEmpty {
-            emptyOrFilteredFeedRow
-                .homeFeedListRow()
+            topTrackedRow(
+                emptyOrFilteredFeedRow
+                    .homeFeedListRow(),
+                isFirst: tracksFirstRowTop
+            )
         } else {
-            ForEach(visibleItems) { item in
-                feedRow(item, visibleReplyCounts: visibleReplyCounts)
-                    .transition(FlowTransitionMotion.feedItemInsertionTransition(reduceMotion: accessibilityReduceMotion))
-                    .homeFeedListRow()
+            ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
+                topTrackedRow(
+                    feedRow(item, visibleReplyCounts: visibleReplyCounts)
+                        .transition(FlowTransitionMotion.feedItemInsertionTransition(reduceMotion: accessibilityReduceMotion))
+                        .homeFeedListRow(),
+                    isFirst: tracksFirstRowTop && index == 0
+                )
             }
+        }
+    }
+
+    @ViewBuilder
+    private func topTrackedRow<Row: View>(_ row: Row, isFirst: Bool) -> some View {
+        if isFirst {
+            row
+                .background(feedTopOffsetReader)
+                .id(Self.feedTopAnchorID)
+        } else {
+            row
         }
     }
 

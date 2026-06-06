@@ -1137,14 +1137,15 @@ final class AppThemeOptionTests: XCTestCase {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
         let listRange = try XCTUnwrap(source.range(of: "let list = List {"))
         let listContent = source[listRange.lowerBound...]
-        let rowsRange = try XCTUnwrap(listContent.range(of: "feedRows(visibleItems, visibleReplyCounts: visibleReplyCounts)"))
-        let sentinelRange = try XCTUnwrap(listContent.range(of: "feedTopAnchorRow"))
+        let rowsRange = try XCTUnwrap(listContent.range(of: "feedRows("))
+        let trackedHeaderRange = try XCTUnwrap(listContent.range(of: "topTrackedRow(feedModeHeaderRow.homeFeedListRow(), isFirst: true)"))
 
-        XCTAssertTrue(source.contains("feedTopAnchorRow\n                .homeFeedListRow()"))
-        XCTAssertTrue(source.contains(".background(feedTopOffsetReader)\n            .id(Self.feedTopAnchorID)"))
+        XCTAssertTrue(source.contains("private func topTrackedRow<Row: View>(_ row: Row, isFirst: Bool) -> some View"))
+        XCTAssertTrue(source.contains(".background(feedTopOffsetReader)\n                .id(Self.feedTopAnchorID)"))
+        XCTAssertFalse(source.contains("feedTopAnchorRow"))
         XCTAssertFalse(source.contains("feedTopPadding"))
         XCTAssertFalse(source.contains("topContentPadding"))
-        XCTAssertLessThan(sentinelRange.lowerBound, rowsRange.lowerBound)
+        XCTAssertLessThan(trackedHeaderRange.lowerBound, rowsRange.lowerBound)
         XCTAssertFalse(source.contains("LazyVStack(alignment: .leading, spacing: 0)"))
     }
 
@@ -1160,7 +1161,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains(".contentMargins(.top, 0, for: .scrollContent)"))
         XCTAssertFalse(source.contains("let topScrollContentMargin = -max(0, safeAreaTop)"))
         XCTAssertFalse(source.contains(".contentMargins(.top, topScrollContentMargin, for: .scrollContent)"))
-        XCTAssertTrue(source.contains(".environment(\\.defaultMinListRowHeight, 0)"))
+        XCTAssertFalse(source.contains(".environment(\\.defaultMinListRowHeight, 0)"))
         XCTAssertTrue(source.contains(".homeFeedNativeTabBarMinimizeBehavior()"))
         XCTAssertTrue(source.contains("self.scrollEdgeEffectHidden(true, for: .bottom)"))
         XCTAssertFalse(source.contains("self.tabBarMinimizeBehavior(.onScrollDown)"))
