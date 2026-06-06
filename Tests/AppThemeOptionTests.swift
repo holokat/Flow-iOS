@@ -943,7 +943,8 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("scrollChromeStore: homeScrollChromeStore"))
         XCTAssertTrue(shellSource.contains("ScrollChromeOpacityReader("))
         XCTAssertTrue(shellSource.contains("ScrollChromeLayout.chromeOpacity("))
-        XCTAssertTrue(shellSource.contains("}\n            .opacity(chromeOpacity)\n            .frame(maxWidth: .infinity)\n            .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)\n            .background("))
+        XCTAssertTrue(shellSource.contains("}\n            .frame(maxWidth: .infinity)\n            .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)\n            .background("))
+        XCTAssertTrue(shellSource.contains("appSettings.themePalette.background\n                    .ignoresSafeArea(edges: .bottom)\n            )\n            .opacity(chromeOpacity)"))
         XCTAssertTrue(shellSource.contains("TabView(selection: tabSelection)"))
         XCTAssertTrue(shellSource.contains("func flowNativeTabBarHidden() -> some View"))
         XCTAssertTrue(shellSource.contains(".environment(\\.flowBottomTabBarHeight, bottomTabBarHeight)"))
@@ -967,7 +968,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
         XCTAssertTrue(source.contains("feedContent(\n                    contentPadding.bottom,\n                    0,\n                    safeAreaBottom\n                )"))
         XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                    scrollChromeStore: scrollChromeStore,\n                    bottomBarHeight: bottomTabBarHeight,\n                    safeAreaBottom: safeAreaBottom,\n                    topNavigationBar: topNavigationBar\n                )"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .opacity(chromeOpacity)\n            .background(topNavigationBarBackground)"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
         XCTAssertTrue(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertFalse(source.contains("let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)"))
@@ -1017,7 +1018,7 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertFalse(source.contains(".background(topNavigationBackground)"))
         XCTAssertFalse(source.contains("private var topNavigationBackground"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .opacity(chromeOpacity)\n            .background(topNavigationBarBackground)"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
         XCTAssertTrue(source.contains(".background(topNavigationBarBackground)"))
         XCTAssertTrue(source.contains("private var topNavigationBarBackground: some View"))
         XCTAssertTrue(source.contains("appSettings.themePalette.background"))
@@ -1123,7 +1124,7 @@ final class AppThemeOptionTests: XCTestCase {
                 bottomBarHeight: 50,
                 safeAreaBottom: 0
             ),
-            0.70,
+            0.575,
             accuracy: 0.0001
         )
         XCTAssertEqual(

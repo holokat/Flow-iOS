@@ -711,7 +711,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(source.contains("private var showsFeedModeHeader: Bool {"))
         XCTAssertTrue(source.contains("feedContent(\n                    contentPadding.bottom,\n                    0,\n                    safeAreaBottom\n                )"))
         XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                    scrollChromeStore: scrollChromeStore,\n                    bottomBarHeight: bottomTabBarHeight,\n                    safeAreaBottom: safeAreaBottom,\n                    topNavigationBar: topNavigationBar\n                )"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .opacity(chromeOpacity)\n            .background(topNavigationBarBackground)"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
         XCTAssertTrue(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
         XCTAssertFalse(source.contains("pullToRefreshDistance"))
         XCTAssertFalse(source.contains("refreshRevealOpacity"))

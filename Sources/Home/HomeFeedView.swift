@@ -1548,8 +1548,8 @@ private struct HomeFeedTopNavigationChromeView<TopNavigationBar: View>: View {
 
     var body: some View {
         topNavigationBar()
-            .opacity(chromeOpacity)
             .background(topNavigationBarBackground)
+            .opacity(chromeOpacity)
     }
 
     private var topNavigationBarBackground: some View {

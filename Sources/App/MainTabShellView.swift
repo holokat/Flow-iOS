@@ -273,7 +273,6 @@ struct MainTabShellView: View {
                     bottomNavButton(for: tab)
                 }
             }
-            .opacity(chromeOpacity)
             .frame(maxWidth: .infinity)
             .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)
             .background(
@@ -282,6 +281,7 @@ struct MainTabShellView: View {
                 appSettings.themePalette.background
                     .ignoresSafeArea(edges: .bottom)
             )
+            .opacity(chromeOpacity)
         }
     }
 
@@ -711,7 +711,7 @@ struct ScrollChromeLayout {
     static let defaultBottomTabBarHeight: CGFloat = 50
     static let topOfFeedRestoreThreshold: CGFloat = 8
     static let visualOffsetPublishThreshold: CGFloat = 0.5
-    static let dimmedChromeOpacity: Double = 0.40
+    static let dimmedChromeOpacity: Double = 0.15
 
     static func isBottomTabBarVisible(
         isHomeSideMenuPresented: Bool,
