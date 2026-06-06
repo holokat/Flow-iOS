@@ -103,19 +103,59 @@ final class ActivityViewModelLoadingTests: XCTestCase {
         XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [mentionEvent.id])
         XCTAssertEqual(harness.viewModel.visibleItems.first?.action.title, "Mention")
     }
+
+    @MainActor
+    func testLoadIfNeededShowsCachedPulseRowsBeforeRelayRefreshFinishes() async throws {
+        let currentUserPubkey = hex("a")
+        let cachedMentionEvent = makeEvent(
+            id: hex("7"),
+            pubkey: hex("b"),
+            kind: 1,
+            tags: [["p", currentUserPubkey]],
+            content: "Cached Pulse mention",
+            createdAt: 1_700_000_200
+        )
+        let cache = ActivityTestEventCache()
+        await cache.store(
+            events: [cachedMentionEvent],
+            for: ActivityViewModel.activityCacheKey(
+                currentUserPubkey: currentUserPubkey,
+                readRelayURLs: [defaultActivityRelayURL]
+            )
+        )
+        let harness = try ActivityViewModelHarness(
+            initialRelayEvents: [:],
+            relayDelayNanoseconds: 500_000_000,
+            activityEventCache: cache
+        )
+
+        harness.viewModel.configure(
+            currentUserPubkey: currentUserPubkey,
+            readRelayURLs: [defaultActivityRelayURL]
+        )
+        await harness.viewModel.loadIfNeeded()
+
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [cachedMentionEvent.id])
+        XCTAssertEqual(harness.viewModel.visibleItems.first?.previewDisplay, .text("Cached Pulse mention"))
+    }
 }
 
 private let defaultActivityRelayURL = URL(string: "wss://activity-relay.example.com")!
 
 private actor ActivityTestRelayClient: NostrRelayEventFetching {
     private var eventsByRelay: [String: [NostrEvent]]
+    private let delayNanoseconds: UInt64
 
-    init(eventsByRelay: [URL: [NostrEvent]]) {
+    init(
+        eventsByRelay: [URL: [NostrEvent]],
+        delayNanoseconds: UInt64 = 0
+    ) {
         var normalized: [String: [NostrEvent]] = [:]
         for (relayURL, events) in eventsByRelay {
             normalized[canonicalRelayString(relayURL)] = events
         }
         self.eventsByRelay = normalized
+        self.delayNanoseconds = delayNanoseconds
     }
 
     func fetchEvents(
@@ -123,6 +163,10 @@ private actor ActivityTestRelayClient: NostrRelayEventFetching {
         filter: NostrFilter,
         timeout: TimeInterval
     ) async throws -> [NostrEvent] {
+        if delayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: delayNanoseconds)
+        }
+
         let authors = Set((filter.authors ?? []).map { $0.lowercased() })
         let ids = Set((filter.ids ?? []).map { $0.lowercased() })
         let kinds = Set(filter.kinds ?? [])
@@ -183,7 +227,9 @@ private final class ActivityViewModelHarness {
 
     init(
         relayURL: URL = defaultActivityRelayURL,
-        initialRelayEvents: [URL: [NostrEvent]]
+        initialRelayEvents: [URL: [NostrEvent]],
+        relayDelayNanoseconds: UInt64 = 0,
+        activityEventCache: (any ActivityEventCaching)? = nil
     ) throws {
         rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ActivityViewModelTests-\(UUID().uuidString)", isDirectory: true)
@@ -191,7 +237,10 @@ private final class ActivityViewModelHarness {
 
         let fileManager = ActivityTestFileManager(rootURL: rootURL)
         let defaults = UserDefaults(suiteName: "ActivityViewModelTests-\(UUID().uuidString)")!
-        let relayClient = ActivityTestRelayClient(eventsByRelay: initialRelayEvents)
+        let relayClient = ActivityTestRelayClient(
+            eventsByRelay: initialRelayEvents,
+            delayNanoseconds: relayDelayNanoseconds
+        )
         let profileSnapshotStore = ProfileSnapshotStore(fileManager: fileManager)
         let profileCache = ProfileCache(snapshotStore: profileSnapshotStore)
         let followListCache = FollowListSnapshotCache(fileManager: fileManager)
@@ -215,7 +264,8 @@ private final class ActivityViewModelHarness {
                 pingTimeoutNanoseconds: 1_000_000
             ),
             defaults: defaults,
-            mutedThreadStore: MutedThreadStore(defaults: defaults)
+            mutedThreadStore: MutedThreadStore(defaults: defaults),
+            activityEventCache: activityEventCache ?? ActivityTestEventCache()
         )
 
         _ = relayURL
@@ -231,6 +281,18 @@ private final class ActivityViewModelHarness {
         }
 
         XCTFail("Timed out waiting for activity view model to become idle")
+    }
+}
+
+private actor ActivityTestEventCache: ActivityEventCaching {
+    private var eventsByKey: [String: [NostrEvent]] = [:]
+
+    func events(for key: String) async -> [NostrEvent]? {
+        eventsByKey[key]
+    }
+
+    func store(events: [NostrEvent], for key: String) async {
+        eventsByKey[key] = events
     }
 }
 

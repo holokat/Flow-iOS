@@ -14,6 +14,11 @@ protocol TimelineEventCaching: Actor, Sendable {
     ) async throws -> [NostrEvent]
 }
 
+protocol ActivityEventCaching: Actor, Sendable {
+    func events(for key: String) async -> [NostrEvent]?
+    func store(events: [NostrEvent], for key: String) async
+}
+
 protocol SeenEventStoring: Actor, Sendable {
     func store(events: [NostrEvent]) async
     func storeRecentFeed(key: String, events: [NostrEvent]) async

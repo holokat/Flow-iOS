@@ -62,6 +62,103 @@ actor TimelineEventCache: TimelineEventCaching {
     }
 }
 
+actor ActivityEventCache: ActivityEventCaching {
+    static let shared = ActivityEventCache()
+
+    private struct Payload: Codable {
+        let storedAt: Date
+        let events: [NostrEvent]
+    }
+
+    private let fileManager: FileManager
+    private let directoryURL: URL
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+    private let maxSnapshots = 64
+    private let maxAge: TimeInterval = 60 * 60 * 24 * 14
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+        let root = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        self.directoryURL = root.appendingPathComponent("x21-activity-cache", isDirectory: true)
+    }
+
+    func events(for key: String) async -> [NostrEvent]? {
+        let normalizedKey = normalizeKey(key)
+        guard !normalizedKey.isEmpty else { return nil }
+        ensureDirectory()
+
+        let url = fileURL(for: normalizedKey)
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let payload = try? decoder.decode(Payload.self, from: data) else {
+            return nil
+        }
+
+        if Date().timeIntervalSince(payload.storedAt) > maxAge {
+            try? fileManager.removeItem(at: url)
+            return nil
+        }
+
+        return payload.events
+    }
+
+    func store(events: [NostrEvent], for key: String) async {
+        let normalizedKey = normalizeKey(key)
+        guard !normalizedKey.isEmpty else { return }
+        ensureDirectory()
+
+        let payload = Payload(storedAt: Date(), events: events)
+        guard let data = try? encoder.encode(payload) else { return }
+        try? data.write(to: fileURL(for: normalizedKey), options: .atomic)
+        pruneIfNeeded()
+    }
+
+    private func ensureDirectory() {
+        if fileManager.fileExists(atPath: directoryURL.path) {
+            return
+        }
+
+        try? fileManager.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+    }
+
+    private func fileURL(for key: String) -> URL {
+        let digest = SHA256.hash(data: Data(key.utf8))
+        let hashed = digest.map { String(format: "%02x", $0) }.joined()
+        return directoryURL.appendingPathComponent("\(hashed).json", isDirectory: false)
+    }
+
+    private func pruneIfNeeded() {
+        guard let files = try? fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        guard files.count > maxSnapshots else { return }
+
+        let sorted = files.sorted { lhs, rhs in
+            let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return lhsDate > rhsDate
+        }
+
+        for url in sorted.dropFirst(maxSnapshots) {
+            try? fileManager.removeItem(at: url)
+        }
+    }
+
+    private func normalizeKey(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 struct PersistedProfileSnapshot: Codable, Sendable {
     let profile: NostrProfile
     let fetchedAt: Date

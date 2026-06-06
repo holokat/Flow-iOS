@@ -84,7 +84,8 @@ struct ActivityRowBuilder {
         fetchTimeout: TimeInterval = 12,
         relayFetchMode: RelayFetchMode = .allRelays,
         profileFetchTimeout: TimeInterval = 8,
-        profileRelayFetchMode: RelayFetchMode = .allRelays
+        profileRelayFetchMode: RelayFetchMode = .allRelays,
+        resolveRemoteReferences: Bool = true
     ) async -> [ActivityRow] {
         let normalizedPubkey = normalizePubkey(currentUserPubkey)
         guard !normalizedPubkey.isEmpty else { return [] }
@@ -102,7 +103,8 @@ struct ActivityRowBuilder {
             fetchTimeout: fetchTimeout,
             relayFetchMode: relayFetchMode,
             profileFetchTimeout: profileFetchTimeout,
-            profileRelayFetchMode: profileRelayFetchMode
+            profileRelayFetchMode: profileRelayFetchMode,
+            resolveRemoteReferences: resolveRemoteReferences
         )
     }
 
@@ -222,7 +224,8 @@ struct ActivityRowBuilder {
         relayFetchMode: RelayFetchMode,
         profileFetchTimeout: TimeInterval,
         profileRelayFetchMode: RelayFetchMode,
-        knownTargetPubkeysByEventID: [String: String] = [:]
+        knownTargetPubkeysByEventID: [String: String] = [:],
+        resolveRemoteReferences: Bool = true
     ) async -> [ActivityRow] {
         let _ = profileFetchTimeout
         let _ = profileRelayFetchMode
@@ -243,7 +246,8 @@ struct ActivityRowBuilder {
             sourceEvents: events,
             fetchTimeout: fetchTimeout,
             relayFetchMode: relayFetchMode,
-            knownTargetPubkeysByEventID: knownTargetPubkeysByEventID
+            knownTargetPubkeysByEventID: knownTargetPubkeysByEventID,
+            resolveRemoteReferences: resolveRemoteReferences
         )
 
         let actorProfiles = await actorProfilesTask
@@ -292,7 +296,8 @@ struct ActivityRowBuilder {
         sourceEvents: [NostrEvent],
         fetchTimeout: TimeInterval = 12,
         relayFetchMode: RelayFetchMode = .allRelays,
-        knownTargetPubkeysByEventID: [String: String] = [:]
+        knownTargetPubkeysByEventID: [String: String] = [:],
+        resolveRemoteReferences: Bool = true
     ) async -> [ActivityTargetReference: NostrEvent] {
         let eventsByID = Dictionary(uniqueKeysWithValues: sourceEvents.map { ($0.id.lowercased(), $0) })
 
@@ -326,6 +331,10 @@ struct ActivityRowBuilder {
                     }
                 }
             }
+        }
+
+        guard resolveRemoteReferences else {
+            return resolved
         }
 
         let referencePointersByReference = uniqueReferences.reduce(into: [ActivityTargetReference: NostrEventReferencePointer]()) {

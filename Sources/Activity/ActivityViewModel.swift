@@ -13,12 +13,14 @@ final class ActivityViewModel: ObservableObject {
     private let liveSubscriber: NostrLiveFeedSubscriber
     private let defaults: UserDefaults
     private let mutedThreadStore: MutedThreadStore
+    private let activityEventCache: any ActivityEventCaching
 
     private var hasLoadedInitialState = false
     private var currentUserPubkey: String?
     private var readRelayURLs: [URL]
     private var requestCounter = 0
     private var liveUpdatesTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
     private var liveSubscriptionSignature: String?
     private var knownEventIDs = Set<String>()
     private var pendingLiveEventIDs = Set<String>()
@@ -40,17 +42,20 @@ final class ActivityViewModel: ObservableObject {
         service: NostrFeedService = NostrFeedService(),
         liveSubscriber: NostrLiveFeedSubscriber = NostrLiveFeedSubscriber(),
         defaults: UserDefaults = .standard,
-        mutedThreadStore: MutedThreadStore? = nil
+        mutedThreadStore: MutedThreadStore? = nil,
+        activityEventCache: any ActivityEventCaching = ActivityEventCache.shared
     ) {
         self.service = service
         self.liveSubscriber = liveSubscriber
         self.defaults = defaults
         self.mutedThreadStore = mutedThreadStore ?? MutedThreadStore.shared
+        self.activityEventCache = activityEventCache
         self.readRelayURLs = RelaySettingsStore.defaultReadRelayURLs.compactMap(URL.init(string:))
     }
 
     deinit {
         liveUpdatesTask?.cancel()
+        refreshTask?.cancel()
         spamScoreTasks.values.forEach { $0.cancel() }
     }
 
@@ -110,8 +115,13 @@ final class ActivityViewModel: ObservableObject {
         guard hasLoadedInitialState else { return }
         guard relaysChanged || userChanged else { return }
 
-        Task { [weak self] in
-            await self?.refreshForCurrentConfiguration(showFullScreenLoading: true)
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in
+            guard let self else { return }
+            let loadedCachedRows = await self.loadCachedActivityRowsIfAvailable()
+            await self.refreshForCurrentConfiguration(
+                showFullScreenLoading: !loadedCachedRows && self.items.isEmpty
+            )
         }
     }
 
@@ -121,7 +131,15 @@ final class ActivityViewModel: ObservableObject {
             return
         }
         hasLoadedInitialState = true
-        await refreshForCurrentConfiguration(showFullScreenLoading: true)
+        let loadedCachedRows = await loadCachedActivityRowsIfAvailable()
+        if loadedCachedRows {
+            refreshTask?.cancel()
+            refreshTask = Task { [weak self] in
+                await self?.refreshForCurrentConfiguration(showFullScreenLoading: false)
+            }
+        } else {
+            await refreshForCurrentConfiguration(showFullScreenLoading: true)
+        }
     }
 
     func sceneDidChange(isActive: Bool) async {
@@ -208,10 +226,16 @@ final class ActivityViewModel: ObservableObject {
             )
             guard requestID == requestCounter else { return }
 
+            guard !fetched.isEmpty || items.isEmpty else {
+                startLiveUpdatesIfNeeded()
+                return
+            }
+
             items = sortAndDeduplicate(items: fetched)
             knownEventIDs = Set(items.map { $0.id.lowercased() })
             pendingLiveEventIDs = []
             scheduleSpamScoring(for: items)
+            await persistCachedActivityEvents(items.map(\.event), user: user, relays: relays)
             if isActivityTabActive {
                 markAllAsRead()
             } else {
@@ -327,6 +351,7 @@ final class ActivityViewModel: ObservableObject {
         items = sortAndDeduplicate(items: newRows + items)
         knownEventIDs = Set(items.map { $0.id.lowercased() })
         scheduleSpamScoring(for: newRows)
+        await persistCachedActivityEvents(items.map(\.event), user: user, relays: readRelayURLs)
 
         if isActivityTabActive {
             markAllAsRead()
@@ -409,6 +434,74 @@ final class ActivityViewModel: ObservableObject {
 
     private func lastReadStorageKey(for user: String) -> String {
         "\(Self.lastReadStoragePrefix).\(user)"
+    }
+
+    private func loadCachedActivityRowsIfAvailable() async -> Bool {
+        guard let user = currentUserPubkey, !user.isEmpty else { return false }
+        let relays = readRelayURLs
+        let cacheKey = Self.activityCacheKey(currentUserPubkey: user, readRelayURLs: relays)
+        guard let cachedEvents = await activityEventCache.events(for: cacheKey),
+              !cachedEvents.isEmpty else {
+            return false
+        }
+
+        let cachedRows = await service.buildActivityRows(
+            relayURLs: relays,
+            currentUserPubkey: user,
+            events: cachedEvents,
+            fetchTimeout: Self.fastActivityFetchTimeout,
+            relayFetchMode: Self.fastActivityRelayFetchMode,
+            profileFetchTimeout: Self.fastActivityFetchTimeout,
+            profileRelayFetchMode: Self.fastActivityRelayFetchMode,
+            resolveRemoteReferences: false
+        )
+        guard !cachedRows.isEmpty else { return false }
+
+        items = sortAndDeduplicate(items: cachedRows)
+        knownEventIDs = Set(items.map { $0.id.lowercased() })
+        pendingLiveEventIDs = []
+        scheduleSpamScoring(for: items)
+        if isActivityTabActive {
+            markAllAsRead()
+        } else {
+            recomputeUnreadCount()
+        }
+        startLiveUpdatesIfNeeded()
+        return true
+    }
+
+    private func persistCachedActivityEvents(
+        _ events: [NostrEvent],
+        user: String,
+        relays: [URL]
+    ) async {
+        let limitedEvents = Array(events.prefix(120))
+        let cacheKey = Self.activityCacheKey(currentUserPubkey: user, readRelayURLs: relays)
+        await activityEventCache.store(events: limitedEvents, for: cacheKey)
+    }
+
+    static func activityCacheKey(
+        currentUserPubkey: String,
+        readRelayURLs: [URL]
+    ) -> String {
+        let normalizedUser = currentUserPubkey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let relaySignature = normalizedRelaySignature(readRelayURLs)
+        return "activity-v1|\(normalizedUser)|\(relaySignature)"
+    }
+
+    private static func normalizedRelaySignature(_ relayURLs: [URL]) -> String {
+        var seen = Set<String>()
+        var normalized: [String] = []
+        for relayURL in relayURLs {
+            let value = relayURL.absoluteString
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard !value.isEmpty, seen.insert(value).inserted else { continue }
+            normalized.append(value)
+        }
+        return normalized.sorted().joined(separator: "|")
     }
 
     private func normalizePubkey(_ value: String?) -> String? {

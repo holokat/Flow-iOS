@@ -1054,7 +1054,8 @@ struct NostrFeedService: Sendable {
         fetchTimeout: TimeInterval = 12,
         relayFetchMode: RelayFetchMode = .allRelays,
         profileFetchTimeout: TimeInterval = 8,
-        profileRelayFetchMode: RelayFetchMode = .allRelays
+        profileRelayFetchMode: RelayFetchMode = .allRelays,
+        resolveRemoteReferences: Bool = true
     ) async -> [ActivityRow] {
         await activityRowBuilder.buildActivityRows(
             relayURLs: relayURLs,
@@ -1063,7 +1064,8 @@ struct NostrFeedService: Sendable {
             fetchTimeout: fetchTimeout,
             relayFetchMode: relayFetchMode,
             profileFetchTimeout: profileFetchTimeout,
-            profileRelayFetchMode: profileRelayFetchMode
+            profileRelayFetchMode: profileRelayFetchMode,
+            resolveRemoteReferences: resolveRemoteReferences
         )
     }
 
