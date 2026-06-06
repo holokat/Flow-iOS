@@ -299,6 +299,9 @@ struct HomeFeedView: View {
                 .homeFeedListRow()
                 .environment(\.defaultMinListRowHeight, 0)
 
+            feedTopPadding(height: topContentPadding)
+                .homeFeedListRow()
+
             feedModeHeaderRow
                 .homeFeedListRow()
 
@@ -314,9 +317,6 @@ struct HomeFeedView: View {
         .contentMargins(.top, 0, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            feedTopPadding(height: topContentPadding)
-        }
         .homeFeedNativeTabBarMinimizeBehavior()
         .scrollPosition(id: $feedScrollTarget, anchor: .top)
         .coordinateSpace(name: Self.feedScrollCoordinateSpace)

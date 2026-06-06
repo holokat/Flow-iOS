@@ -691,6 +691,14 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(profileSource.contains(".listRowSeparatorTint(appSettings.themePalette.separator)"))
     }
 
+    func testHomeFeedKeepsNativeRefreshControlTopInsetAvailable() throws {
+        let source = try Self.sourceText(at: "Sources/Home/HomeFeedView.swift")
+
+        XCTAssertTrue(source.contains(".refreshable {\n            await refreshFeed()"))
+        XCTAssertTrue(source.contains("feedTopPadding(height: topContentPadding)\n                .homeFeedListRow()"))
+        XCTAssertFalse(source.contains(".safeAreaInset(edge: .top"))
+    }
+
     func testProfileAvatarFullscreenViewerUsesThemeAwareBackdropAndToolbarChrome() throws {
         let source = try Self.sourceText(at: "Sources/Profile/ProfileMediaSupport.swift")
         let viewerStart = try XCTUnwrap(source.range(of: "struct ProfileAvatarFullscreenViewer: View {"))
