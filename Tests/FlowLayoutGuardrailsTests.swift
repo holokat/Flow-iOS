@@ -698,19 +698,30 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         let topNavChromeSource = source[topNavChromeStart.lowerBound..<topNavChromeEnd.lowerBound]
 
         XCTAssertTrue(source.contains(".refreshable {\n            await refreshFeed()"))
-        XCTAssertTrue(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
+        XCTAssertTrue(source.contains("VStack(spacing: 0) {\n                HomeFeedTopNavigationChromeView("))
+        XCTAssertFalse(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
         XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView("))
-        XCTAssertTrue(source.contains("feedTopPadding(height: topContentPadding)\n                .homeFeedListRow()"))
-        XCTAssertTrue(source.contains("feedContent(\n                contentPadding.top,\n                contentPadding.bottom,\n                0,\n                safeAreaBottom\n            )"))
+        XCTAssertTrue(source.contains("feedTopAnchorRow\n                .homeFeedListRow()"))
+        XCTAssertTrue(source.contains(".background(feedTopOffsetReader)\n            .id(Self.feedTopAnchorID)"))
+        XCTAssertFalse(source.contains("feedTopPadding"))
+        XCTAssertFalse(source.contains("topContentPadding"))
+        XCTAssertTrue(source.contains("if showsFeedModeHeader {\n                feedModeHeaderRow\n                    .homeFeedListRow()\n            }"))
+        XCTAssertTrue(source.contains("private var showsFeedModeHeader: Bool {"))
+        XCTAssertTrue(source.contains("feedContent(\n                    contentPadding.bottom,\n                    0,\n                    safeAreaBottom\n                )"))
+        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                    topNavigationBar: topNavigationBar\n                )"))
         XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)"))
         XCTAssertFalse(source.contains("pullToRefreshDistance"))
         XCTAssertFalse(source.contains("refreshRevealOpacity"))
         XCTAssertFalse(source.contains("HomeFeedTopNavigationBarHeightPreferenceKey"))
         XCTAssertFalse(source.contains("topHiddenOffset"))
+        XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
+        XCTAssertFalse(source.contains(".ignoresSafeArea(edges: .top)"))
         XCTAssertFalse(topNavChromeSource.contains("topBarOffset"))
+        XCTAssertFalse(topNavChromeSource.contains("safeAreaTop"))
         XCTAssertFalse(topNavChromeSource.contains(".offset(y:"))
         XCTAssertFalse(topNavChromeSource.contains(".opacity("))
         XCTAssertFalse(topNavChromeSource.contains(".allowsHitTesting("))
+        XCTAssertFalse(topNavChromeSource.contains(".ignoresSafeArea(edges: .top)"))
     }
 
     func testProfileAvatarFullscreenViewerUsesThemeAwareBackdropAndToolbarChrome() throws {

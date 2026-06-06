@@ -234,39 +234,24 @@ struct HomeFeedView: View {
 
     private var navigationRoot: some View {
         NavigationStack {
-            GeometryReader { navigationGeometry in
-                // The `.modifier(navigationDestinationsModifier)` below MUST stay
-                // attached to HomeFeedRootContent (which carries
-                // `.ignoresSafeArea(edges: .top)` + `.toolbar(.hidden,...)`), not to a
-                // wrapping Group/GeometryReader. Pushed destinations inherit their
-                // toolbar/safe-area baseline from the view that declares the
-                // destination. Moving it up the tree breaks immersive inheritance:
-                // the profile banner stops reaching the top edge AND ThreadDetailView's
-                // note body loses proper navbar space reservation (forcing redundant
-                // manual top padding, which then double-counts into a large gap).
-                HomeFeedRootContent(
-                    isShowingSideMenu: $isShowingSideMenu,
-                    bottomTabBarHeight: bottomTabBarHeight,
-                    topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top),
-                    bottomSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.bottom),
-                    topNavigationBar: { topNavigationBar },
-                    feedContent: { topPadding, bottomPadding, topBarHeight, safeAreaBottom in
-                        feedContent(
-                            topContentPadding: topPadding,
-                            bottomContentPadding: bottomPadding,
-                            topBarHeight: topBarHeight,
-                            safeAreaBottom: safeAreaBottom
-                        )
-                    },
-                    sideMenuContent: { sideMenuContent }
-                )
-                .modifier(navigationDestinationsModifier)
-            }
+            HomeFeedRootContent(
+                isShowingSideMenu: $isShowingSideMenu,
+                bottomTabBarHeight: bottomTabBarHeight,
+                topNavigationBar: { topNavigationBar },
+                feedContent: { bottomPadding, topBarHeight, safeAreaBottom in
+                    feedContent(
+                        bottomContentPadding: bottomPadding,
+                        topBarHeight: topBarHeight,
+                        safeAreaBottom: safeAreaBottom
+                    )
+                },
+                sideMenuContent: { sideMenuContent }
+            )
+            .modifier(navigationDestinationsModifier)
         }
     }
 
     private func feedContent(
-        topContentPadding: CGFloat,
         bottomContentPadding: CGFloat,
         topBarHeight: CGFloat,
         safeAreaBottom: CGFloat
@@ -277,7 +262,6 @@ struct HomeFeedView: View {
         return feedList(
             visibleItems: visibleItems,
             visibleReplyCounts: visibleReplyCounts,
-            topContentPadding: topContentPadding,
             bottomContentPadding: bottomContentPadding,
             topBarHeight: topBarHeight,
             safeAreaBottom: safeAreaBottom
@@ -288,7 +272,6 @@ struct HomeFeedView: View {
     private func feedList(
         visibleItems: [FeedItem],
         visibleReplyCounts: [String: Int],
-        topContentPadding: CGFloat,
         bottomContentPadding: CGFloat,
         topBarHeight: CGFloat,
         safeAreaBottom: CGFloat
@@ -298,11 +281,10 @@ struct HomeFeedView: View {
                 .homeFeedListRow()
                 .environment(\.defaultMinListRowHeight, 0)
 
-            feedTopPadding(height: topContentPadding)
-                .homeFeedListRow()
-
-            feedModeHeaderRow
-                .homeFeedListRow()
+            if showsFeedModeHeader {
+                feedModeHeaderRow
+                    .homeFeedListRow()
+            }
 
             feedRows(visibleItems, visibleReplyCounts: visibleReplyCounts)
 
@@ -352,15 +334,10 @@ struct HomeFeedView: View {
         }
     }
 
-    private func feedTopPadding(height: CGFloat) -> some View {
-        Color.clear
-            .frame(height: max(0, height))
-            .background(feedTopOffsetReader)
-    }
-
     private var feedTopAnchorRow: some View {
         Color.clear
             .frame(height: 0)
+            .background(feedTopOffsetReader)
             .id(Self.feedTopAnchorID)
             .accessibilityHidden(true)
     }
@@ -371,41 +348,42 @@ struct HomeFeedView: View {
             .accessibilityHidden(true)
     }
 
-    @ViewBuilder
-    private var feedModeHeaderRow: some View {
-        if viewModel.supportsModeTabsForCurrentSource ||
+    private var showsFeedModeHeader: Bool {
+        viewModel.supportsModeTabsForCurrentSource ||
             viewModel.mediaOnly ||
             viewModel.feedSource == .articles ||
-            viewModel.feedSource == .polls {
-            VStack(alignment: .leading, spacing: 8) {
-                if viewModel.feedSource == .articles {
-                    Label("Articles from people you follow", systemImage: "doc.text")
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                } else if viewModel.feedSource == .polls {
-                    Label("Polls from people you follow", systemImage: "chart.bar.xaxis")
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                } else if viewModel.supportsModeTabsForCurrentSource {
-                    FlowCapsuleTabBar(
-                        selection: $viewModel.mode,
-                        items: HomeFeedMode.allCases,
-                        selectedBackground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedBackground,
-                        selectedForeground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedForeground,
-                        selectedStroke: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedStroke,
-                        title: { $0.title }
-                    )
-                }
+            viewModel.feedSource == .polls
+    }
 
-                if viewModel.mediaOnly {
-                    Label("Media-only filter enabled", systemImage: "line.3.horizontal.decrease.circle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                }
+    private var feedModeHeaderRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if viewModel.feedSource == .articles {
+                Label("Articles from people you follow", systemImage: "doc.text")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+            } else if viewModel.feedSource == .polls {
+                Label("Polls from people you follow", systemImage: "chart.bar.xaxis")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+            } else if viewModel.supportsModeTabsForCurrentSource {
+                FlowCapsuleTabBar(
+                    selection: $viewModel.mode,
+                    items: HomeFeedMode.allCases,
+                    selectedBackground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedBackground,
+                    selectedForeground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedForeground,
+                    selectedStroke: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedStroke,
+                    title: { $0.title }
+                )
             }
-            .padding(.vertical, 0)
-            .padding(.horizontal, Self.feedHorizontalInset)
+
+            if viewModel.mediaOnly {
+                Label("Media-only filter enabled", systemImage: "line.3.horizontal.decrease.circle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+            }
         }
+        .padding(.vertical, 0)
+        .padding(.horizontal, Self.feedHorizontalInset)
     }
 
     @ViewBuilder
@@ -1483,28 +1461,22 @@ private struct HomeFeedRootContent<
     @Binding var isShowingSideMenu: Bool
 
     let bottomTabBarHeight: CGFloat
-    let topSafeAreaInset: CGFloat
-    let bottomSafeAreaInset: CGFloat
     let topNavigationBar: () -> TopNavigationBar
-    let feedContent: (_ topPadding: CGFloat, _ bottomPadding: CGFloat, _ topBarHeight: CGFloat, _ safeAreaBottom: CGFloat) -> FeedContent
+    let feedContent: (_ bottomPadding: CGFloat, _ topBarHeight: CGFloat, _ safeAreaBottom: CGFloat) -> FeedContent
     let sideMenuContent: () -> SideMenuContent
-
-    private let topNavigationToTabsSpacing: CGFloat = 8
 
     var body: some View {
         GeometryReader { geometry in
-            let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)
-            let safeAreaBottom = max(max(0, bottomSafeAreaInset), geometry.safeAreaInsets.bottom)
+            let safeAreaBottom = max(0, geometry.safeAreaInsets.bottom)
             let contentPadding = ScrollChromeLayout.feedContentPadding(
-                topBarHeight: topNavigationToTabsSpacing,
+                topBarHeight: 0,
                 bottomBarHeight: bottomTabBarHeight,
                 safeAreaBottom: safeAreaBottom
             )
             Group {
                 if isShowingSideMenu {
                     SideMenuContainer(
-                        isOpen: $isShowingSideMenu,
-                        topSafeAreaInset: safeAreaTop
+                        isOpen: $isShowingSideMenu
                     ) {
                         sideMenuContent()
                     } content: {
@@ -1521,7 +1493,6 @@ private struct HomeFeedRootContent<
                 }
             }
         }
-        .ignoresSafeArea(edges: .top)
         .toolbar(.hidden, for: .navigationBar)
     }
 
@@ -1533,16 +1504,17 @@ private struct HomeFeedRootContent<
             AppThemeBackgroundView(holographicSpotlight: .feed)
                 .ignoresSafeArea()
 
-            feedContent(
-                contentPadding.top,
-                contentPadding.bottom,
-                0,
-                safeAreaBottom
-            )
-            .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
                 HomeFeedTopNavigationChromeView(
                     topNavigationBar: topNavigationBar
                 )
+
+                feedContent(
+                    contentPadding.bottom,
+                    0,
+                    safeAreaBottom
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -1561,7 +1533,6 @@ private struct HomeFeedTopNavigationChromeView<TopNavigationBar: View>: View {
 
     private var topNavigationBarBackground: some View {
         appSettings.themePalette.background
-            .ignoresSafeArea(edges: .top)
     }
 }
 

@@ -951,52 +951,56 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(profileSource.contains("@Environment(\\.flowScrollChromeOffsets)"))
     }
 
-    func testHomeTopChromeUsesStickySafeAreaInset() throws {
+    func testHomeTopChromeUsesPulseStyleStickyBar() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
         let topNavChromeStart = try XCTUnwrap(source.range(of: "private struct HomeFeedTopNavigationChromeView"))
         let topNavChromeEnd = try XCTUnwrap(source.range(of: "private struct HomeFeedNewNotesChromeOverlay"))
         let topNavChromeSource = source[topNavChromeStart.lowerBound..<topNavChromeEnd.lowerBound]
 
-        XCTAssertTrue(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
-        XCTAssertTrue(source.contains("let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)"))
-        XCTAssertTrue(source.contains("private let topNavigationToTabsSpacing: CGFloat = 8"))
-        XCTAssertTrue(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
-        XCTAssertTrue(source.contains("feedContent(\n                contentPadding.top,\n                contentPadding.bottom,\n                0,\n                safeAreaBottom\n            )"))
+        XCTAssertFalse(source.contains("topNavigationToTabsSpacing"))
+        XCTAssertTrue(source.contains("VStack(spacing: 0) {\n                HomeFeedTopNavigationChromeView("))
+        XCTAssertFalse(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
+        XCTAssertTrue(source.contains("feedContent(\n                    contentPadding.bottom,\n                    0,\n                    safeAreaBottom\n                )"))
+        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                    topNavigationBar: topNavigationBar\n                )"))
         XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)"))
+        XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
+        XCTAssertFalse(source.contains("let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)"))
         XCTAssertFalse(source.contains("topNavigationContentHeight"))
         XCTAssertFalse(source.contains("topHiddenOffset"))
         XCTAssertFalse(source.contains("topBarHeight: topNavigationContentHeight"))
         XCTAssertFalse(source.contains("topNavigationContentHeight + topNavigationToTabsSpacing"))
-        XCTAssertFalse(topNavChromeSource.contains(".padding(.top, safeAreaTop)"))
+        XCTAssertFalse(topNavChromeSource.contains("safeAreaTop"))
         XCTAssertFalse(topNavChromeSource.contains(".offset(y: topBarOffset)"))
     }
 
-    func testHomeFeedCapturesSafeAreaBeforeRootIgnoresIt() throws {
+    func testHomeFeedUsesPulseStyleSafeAreaBehavior() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
-        XCTAssertTrue(source.contains("NavigationStack {\n            GeometryReader { navigationGeometry in"))
-        XCTAssertTrue(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
-        XCTAssertTrue(source.contains("bottomSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.bottom)"))
-        XCTAssertTrue(source.contains("let topSafeAreaInset: CGFloat"))
-        XCTAssertTrue(source.contains("let bottomSafeAreaInset: CGFloat"))
+        XCTAssertTrue(source.contains("NavigationStack {\n            HomeFeedRootContent("))
+        XCTAssertFalse(source.contains("GeometryReader { navigationGeometry in"))
+        XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
+        XCTAssertFalse(source.contains("bottomSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.bottom)"))
+        XCTAssertFalse(source.contains("let topSafeAreaInset: CGFloat"))
+        XCTAssertFalse(source.contains("let bottomSafeAreaInset: CGFloat"))
     }
 
-    func testHomeFeedDestinationsInheritImmersiveRootChrome() throws {
+    func testHomeFeedDestinationsStayAttachedToHomeRootContent() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
         let rootStart = try XCTUnwrap(source.range(of: "private var navigationRoot: some View {"))
         let feedContentStart = try XCTUnwrap(source.range(of: "private func feedContent", range: rootStart.upperBound..<source.endIndex))
         let rootSource = String(source[rootStart.lowerBound..<feedContentStart.lowerBound])
 
-        XCTAssertTrue(rootSource.contains("NavigationStack {\n            GeometryReader { navigationGeometry in"))
-        XCTAssertTrue(rootSource.contains("                )\n                .modifier(navigationDestinationsModifier)\n            }\n        }"))
+        XCTAssertTrue(rootSource.contains("NavigationStack {\n            HomeFeedRootContent("))
+        XCTAssertTrue(rootSource.contains("            )\n            .modifier(navigationDestinationsModifier)\n        }"))
         XCTAssertFalse(rootSource.contains("            }\n            .modifier(navigationDestinationsModifier)\n        }"))
     }
 
-    func testHomeFeedRootSpansTopEdgeForCustomTopChrome() throws {
+    func testHomeFeedRootKeepsStandardTopSafeArea() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
         XCTAssertTrue(source.contains("GeometryReader { geometry in"))
-        XCTAssertTrue(source.contains("}\n        .ignoresSafeArea(edges: .top)\n        .toolbar(.hidden, for: .navigationBar)"))
+        XCTAssertTrue(source.contains("}\n        .toolbar(.hidden, for: .navigationBar)"))
+        XCTAssertFalse(source.contains(".ignoresSafeArea(edges: .top)"))
     }
 
     func testHomeTopChromeUsesStaticThemeBackground() throws {
@@ -1011,7 +1015,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains(".background(topNavigationBarBackground)"))
         XCTAssertTrue(source.contains("private var topNavigationBarBackground: some View"))
         XCTAssertTrue(source.contains("appSettings.themePalette.background"))
-        XCTAssertTrue(source.contains(".ignoresSafeArea(edges: .top)"))
+        XCTAssertFalse(topNavChromeSource.contains(".ignoresSafeArea(edges: .top)"))
         XCTAssertTrue(source.contains(".fill(topNavigationControlFill)"))
     }
 
@@ -1134,10 +1138,13 @@ final class AppThemeOptionTests: XCTestCase {
         let listRange = try XCTUnwrap(source.range(of: "let list = List {"))
         let listContent = source[listRange.lowerBound...]
         let rowsRange = try XCTUnwrap(listContent.range(of: "feedRows(visibleItems, visibleReplyCounts: visibleReplyCounts)"))
-        let sentinelRange = try XCTUnwrap(listContent.range(of: "feedTopPadding(height: topContentPadding)"))
+        let sentinelRange = try XCTUnwrap(listContent.range(of: "feedTopAnchorRow"))
 
-        XCTAssertTrue(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
-        XCTAssertLessThan(rowsRange.lowerBound, sentinelRange.lowerBound)
+        XCTAssertTrue(source.contains("feedTopAnchorRow\n                .homeFeedListRow()"))
+        XCTAssertTrue(source.contains(".background(feedTopOffsetReader)\n            .id(Self.feedTopAnchorID)"))
+        XCTAssertFalse(source.contains("feedTopPadding"))
+        XCTAssertFalse(source.contains("topContentPadding"))
+        XCTAssertLessThan(sentinelRange.lowerBound, rowsRange.lowerBound)
         XCTAssertFalse(source.contains("LazyVStack(alignment: .leading, spacing: 0)"))
     }
 
@@ -1151,12 +1158,15 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("@State private var feedScrollTarget: String?"))
         XCTAssertTrue(source.contains(".scrollPosition(id: $feedScrollTarget, anchor: .top)"))
         XCTAssertTrue(source.contains(".contentMargins(.top, 0, for: .scrollContent)"))
+        XCTAssertFalse(source.contains("let topScrollContentMargin = -max(0, safeAreaTop)"))
+        XCTAssertFalse(source.contains(".contentMargins(.top, topScrollContentMargin, for: .scrollContent)"))
         XCTAssertTrue(source.contains(".environment(\\.defaultMinListRowHeight, 0)"))
         XCTAssertTrue(source.contains(".homeFeedNativeTabBarMinimizeBehavior()"))
         XCTAssertTrue(source.contains("self.scrollEdgeEffectHidden(true, for: .bottom)"))
         XCTAssertFalse(source.contains("self.tabBarMinimizeBehavior(.onScrollDown)"))
         XCTAssertFalse(source.contains("let topNavigationBar: () -> AnyView"))
         XCTAssertFalse(source.contains("let feedContent: (_ topPadding: CGFloat, _ bottomPadding: CGFloat, _ topBarHeight: CGFloat, _ safeAreaBottom: CGFloat) -> AnyView"))
+        XCTAssertFalse(source.contains("_ topPadding: CGFloat"))
         XCTAssertFalse(source.contains("let sideMenuContent: () -> AnyView"))
     }
 
@@ -1347,7 +1357,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(headerSource.contains("SideMenuTransitionLayout.profileHeaderAvatarSize / 2"))
     }
 
-    func testHomeSideMenuStartsBelowTopSafeArea() throws {
+    func testHomeSideMenuUsesContainerSafeAreaResolution() throws {
         let homeSource = try sourceText(at: "Sources/Home/HomeFeedView.swift")
         let sideMenuSource = try sourceText(at: "Sources/Design/SideMenuContainer.swift")
         let sideMenuRange = try XCTUnwrap(homeSource.range(of: "SideMenuContainer("))
@@ -1355,8 +1365,9 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertTrue(homeSource.contains("if isShowingSideMenu"))
         XCTAssertTrue(homeSource.contains("private func primaryContent("))
+        XCTAssertTrue(homeSource.contains("SideMenuContainer(\n                        isOpen: $isShowingSideMenu\n                    )"))
         XCTAssertTrue(sideMenuCallSource.contains("isOpen: $isShowingSideMenu"))
-        XCTAssertTrue(sideMenuCallSource.contains("topSafeAreaInset: safeAreaTop"))
+        XCTAssertFalse(sideMenuCallSource.contains("topSafeAreaInset: safeAreaTop"))
         XCTAssertTrue(sideMenuSource.contains("let resolvedTopSafeArea = SideMenuTransitionLayout.resolvedTopSafeArea("))
         XCTAssertTrue(sideMenuSource.contains("explicitTopSafeAreaInset: topSafeAreaInset,"))
         XCTAssertTrue(sideMenuSource.contains("geometryTopSafeAreaInset: geometry.safeAreaInsets.top"))
