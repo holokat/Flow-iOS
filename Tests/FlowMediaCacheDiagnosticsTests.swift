@@ -220,7 +220,7 @@ final class FlowMediaCacheDiagnosticsTests: XCTestCase {
         XCTAssertNotNil(image)
     }
 
-    func testProfileImageDataRejectsOversizedResponsesAndBacksOff() async {
+    func testProfileImageDataLoadsOversizedResponses() async {
         let rootDirectoryURL = makeTemporaryDirectory()
         let urlCache = makeURLCache()
         let url = URL(string: "https://example.com/huge-avatar.png")!
@@ -241,15 +241,15 @@ final class FlowMediaCacheDiagnosticsTests: XCTestCase {
         let snapshot = await cache.diagnosticsSnapshot()
         let observedFetchCount = await fetchCount.value()
 
-        XCTAssertNil(firstLoad)
-        XCTAssertNil(secondLoad)
+        XCTAssertEqual(firstLoad, oversizedData)
+        XCTAssertEqual(secondLoad, oversizedData)
         XCTAssertEqual(observedFetchCount, 1)
         XCTAssertEqual(snapshot.trackedRequestCount, 2)
-        XCTAssertEqual(snapshot.networkFailureCount, 1)
-        XCTAssertEqual(snapshot.networkFetchCount, 0)
+        XCTAssertEqual(snapshot.networkFailureCount, 0)
+        XCTAssertEqual(snapshot.networkFetchCount, 1)
     }
 
-    func testProfileImageLimitDoesNotBlockStandardImageDataLoads() async {
+    func testProfileImageDataDoesNotUseFeedThumbnailByteLimit() async {
         let rootDirectoryURL = makeTemporaryDirectory()
         let urlCache = makeURLCache()
         let url = URL(string: "https://example.com/large-note-image.png")!
@@ -264,7 +264,7 @@ final class FlowMediaCacheDiagnosticsTests: XCTestCase {
         let profileLoad = await cache.profileImageData(for: url)
         let standardLoad = await cache.data(for: url)
 
-        XCTAssertNil(profileLoad)
+        XCTAssertEqual(profileLoad, oversizedData)
         XCTAssertEqual(standardLoad, oversizedData)
     }
 
@@ -321,7 +321,7 @@ final class FlowMediaCacheDiagnosticsTests: XCTestCase {
         XCTAssertNil(maxByteCount)
     }
 
-    func testProfileImageLimitIsIgnoredOnWiFi() async {
+    func testProfileImageLoadDoesNotSendByteLimitOnWiFi() async {
         let rootDirectoryURL = makeTemporaryDirectory()
         let urlCache = makeURLCache()
         let url = URL(string: "https://example.com/huge-wifi-avatar.png")!
@@ -345,22 +345,28 @@ final class FlowMediaCacheDiagnosticsTests: XCTestCase {
         XCTAssertNil(maxByteCount)
     }
 
-    func testProfileImageLimitStillAppliesOffWiFi() async {
+    func testProfileImageLoadDoesNotSendByteLimitOffWiFi() async {
         let rootDirectoryURL = makeTemporaryDirectory()
         let urlCache = makeURLCache()
         let url = URL(string: "https://example.com/huge-cellular-avatar.png")!
         let oversizedData = makeOversizedPNGData()
+        let observedMaxByteCount = LockedOptionalInt()
         let response = makeFetchedResponse(data: oversizedData)
         let cache = FlowImageCache(
             rootDirectoryURL: rootDirectoryURL,
             urlCache: urlCache,
-            fetchImageData: { _, _ in response },
+            fetchImageData: { _, maxByteCount in
+                await observedMaxByteCount.set(maxByteCount)
+                return response
+            },
             isUsingWiFiConnection: { false }
         )
 
         let load = await cache.profileImageData(for: url)
+        let maxByteCount = await observedMaxByteCount.value()
 
-        XCTAssertNil(load)
+        XCTAssertEqual(load, oversizedData)
+        XCTAssertNil(maxByteCount)
     }
 
     func testFeedThumbnailLimitCanBeBypassedForExplicitLoad() async {
@@ -392,7 +398,7 @@ final class FlowMediaCacheDiagnosticsTests: XCTestCase {
         XCTAssertEqual(observedFetchCount, 2)
     }
 
-    func testProfileImageLimitAllowsAlreadyCachedOversizedData() async {
+    func testProfileImageDataReusesAlreadyCachedOversizedData() async {
         let rootDirectoryURL = makeTemporaryDirectory()
         let urlCache = makeURLCache()
         let url = URL(string: "https://example.com/cached-avatar.png")!

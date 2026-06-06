@@ -4,6 +4,7 @@ struct ActivityRowBuilder {
     private let relayTimelineFetcher: RelayTimelineFetcher
     private let profileCache: any ProfileCaching
     private let seenEventStore: any SeenEventStoring
+    private let fetchProfiles: ([URL], [String], TimeInterval, RelayFetchMode) async -> [String: NostrProfile]
     private let resolveReferences: (
         [ActivityTargetReference: NostrEventReferencePointer],
         [URL],
@@ -15,6 +16,7 @@ struct ActivityRowBuilder {
         relayTimelineFetcher: RelayTimelineFetcher,
         profileCache: any ProfileCaching,
         seenEventStore: any SeenEventStoring,
+        fetchProfiles: @escaping ([URL], [String], TimeInterval, RelayFetchMode) async -> [String: NostrProfile],
         resolveReferences: @escaping (
             [ActivityTargetReference: NostrEventReferencePointer],
             [URL],
@@ -25,6 +27,7 @@ struct ActivityRowBuilder {
         self.relayTimelineFetcher = relayTimelineFetcher
         self.profileCache = profileCache
         self.seenEventStore = seenEventStore
+        self.fetchProfiles = fetchProfiles
         self.resolveReferences = resolveReferences
     }
 
@@ -227,9 +230,6 @@ struct ActivityRowBuilder {
         knownTargetPubkeysByEventID: [String: String] = [:],
         resolveRemoteReferences: Bool = true
     ) async -> [ActivityRow] {
-        let _ = profileFetchTimeout
-        let _ = profileRelayFetchMode
-
         let relayTargets = normalizedRelayURLs(relayURLs)
         guard !relayTargets.isEmpty else { return [] }
         guard !events.isEmpty else { return [] }
@@ -240,7 +240,12 @@ struct ActivityRowBuilder {
         )
         async let actorProfilesTask = actorPubkeys.isEmpty
             ? [String: NostrProfile]()
-            : profileCache.cachedProfiles(pubkeys: actorPubkeys)
+            : resolvedActorProfiles(
+                relayURLs: relayTargets,
+                actorPubkeys: actorPubkeys,
+                profileFetchTimeout: profileFetchTimeout,
+                profileRelayFetchMode: profileRelayFetchMode
+            )
         async let targetEventsTask = resolveActivityTargetEvents(
             relayURLs: relayTargets,
             sourceEvents: events,
@@ -382,6 +387,29 @@ struct ActivityRowBuilder {
         case .reshare:
             return "Re-shared your note"
         }
+    }
+
+    private func resolvedActorProfiles(
+        relayURLs: [URL],
+        actorPubkeys: [String],
+        profileFetchTimeout: TimeInterval,
+        profileRelayFetchMode: RelayFetchMode
+    ) async -> [String: NostrProfile] {
+        let cachedProfiles = await profileCache.cachedProfiles(pubkeys: actorPubkeys)
+        let missingPubkeys = actorPubkeys.filter { pubkey in
+            cachedProfiles[normalizePubkey(pubkey)] == nil
+        }
+        guard !missingPubkeys.isEmpty else { return cachedProfiles }
+
+        var profiles = cachedProfiles
+        let fetchedProfiles = await fetchProfiles(
+            relayURLs,
+            missingPubkeys,
+            profileFetchTimeout,
+            profileRelayFetchMode
+        )
+        profiles.merge(fetchedProfiles, uniquingKeysWith: { existing, _ in existing })
+        return profiles
     }
 
     private func filteredActivityEvents(

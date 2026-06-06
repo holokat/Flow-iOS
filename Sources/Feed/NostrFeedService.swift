@@ -183,6 +183,14 @@ struct NostrFeedService: Sendable {
             relayTimelineFetcher: relayTimelineFetcher,
             profileCache: profileCache,
             seenEventStore: seenEventStore,
+            fetchProfiles: { relayURLs, pubkeys, fetchTimeout, relayFetchMode in
+                await self.fetchProfiles(
+                    relayURLs: relayURLs,
+                    pubkeys: pubkeys,
+                    fetchTimeout: fetchTimeout,
+                    relayFetchMode: relayFetchMode
+                )
+            },
             resolveReferences: { pointersByReference, baseReadRelayURLs, fetchTimeout, relayFetchMode in
                 await self.referenceResolver.fetchResolvedReferenceEvents(
                     pointersByKey: pointersByReference,

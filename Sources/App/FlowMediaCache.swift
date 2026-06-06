@@ -82,7 +82,6 @@ enum FlowImageCacheRequestKind: Hashable, Sendable {
     case feedThumbnail
     case fullscreen
 
-    static let profileImageByteLimit = 2 * 1_024 * 1_024
     static let feedImageByteLimit = 3 * 1_024 * 1_024
     static let largeGIFAutoplayByteLimit = 2 * 1_024 * 1_024
 
@@ -108,7 +107,7 @@ enum FlowImageCacheRequestKind: Hashable, Sendable {
         case .standard:
             return nil
         case .profileImage, .avatar, .profileImageFullscreen:
-            return Self.profileImageByteLimit
+            return nil
         case .profileBanner, .feedThumbnail:
             return Self.feedImageByteLimit
         case .fullscreen:

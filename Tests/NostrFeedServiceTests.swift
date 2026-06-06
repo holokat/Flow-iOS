@@ -1726,6 +1726,76 @@ final class NostrFeedServiceTests: XCTestCase {
         XCTAssertEqual(fetchCount, 0)
     }
 
+    func testBuildActivityRowsFetchesMissingActorProfilesForReactionRows() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FlowActivityActorProfiles-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fileManager = TestFileManager(rootURL: rootURL)
+        let nostrDatabase = FlowNostrDB(fileManager: fileManager)
+        let seenEventStore = SeenEventStore(fileManager: fileManager)
+
+        let currentUserPubkey = hex("1")
+        let actorPubkey = hex("2")
+        let targetPubkey = hex("3")
+        let targetEventID = hex("a")
+
+        let targetEvent = makeEvent(
+            id: targetEventID,
+            pubkey: targetPubkey,
+            kind: 1,
+            tags: [["p", currentUserPubkey]],
+            content: "Target note"
+        )
+        let reactionEvent = makeEvent(
+            id: hex("b"),
+            pubkey: actorPubkey,
+            kind: 7,
+            tags: [
+                ["p", currentUserPubkey],
+                ["e", targetEventID, "", "reply"]
+            ],
+            content: "+"
+        )
+        let actorMetadataEvent = makeEvent(
+            id: hex("c"),
+            pubkey: actorPubkey,
+            kind: 0,
+            tags: [],
+            content: #"{"name":"reactor","display_name":"Reactor","picture":"https://example.com/reactor.png"}"#
+        )
+        let relayClient = DelayedRelayClient(
+            eventsByRelay: [relayURL: [actorMetadataEvent]],
+            delaysByRelay: [:]
+        )
+        let service = makeFeedService(
+            relayClient: relayClient,
+            fileManager: fileManager,
+            nostrDatabase: nostrDatabase,
+            seenEventStore: seenEventStore
+        )
+
+        await seenEventStore.store(events: [targetEvent])
+
+        let rows = await service.buildActivityRows(
+            relayURLs: [relayURL],
+            currentUserPubkey: currentUserPubkey,
+            events: [reactionEvent],
+            fetchTimeout: 0.01,
+            relayFetchMode: RelayFetchMode.firstNonEmptyRelay,
+            profileFetchTimeout: 0.01,
+            profileRelayFetchMode: RelayFetchMode.firstNonEmptyRelay
+        )
+
+        let fetchCount = await relayClient.fetchCount()
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.actor.displayName, "Reactor")
+        XCTAssertEqual(rows.first?.actor.avatarURL?.absoluteString, "https://example.com/reactor.png")
+        XCTAssertGreaterThan(fetchCount, 0)
+    }
+
     func testBuildActivityRowsDoesNotFetchMissingTargetProfilesOnHotPath() async throws {
         var harnessBox: TestHarness? = try TestHarness()
         let rootURL = try XCTUnwrap(harnessBox?.rootURL)
