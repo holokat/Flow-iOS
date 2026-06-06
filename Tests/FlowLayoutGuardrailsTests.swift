@@ -719,13 +719,12 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(source.contains("HomeFeedTopNavigationBarHeightPreferenceKey"))
         XCTAssertFalse(source.contains("topHiddenOffset"))
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
-        XCTAssertFalse(source.contains(".ignoresSafeArea(edges: .top)"))
+        XCTAssertTrue(topNavChromeSource.contains(".ignoresSafeArea(edges: .top)"))
         XCTAssertFalse(topNavChromeSource.contains("topBarOffset"))
         XCTAssertFalse(topNavChromeSource.contains("safeAreaTop"))
         XCTAssertFalse(topNavChromeSource.contains(".offset(y:"))
         XCTAssertTrue(topNavChromeSource.contains(".opacity(chromeOpacity)"))
         XCTAssertFalse(topNavChromeSource.contains(".allowsHitTesting("))
-        XCTAssertFalse(topNavChromeSource.contains(".ignoresSafeArea(edges: .top)"))
     }
 
     func testProfileAvatarFullscreenViewerUsesThemeAwareBackdropAndToolbarChrome() throws {

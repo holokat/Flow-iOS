@@ -1560,6 +1560,7 @@ private struct HomeFeedTopNavigationChromeView<TopNavigationBar: View>: View {
 
     private var topNavigationBarBackground: some View {
         appSettings.themePalette.background
+            .ignoresSafeArea(edges: .top)
     }
 
     private var chromeOpacity: Double {

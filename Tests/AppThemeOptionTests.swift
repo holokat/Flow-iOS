@@ -1005,10 +1005,13 @@ final class AppThemeOptionTests: XCTestCase {
 
     func testHomeFeedRootKeepsStandardTopSafeArea() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let rootStart = try XCTUnwrap(source.range(of: "private struct HomeFeedRootContent"))
+        let rootEnd = try XCTUnwrap(source.range(of: "private struct HomeFeedTopNavigationChromeView"))
+        let rootSource = source[rootStart.lowerBound..<rootEnd.lowerBound]
 
         XCTAssertTrue(source.contains("GeometryReader { geometry in"))
         XCTAssertTrue(source.contains("}\n        .toolbar(.hidden, for: .navigationBar)"))
-        XCTAssertFalse(source.contains(".ignoresSafeArea(edges: .top)"))
+        XCTAssertFalse(rootSource.contains(".ignoresSafeArea(edges: .top)"))
     }
 
     func testHomeTopChromeUsesStaticThemeBackground() throws {
@@ -1023,7 +1026,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains(".background(topNavigationBarBackground)"))
         XCTAssertTrue(source.contains("private var topNavigationBarBackground: some View"))
         XCTAssertTrue(source.contains("appSettings.themePalette.background"))
-        XCTAssertFalse(topNavChromeSource.contains(".ignoresSafeArea(edges: .top)"))
+        XCTAssertTrue(topNavChromeSource.contains(".ignoresSafeArea(edges: .top)"))
         XCTAssertTrue(source.contains(".fill(topNavigationControlFill)"))
     }
 
