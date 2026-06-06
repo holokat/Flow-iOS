@@ -695,6 +695,9 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         let source = try Self.sourceText(at: "Sources/Home/HomeFeedView.swift")
 
         XCTAssertTrue(source.contains(".refreshable {\n            await refreshFeed()"))
+        XCTAssertTrue(source.contains("@State private var pullToRefreshDistance: CGFloat = 0"))
+        XCTAssertTrue(source.contains("pullToRefreshDistance: pullToRefreshDistance"))
+        XCTAssertTrue(source.contains("refreshRevealOpacity(for: pullToRefreshDistance)"))
         XCTAssertTrue(source.contains("feedTopPadding(height: topContentPadding)\n                .homeFeedListRow()"))
         XCTAssertFalse(source.contains(".safeAreaInset(edge: .top"))
     }

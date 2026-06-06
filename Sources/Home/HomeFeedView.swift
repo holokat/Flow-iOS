@@ -44,6 +44,7 @@ struct HomeFeedView: View {
     @State private var isRevealingBufferedItems = false
     @State private var feedScrollTarget: String?
     @State private var scrollChromeTracker = ScrollChromeTracker()
+    @State private var pullToRefreshDistance: CGFloat = 0
 
     var body: some View {
         let _ = muteStore.filterRevision
@@ -250,6 +251,7 @@ struct HomeFeedView: View {
                     bottomTabBarHeight: bottomTabBarHeight,
                     topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top),
                     bottomSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.bottom),
+                    pullToRefreshDistance: pullToRefreshDistance,
                     topNavigationBar: { topNavigationBar },
                     feedContent: { topPadding, bottomPadding, topBarHeight, safeAreaBottom in
                         feedContent(
@@ -337,11 +339,20 @@ struct HomeFeedView: View {
 
         if #available(iOS 18.0, *) {
             list
-                .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                    max(0, geometry.contentOffset.y + geometry.contentInsets.top)
-                } action: { _, scrollY in
-                    handleScroll(currentScrollY: scrollY, topBarHeight: topBarHeight, safeAreaBottom: safeAreaBottom)
-                    handleNearTopChange(currentScrollY: scrollY)
+                .onScrollGeometryChange(for: HomeFeedScrollMetrics.self) { geometry in
+                    let offsetFromTop = geometry.contentOffset.y + geometry.contentInsets.top
+                    return HomeFeedScrollMetrics(
+                        scrollY: max(0, offsetFromTop),
+                        pullDistance: max(0, -offsetFromTop)
+                    )
+                } action: { _, metrics in
+                    handleScroll(
+                        currentScrollY: metrics.scrollY,
+                        topBarHeight: topBarHeight,
+                        safeAreaBottom: safeAreaBottom
+                    )
+                    handleNearTopChange(currentScrollY: metrics.scrollY)
+                    updatePullToRefreshDistance(metrics.pullDistance)
                 }
         } else {
             list
@@ -349,6 +360,7 @@ struct HomeFeedView: View {
                     let currentScrollY = max(0, -newValue)
                     handleScroll(currentScrollY: currentScrollY, topBarHeight: topBarHeight, safeAreaBottom: safeAreaBottom)
                     handleNearTopChange(currentScrollY: currentScrollY)
+                    updatePullToRefreshDistance(max(0, newValue))
                 }
         }
     }
@@ -498,6 +510,12 @@ struct HomeFeedView: View {
         if nearTop {
             autoShowBufferedItemsIfNeeded()
         }
+    }
+
+    private func updatePullToRefreshDistance(_ distance: CGFloat) {
+        let roundedDistance = distance.rounded(.toNearestOrAwayFromZero)
+        guard abs(pullToRefreshDistance - roundedDistance) >= 1 else { return }
+        pullToRefreshDistance = roundedDistance
     }
 
     private func refreshFeed() async {
@@ -1487,6 +1505,7 @@ private struct HomeFeedRootContent<
     let bottomTabBarHeight: CGFloat
     let topSafeAreaInset: CGFloat
     let bottomSafeAreaInset: CGFloat
+    let pullToRefreshDistance: CGFloat
     let topNavigationBar: () -> TopNavigationBar
     let feedContent: (_ topPadding: CGFloat, _ bottomPadding: CGFloat, _ topBarHeight: CGFloat, _ safeAreaBottom: CGFloat) -> FeedContent
     let sideMenuContent: () -> SideMenuContent
@@ -1566,6 +1585,7 @@ private struct HomeFeedRootContent<
                 scrollChromeStore: scrollChromeStore,
                 safeAreaTop: safeAreaTop,
                 topHiddenOffset: topHiddenOffset,
+                pullToRefreshDistance: pullToRefreshDistance,
                 topNavigationBar: topNavigationBar
             )
             .zIndex(1)
@@ -1579,23 +1599,34 @@ private struct HomeFeedTopNavigationChromeView<TopNavigationBar: View>: View {
 
     let safeAreaTop: CGFloat
     let topHiddenOffset: CGFloat
+    let pullToRefreshDistance: CGFloat
     let topNavigationBar: () -> TopNavigationBar
 
     var body: some View {
         let topBarOffset = scrollChromeStore.offsets.topBarOffset
+        let refreshRevealOpacity = Self.refreshRevealOpacity(for: pullToRefreshDistance)
+        let chromeOpacity = topNavigationBarVisibleFraction(
+            topBarOffset: topBarOffset,
+            topHiddenOffset: topHiddenOffset
+        ) * refreshRevealOpacity
         let hitTestingEnabled = topNavigationBarHitTestingEnabled(
             topBarOffset: topBarOffset,
             topHiddenOffset: topHiddenOffset
-        )
+        ) && refreshRevealOpacity > 0.1
 
         topNavigationBar()
             .background(topNavigationBarHeightReader)
             .padding(.top, safeAreaTop)
-            .background(topNavigationBarBackground)
+            .background(topNavigationBarBackground.opacity(refreshRevealOpacity))
             .offset(y: topBarOffset)
-            .opacity(topNavigationBarVisibleFraction(topBarOffset: topBarOffset, topHiddenOffset: topHiddenOffset))
+            .opacity(chromeOpacity)
             .allowsHitTesting(hitTestingEnabled)
             .accessibilityHidden(!hitTestingEnabled)
+    }
+
+    private static func refreshRevealOpacity(for pullDistance: CGFloat) -> CGFloat {
+        let fadeDistance: CGFloat = 24
+        return max(0, min(1, 1 - max(0, pullDistance) / fadeDistance))
     }
 
     private func topNavigationBarHitTestingEnabled(
@@ -1840,6 +1871,11 @@ private struct HomeFeedTopOffsetPreferenceKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
     }
+}
+
+private struct HomeFeedScrollMetrics: Equatable {
+    let scrollY: CGFloat
+    let pullDistance: CGFloat
 }
 
 private struct HomeFeedTopNavigationBarHeightPreferenceKey: PreferenceKey {
