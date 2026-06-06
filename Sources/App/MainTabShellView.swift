@@ -84,7 +84,7 @@ struct MainTabShellView: View {
             .allowsHitTesting(false)
         }
         .overlay(alignment: .bottom) {
-            if isBottomTabBarVisible {
+            if usesCustomBottomNavigationBar {
                 customBottomNavBar
             }
         }
@@ -223,7 +223,7 @@ struct MainTabShellView: View {
                 tabBarIcon(for: .compose)
             }
         }
-        .toolbar(.hidden, for: .tabBar)
+        .toolbar(nativeBottomNavigationVisibility, for: .tabBar)
     }
 
     private var legacyNativeTabView: some View {
@@ -248,7 +248,7 @@ struct MainTabShellView: View {
                 .tag(Tab.compose)
                 .tabItem { tabBarIcon(for: .compose) }
         }
-        .toolbar(.hidden, for: .tabBar)
+        .toolbar(nativeBottomNavigationVisibility, for: .tabBar)
     }
 
     private var customBottomNavBar: some View {
@@ -370,6 +370,27 @@ struct MainTabShellView: View {
             selectedTabIsDirectMessages: selectedTab == .dms,
             isDirectMessagesRootVisible: isDMRootVisible
         )
+    }
+
+    private var usesNativeBottomNavigationBar: Bool {
+        guard isBottomTabBarVisible else { return false }
+
+        switch selectedTab {
+        case .home:
+            return !isHomeRootVisible
+        case .activity:
+            return !isActivityRootVisible
+        case .search, .compose, .dms:
+            return false
+        }
+    }
+
+    private var usesCustomBottomNavigationBar: Bool {
+        isBottomTabBarVisible && !usesNativeBottomNavigationBar
+    }
+
+    private var nativeBottomNavigationVisibility: Visibility {
+        usesNativeBottomNavigationBar ? .visible : .hidden
     }
 
     private var composeSheetDraftBinding: Binding<AppComposeSheetDraft?> {
