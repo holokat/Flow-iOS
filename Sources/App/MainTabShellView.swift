@@ -84,7 +84,7 @@ struct MainTabShellView: View {
             .allowsHitTesting(false)
         }
         .overlay(alignment: .bottom) {
-            if usesCustomBottomNavigationBar {
+            if isBottomTabBarVisible {
                 customBottomNavBar
             }
         }
@@ -223,7 +223,7 @@ struct MainTabShellView: View {
                 tabBarIcon(for: .compose)
             }
         }
-        .toolbar(nativeBottomNavigationVisibility, for: .tabBar)
+        .toolbar(.hidden, for: .tabBar)
     }
 
     private var legacyNativeTabView: some View {
@@ -248,7 +248,7 @@ struct MainTabShellView: View {
                 .tag(Tab.compose)
                 .tabItem { tabBarIcon(for: .compose) }
         }
-        .toolbar(nativeBottomNavigationVisibility, for: .tabBar)
+        .toolbar(.hidden, for: .tabBar)
     }
 
     private var customBottomNavBar: some View {
@@ -370,27 +370,6 @@ struct MainTabShellView: View {
             selectedTabIsDirectMessages: selectedTab == .dms,
             isDirectMessagesRootVisible: isDMRootVisible
         )
-    }
-
-    private var usesNativeBottomNavigationBar: Bool {
-        guard isBottomTabBarVisible else { return false }
-
-        switch selectedTab {
-        case .home:
-            return !isHomeRootVisible
-        case .activity:
-            return !isActivityRootVisible
-        case .search, .compose, .dms:
-            return false
-        }
-    }
-
-    private var usesCustomBottomNavigationBar: Bool {
-        isBottomTabBarVisible && !usesNativeBottomNavigationBar
-    }
-
-    private var nativeBottomNavigationVisibility: Visibility {
-        usesNativeBottomNavigationBar ? .visible : .hidden
     }
 
     private var composeSheetDraftBinding: Binding<AppComposeSheetDraft?> {
@@ -683,7 +662,7 @@ struct ScrollChromeContentPadding: Equatable {
 
 struct ScrollChromeLayout {
     static let defaultTopBarHeight: CGFloat = 55
-    // Condensed standard bottom navigation bar (replaced the Liquid Glass tab bar).
+    // Condensed standard bottom navigation bar used throughout the app.
     static let defaultBottomTabBarHeight: CGFloat = 50
     static let topOfFeedRestoreThreshold: CGFloat = 8
     static let visualOffsetPublishThreshold: CGFloat = 0.5

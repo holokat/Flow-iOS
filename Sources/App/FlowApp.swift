@@ -26,16 +26,9 @@ struct FlowApp: App {
         Self.configureTabBarAppearance()
     }
 
-    // Configure the tab bar globally via the UIKit appearance proxy so the look
-    // survives navigation and scroll. The SwiftUI `.toolbarBackground(.hidden,
-    // for: .tabBar)` modifier is view-state-scoped: pushed destinations and the
-    // scroll-edge transition drop it, which let the bar background re-materialize
-    // after clicking around. Setting both standardAppearance and
-    // scrollEdgeAppearance keeps the feed visible behind the floating Liquid
-    // Glass buttons in every state.
-    //
-    // Also shrink the activity tab's empty-string badge dot, which the system
-    // otherwise renders much too large.
+    // Keep the hidden native tab bar transparent if UIKit creates it while
+    // SwiftUI switches tab content or navigation state. Also shrink the activity
+    // tab's empty-string badge dot, which the system otherwise renders too large.
     private static func configureTabBarAppearance() {
         let appearance = UITabBarAppearance()
         appearance.configureWithTransparentBackground()
