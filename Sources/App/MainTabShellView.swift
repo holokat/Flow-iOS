@@ -706,7 +706,7 @@ private struct ScrollChromeOpacityReader<Content: View>: View {
 }
 
 struct ScrollChromeLayout {
-    static let defaultTopBarHeight: CGFloat = 55
+    static let defaultTopBarHeight: CGFloat = 66
     // Condensed standard bottom navigation bar used throughout the app.
     static let defaultBottomTabBarHeight: CGFloat = 50
     static let topOfFeedRestoreThreshold: CGFloat = 8

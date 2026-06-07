@@ -693,6 +693,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
 
     func testHomeFeedKeepsNativeRefreshControlTopInsetAvailable() throws {
         let source = try Self.sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let shellSource = try Self.sourceText(at: "Sources/App/MainTabShellView.swift")
         let topNavChromeStart = try XCTUnwrap(source.range(of: "private struct HomeFeedTopNavigationChromeView"))
         let topNavChromeEnd = try XCTUnwrap(source.range(of: "private struct HomeFeedNewNotesChromeOverlay"))
         let topNavChromeSource = source[topNavChromeStart.lowerBound..<topNavChromeEnd.lowerBound]
@@ -700,6 +701,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(source.contains(".refreshable {\n            await refreshFeed()"))
         XCTAssertTrue(source.contains("ZStack(alignment: .top) {"))
         XCTAssertFalse(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
+        XCTAssertTrue(shellSource.contains("static let defaultTopBarHeight: CGFloat = 66"))
         XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView("))
         XCTAssertTrue(source.contains("feedTopChromeClearance(height: topBarHeight)\n                .homeFeedListRow()"))
         XCTAssertTrue(source.contains("topTrackedRow(feedModeHeaderRow.homeFeedListRow(), isFirst: true)"))
