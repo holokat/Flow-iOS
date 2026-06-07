@@ -52,6 +52,7 @@ struct NoteMediaPlaceholderView: View {
 }
 
 struct NoteBlurRevealContainer<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
     let cornerRadius: CGFloat
     let onReveal: () -> Void
@@ -85,7 +86,7 @@ struct NoteBlurRevealContainer<Content: View>: View {
                 Text("Tap to reveal")
                     .font(.footnote.weight(.semibold))
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(revealPillForeground)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
@@ -119,11 +120,27 @@ struct NoteBlurRevealContainer<Content: View>: View {
                         )
                 }
             )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(revealPillStroke, lineWidth: 0.5)
+            )
             .shadow(color: Color.black.opacity(0.18), radius: 14, x: 0, y: 8)
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .onTapGesture(perform: onReveal)
         .accessibilityLabel("Reveal media")
+    }
+
+    private var effectiveColorScheme: ColorScheme {
+        appSettings.preferredColorScheme ?? colorScheme
+    }
+
+    private var revealPillForeground: Color {
+        effectiveColorScheme == .light ? .black : .white
+    }
+
+    private var revealPillStroke: Color {
+        effectiveColorScheme == .light ? Color.black.opacity(0.08) : Color.white.opacity(0.16)
     }
 }
