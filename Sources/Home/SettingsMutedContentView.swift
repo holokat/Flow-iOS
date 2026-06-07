@@ -73,7 +73,7 @@ struct SettingsMutedContentView: View {
         Section {
             Toggle("Hide spam replies", isOn: spamReplyFilterBinding)
 
-            Text("Halo uses an on-device large language model to learn which replies are spam. This only applies to replies and not to any feeds.")
+            Text("Halo uses an on-device spam classifier to hide likely spam replies. This only applies to replies and not to any feeds.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
