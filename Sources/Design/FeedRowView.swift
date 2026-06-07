@@ -502,7 +502,6 @@ struct FeedRowView: View {
                 event: item.displayEvent,
                 reactionCount: showReactions ? visibleReactionCount : 0,
                 commentCount: showReactions ? visibleReplyCount : 0,
-                trustedMediaSharerPubkey: item.isRepost ? item.actorPubkey : nil,
                 articleAuthor: LongFormArticleAuthorSummary(item: item),
                 onHashtagTap: onHashtagTap,
                 onProfileTap: onProfileTap,

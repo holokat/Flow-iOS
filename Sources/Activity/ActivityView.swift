@@ -778,8 +778,8 @@ struct ActivityRowCell: View {
         switch item.previewDisplay {
         case .text(let previewText):
             ActivitySnippetText(text: previewText)
-        case .image(let imageURL):
-            ActivityPreviewThumbnail(url: imageURL)
+        case .image(let imageURL, let authorPubkey):
+            ActivityPreviewThumbnail(url: imageURL, authorPubkey: authorPubkey)
         case .mediaPlaceholder, .none:
             EmptyView()
         }
@@ -807,11 +807,54 @@ struct ActivityRowCell: View {
 }
 
 private struct ActivityPreviewThumbnail: View {
+    @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
+    @ObservedObject private var followStore = FollowStore.shared
 
     let url: URL
+    let authorPubkey: String
+    @State private var revealsBlurredThumbnail = false
 
     var body: some View {
+        Group {
+            if shouldBlurThumbnail {
+                blurredThumbnailContent
+            } else {
+                thumbnailContent
+            }
+        }
+        .frame(width: 30, height: 30)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(appSettings.themePalette.chromeBorder, lineWidth: 0.7)
+        }
+    }
+
+    private var blurredThumbnailContent: some View {
+        ZStack {
+            thumbnailContent
+                .compositingGroup()
+                .blur(radius: 10)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.black.opacity(0.2))
+                }
+                .allowsHitTesting(false)
+
+            Image(systemName: "eye.slash.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onTapGesture {
+            revealsBlurredThumbnail = true
+        }
+        .accessibilityLabel("Reveal media")
+    }
+
+    private var thumbnailContent: some View {
         CachedAsyncImage(url: url) { phase in
             switch phase {
             case .success(let image):
@@ -828,12 +871,21 @@ private struct ActivityPreviewThumbnail: View {
                     }
             }
         }
-        .frame(width: 30, height: 30)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(appSettings.themePalette.chromeBorder, lineWidth: 0.7)
-        }
+    }
+
+    private var shouldBlurThumbnail: Bool {
+        guard appSettings.blurMediaFromUnfollowedAuthors else { return false }
+        guard !revealsBlurredThumbnail else { return false }
+        let normalizedAuthor = normalizedPubkey(authorPubkey)
+        guard !normalizedAuthor.isEmpty else { return false }
+        guard normalizedAuthor != normalizedPubkey(auth.currentAccount?.pubkey) else { return false }
+        return !followStore.isFollowing(normalizedAuthor)
+    }
+
+    private func normalizedPubkey(_ pubkey: String?) -> String {
+        pubkey?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
     }
 }
 

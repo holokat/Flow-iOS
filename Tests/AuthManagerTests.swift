@@ -286,7 +286,10 @@ final class ActivityRowThreadMutePreviewTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(row.previewDisplay, ActivityRowPreviewDisplay.image(imageURL))
+        XCTAssertEqual(
+            row.previewDisplay,
+            ActivityRowPreviewDisplay.image(imageURL, authorPubkey: targetEvent.pubkey)
+        )
     }
 
     func testReactionToVideoOnlyNoteKeepsMediaFallback() {

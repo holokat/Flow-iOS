@@ -344,7 +344,7 @@ struct ActivityRow: Identifiable, Hashable, Sendable {
 enum ActivityRowPreviewDisplay: Equatable, Sendable {
     case none
     case text(String)
-    case image(URL)
+    case image(URL, authorPubkey: String)
     case mediaPlaceholder
 }
 
@@ -515,7 +515,7 @@ private func mediaPreviewDisplay(for event: NostrEvent?) -> ActivityRowPreviewDi
     guard let event else { return nil }
 
     if let imageURL = NoteContentParser.imageURLs(in: event).first {
-        return .image(imageURL)
+        return .image(imageURL, authorPubkey: event.pubkey)
     }
 
     if event.hasMedia {

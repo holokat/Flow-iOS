@@ -23,7 +23,7 @@ final class ActivityRowPreviewDisplayTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(row.previewDisplay, .image(imageURL))
+        XCTAssertEqual(row.previewDisplay, .image(imageURL, authorPubkey: targetEvent.pubkey))
     }
 
     func testReactionToVideoOnlyNoteKeepsMediaFallback() {
@@ -47,6 +47,32 @@ final class ActivityRowPreviewDisplayTests: XCTestCase {
         )
 
         XCTAssertEqual(row.previewDisplay, .mediaPlaceholder)
+    }
+
+    func testImageOnlyReplyPreviewCarriesReplyAuthorPubkey() {
+        let imageURL = URL(string: "https://cdn.example.com/reply.jpg")!
+        let rootEventID = hex("3")
+        let replyAuthorPubkey = hex("4")
+        let replyEvent = makeEvent(
+            id: hex("5"),
+            pubkey: replyAuthorPubkey,
+            kind: 1,
+            tags: [["e", rootEventID, "", "reply"]],
+            content: imageURL.absoluteString
+        )
+        let row = ActivityRow(
+            event: replyEvent,
+            actor: ActivityActor(pubkey: replyAuthorPubkey, profile: nil),
+            action: .reply(kind: 1),
+            target: ActivityTargetNote(
+                reference: .eventID(rootEventID),
+                event: nil,
+                profile: nil,
+                snippet: ""
+            )
+        )
+
+        XCTAssertEqual(row.previewDisplay, .image(imageURL, authorPubkey: replyAuthorPubkey))
     }
 
     func testReplyPreviewUsesConversationIDForThreadMuting() {

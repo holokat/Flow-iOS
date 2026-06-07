@@ -175,7 +175,6 @@ struct NoteContentView: View {
     private let onProfileTap: ((String) -> Void)?
     private let onReferencedEventTap: ((FeedItem) -> Void)?
     private let onRelayTap: ((URL) -> Void)?
-    private let trustedMediaSharerPubkey: String?
     private let mediaLayout: NoteContentMediaLayout
     private let reactionCount: Int
     private let commentCount: Int
@@ -206,7 +205,6 @@ struct NoteContentView: View {
         reactionCount: Int = 0,
         commentCount: Int = 0,
         embedDepth: Int = 0,
-        trustedMediaSharerPubkey: String? = nil,
         articleAuthor: LongFormArticleAuthorSummary? = nil,
         onHashtagTap: ((String) -> Void)? = nil,
         onProfileTap: ((String) -> Void)? = nil,
@@ -241,7 +239,6 @@ struct NoteContentView: View {
         self.onProfileTap = onProfileTap
         self.onReferencedEventTap = onReferencedEventTap
         self.onRelayTap = onRelayTap
-        self.trustedMediaSharerPubkey = trustedMediaSharerPubkey
         self.mediaLayout = mediaLayout
         self.reactionCount = reactionCount
         self.commentCount = commentCount
@@ -482,7 +479,6 @@ struct NoteContentView: View {
         let authorPubkey = normalizedMediaAuthorPubkey(sourceEvent.pubkey)
         let normalizedCurrentPubkey = normalizedMediaAuthorPubkey(currentPubkey)
         guard !authorPubkey.isEmpty, authorPubkey != normalizedCurrentPubkey else { return false }
-        guard !isTrustedMediaSharerFollowed(by: normalizedCurrentPubkey) else { return false }
 
         return !followStore.isFollowing(authorPubkey)
     }
@@ -491,12 +487,6 @@ struct NoteContentView: View {
         pubkey?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
-    }
-
-    private func isTrustedMediaSharerFollowed(by currentPubkey: String) -> Bool {
-        let sharerPubkey = normalizedMediaAuthorPubkey(trustedMediaSharerPubkey)
-        guard !sharerPubkey.isEmpty, sharerPubkey != currentPubkey else { return true }
-        return followStore.isFollowing(sharerPubkey)
     }
 
     private var inlineCharacterCount: Int {
