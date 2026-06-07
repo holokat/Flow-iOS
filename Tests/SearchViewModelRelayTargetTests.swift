@@ -40,4 +40,19 @@ final class SearchViewModelRelayTargetTests: XCTestCase {
         XCTAssertFalse(targets.contains("wss://nos.lol/"))
         XCTAssertFalse(targets.contains("wss://relay.damus.io/"))
     }
+
+    func testKeywordSearchRelayTargetsDoNotIncludeSlowOrProfileOnlySearchRelays() throws {
+        let viewModel = SearchViewModel(
+            relayURL: try XCTUnwrap(URL(string: "wss://relay.damus.io/"))
+        )
+
+        let targets = viewModel.keywordSearchRelayTargetsForTesting().map {
+            $0.absoluteString.lowercased()
+        }
+
+        XCTAssertFalse(targets.contains("wss://search.nostrarchives.com"))
+        XCTAssertFalse(targets.contains("wss://indexer.nostrarchives.com/"))
+        XCTAssertFalse(targets.contains("wss://indexer.coracle.social/"))
+        XCTAssertFalse(targets.contains("wss://relay.nos.social/"))
+    }
 }

@@ -65,7 +65,11 @@ final class SearchViewModel: ObservableObject {
         URL(string: "wss://relay.dreamith.to/")
     ].compactMap { $0 }
 
-    private static var searchableRelayURLs: [URL] {
+    private static var noteSearchRelayURLs: [URL] {
+        normalizedRelayURLs(dittoSearchRelayURLs)
+    }
+
+    private static var profileSearchableRelayURLs: [URL] {
         normalizedRelayURLs(
             dittoSearchRelayURLs + [
                 NostrFeedService.nostrArchivesSearchRelayURL,
@@ -1064,7 +1068,7 @@ final class SearchViewModel: ObservableObject {
     }
 
     private func keywordSearchRelayTargets() -> [URL] {
-        Self.searchableRelayURLs
+        Self.noteSearchRelayURLs
     }
 
     private func fallbackKeywordSearchRelayTargets() -> [URL] {
@@ -1080,7 +1084,7 @@ final class SearchViewModel: ObservableObject {
     }
 
     private func profileSearchRelayTargets() -> [URL] {
-        Self.normalizedRelayURLs(Self.searchableRelayURLs + [VertexProfileSearchService.relayURL] + Self.bigRelayURLs + readRelayURLs)
+        Self.normalizedRelayURLs(Self.profileSearchableRelayURLs + [VertexProfileSearchService.relayURL] + Self.bigRelayURLs + readRelayURLs)
     }
 
     private func profileMatchesQuery(profile: NostrProfile, pubkey: String, query: String) -> Bool {
