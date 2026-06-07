@@ -523,6 +523,9 @@ final class ActivityViewModel: ObservableObject {
         if AppSettingsStore.shared.isSpamReplySafelisted(pubkey) {
             return false
         }
+        if spamScoreTasks[pubkey] != nil {
+            return true
+        }
         return (spamAuthorScores[pubkey] ?? 0) >= Self.spamThreshold
     }
 
@@ -537,7 +540,7 @@ final class ActivityViewModel: ObservableObject {
         let settings = AppSettingsStore.shared
         let markedSpamPubkeys = settings.spamFilterMarkedPubkeys
         let notSpamPubkeys = settings.spamReplyFilterSafelistedPubkeys
-        var candidates = Set<String>()
+        var seedNotesByPubkey: [String: [NSpamNoteInput]] = [:]
 
         for item in sourceItems {
             guard case .reply = item.action else { continue }
@@ -549,16 +552,17 @@ final class ActivityViewModel: ObservableObject {
             guard spamAuthorScores[pubkey] == nil else { continue }
             guard spamScoreTasks[pubkey] == nil else { continue }
             guard !spamScoreAttemptedPubkeys.contains(pubkey) else { continue }
-            candidates.insert(pubkey)
+            seedNotesByPubkey[pubkey, default: []].append(NSpamNoteInput(event: item.event))
         }
 
-        for pubkey in candidates {
+        for (pubkey, seedNotes) in seedNotesByPubkey {
             spamScoreAttemptedPubkeys.insert(pubkey)
             let task = Task { [weak self] in
                 let score = await NSpamAuthorScorer.shared.scoreAuthor(
                     pubkey: pubkey,
                     markedSpamPubkeys: markedSpamPubkeys,
-                    notSpamPubkeys: notSpamPubkeys
+                    notSpamPubkeys: notSpamPubkeys,
+                    seedNotes: seedNotes
                 )
                 await MainActor.run {
                     guard let self else { return }

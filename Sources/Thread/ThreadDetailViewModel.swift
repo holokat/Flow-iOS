@@ -435,7 +435,7 @@ final class ThreadDetailViewModel: ObservableObject {
 
         var visibleReplies: [FeedItem] = []
         var hiddenReplies: [FeedItem] = []
-        var pubkeysToScore = Set<String>()
+        var seedNotesByPubkey: [String: [NSpamNoteInput]] = [:]
 
         for item in allReplies {
             let pubkey = normalizedPubkey(item.displayAuthorPubkey)
@@ -459,9 +459,13 @@ final class ThreadDetailViewModel: ObservableObject {
                     visibleReplies.append(item)
                 }
             } else {
-                visibleReplies.append(item)
-                if spamScoreTasks[pubkey] == nil, !spamScoreAttemptedPubkeys.contains(pubkey) {
-                    pubkeysToScore.insert(pubkey)
+                if spamScoreTasks[pubkey] != nil || !spamScoreAttemptedPubkeys.contains(pubkey) {
+                    hiddenReplies.append(item)
+                    if !spamScoreAttemptedPubkeys.contains(pubkey) {
+                        seedNotesByPubkey[pubkey, default: []].append(Self.spamNoteInput(for: item))
+                    }
+                } else {
+                    visibleReplies.append(item)
                 }
             }
         }
@@ -473,7 +477,7 @@ final class ThreadDetailViewModel: ObservableObject {
             isSpamRepliesExpanded = false
         }
 
-        scheduleSpamScoring(for: pubkeysToScore)
+        scheduleSpamScoring(seedNotesByPubkey: seedNotesByPubkey)
     }
 
     private func shouldEvaluateForSpam(pubkey: String) -> Bool {
@@ -493,18 +497,19 @@ final class ThreadDetailViewModel: ObservableObject {
         return true
     }
 
-    private func scheduleSpamScoring(for pubkeys: Set<String>) {
+    private func scheduleSpamScoring(seedNotesByPubkey: [String: [NSpamNoteInput]]) {
         let settings = AppSettingsStore.shared
         let markedSpamPubkeys = settings.spamFilterMarkedPubkeys
         let notSpamPubkeys = settings.spamReplyFilterSafelistedPubkeys
-        for pubkey in pubkeys where !pubkey.isEmpty {
+        for (pubkey, seedNotes) in seedNotesByPubkey where !pubkey.isEmpty {
             guard spamScoreTasks[pubkey] == nil else { continue }
             spamScoreAttemptedPubkeys.insert(pubkey)
             let task = Task { [weak self] in
                 _ = await NSpamAuthorScorer.shared.scoreAuthor(
                     pubkey: pubkey,
                     markedSpamPubkeys: markedSpamPubkeys,
-                    notSpamPubkeys: notSpamPubkeys
+                    notSpamPubkeys: notSpamPubkeys,
+                    seedNotes: seedNotes
                 )
                 await MainActor.run {
                     guard let self else { return }
@@ -516,6 +521,10 @@ final class ThreadDetailViewModel: ObservableObject {
             }
             spamScoreTasks[pubkey] = task
         }
+    }
+
+    private static func spamNoteInput(for item: FeedItem) -> NSpamNoteInput {
+        NSpamNoteInput(event: item.displayEvent)
     }
 
     private func pruneMutedItems(

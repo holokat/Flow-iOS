@@ -6,6 +6,16 @@ struct NSpamNoteInput: Sendable {
     let createdAt: Int
 }
 
+extension NSpamNoteInput {
+    init(event: NostrEvent) {
+        self.init(
+            content: event.content,
+            tags: event.tags,
+            createdAt: event.createdAt
+        )
+    }
+}
+
 private struct NSpamPreparedText {
     let text: String
     let rawText: String
@@ -720,6 +730,8 @@ actor NSpamAuthorScorer {
     private let cache = NSpamAuthorCache()
     private var classifier: NSpamClassifier?
     private var didAttemptClassifierLoad = false
+    private static let scorableKinds = [1, 1111, 1244]
+    private static let maxCachedNotesPerAuthor = 10
 
     func cachedScore(
         for pubkey: String,
@@ -744,7 +756,8 @@ actor NSpamAuthorScorer {
     func scoreAuthor(
         pubkey: String,
         markedSpamPubkeys: [String] = [],
-        notSpamPubkeys: [String] = []
+        notSpamPubkeys: [String] = [],
+        seedNotes: [NSpamNoteInput] = []
     ) async -> Float? {
         let normalized = normalizedPubkey(pubkey)
         guard !normalized.isEmpty else { return nil }
@@ -761,9 +774,25 @@ actor NSpamAuthorScorer {
             )
             return exactScore
         }
-        let notes = cachedNoteInputs(for: normalized)
-        guard !notes.isEmpty, let classifier = classifierIfAvailable() else { return nil }
-        guard let score = classifier.score(notes: notes) else { return nil }
+        let notes = mergedNoteInputs(seedNotes: seedNotes, cachedNotes: cachedNoteInputs(for: normalized))
+        guard !notes.isEmpty, let classifier = classifierIfAvailable() else {
+            await cache.put(
+                pubkey: normalized,
+                score: 0,
+                noteCount: notes.count,
+                personalizationSignature: labels.signature
+            )
+            return 0
+        }
+        guard let score = classifier.score(notes: notes) else {
+            await cache.put(
+                pubkey: normalized,
+                score: 0,
+                noteCount: notes.count,
+                personalizationSignature: labels.signature
+            )
+            return 0
+        }
         let adjustedScore = personalizedScore(
             baseScore: score,
             candidatePubkey: normalized,
@@ -777,6 +806,34 @@ actor NSpamAuthorScorer {
             personalizationSignature: labels.signature
         )
         return adjustedScore
+    }
+
+    func cachedNoteCountForTesting(pubkey: String) -> Int {
+        cachedNoteInputs(for: pubkey).count
+    }
+
+    private nonisolated func mergedNoteInputs(
+        seedNotes: [NSpamNoteInput],
+        cachedNotes: [NSpamNoteInput]
+    ) -> [NSpamNoteInput] {
+        var seen = Set<String>()
+        var merged: [NSpamNoteInput] = []
+        merged.reserveCapacity(seedNotes.count + cachedNotes.count)
+
+        for note in (seedNotes + cachedNotes).sorted(by: { $0.createdAt > $1.createdAt }) {
+            let key = [
+                String(note.createdAt),
+                note.content,
+                note.tags.flatMap { $0 }.joined(separator: "\u{1f}")
+            ].joined(separator: "\u{1e}")
+            guard seen.insert(key).inserted else { continue }
+            merged.append(note)
+            if merged.count >= Self.maxCachedNotesPerAuthor {
+                break
+            }
+        }
+
+        return merged
     }
 
     private func classifierIfAvailable() -> NSpamClassifier? {
@@ -815,7 +872,21 @@ actor NSpamAuthorScorer {
     private nonisolated func cachedNoteInputs(for pubkey: String) -> [NSpamNoteInput] {
         let normalized = normalizedPubkey(pubkey)
         guard !normalized.isEmpty else { return [] }
-        return []
+        let filter = NostrFilter(
+            authors: [normalized],
+            kinds: Self.scorableKinds,
+            limit: Self.maxCachedNotesPerAuthor
+        )
+        let events = FlowNostrDB.shared.queryEvents(filter: filter) ?? []
+        return events
+            .sorted { lhs, rhs in
+                if lhs.createdAt == rhs.createdAt {
+                    return lhs.id > rhs.id
+                }
+                return lhs.createdAt > rhs.createdAt
+            }
+            .prefix(Self.maxCachedNotesPerAuthor)
+            .map(NSpamNoteInput.init(event:))
     }
 
     private nonisolated func normalizedPubkey(_ value: String) -> String {
