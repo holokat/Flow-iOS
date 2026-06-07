@@ -87,6 +87,17 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(source.contains("LazyHStack(spacing: feedGallerySpacing)"))
     }
 
+    func testWebsiteLinkCardsDoNotRequestInfiniteFeedWidth() throws {
+        let source = try Self.sourceText(at: "Sources/Design/NoteContentLinkPreviewSupport.swift")
+        let start = try XCTUnwrap(source.range(of: "struct WebsiteLinkCardView: View")?.lowerBound)
+        let end = try XCTUnwrap(source.range(of: "struct YouTubeInlinePlayerView: View")?.lowerBound)
+        let cardSource = String(source[start..<end])
+
+        XCTAssertTrue(cardSource.contains("private static let compactFeedChromeAllowance"))
+        XCTAssertTrue(cardSource.contains("private var boundedCardWidth: CGFloat"))
+        XCTAssertFalse(cardSource.contains(".frame(maxWidth: .infinity"))
+    }
+
     func testProfileHeaderWidthUsesFiniteProposal() {
         XCTAssertEqual(
             ProfileHeaderLayoutGuardrails.boundedWidth(

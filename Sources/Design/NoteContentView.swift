@@ -383,7 +383,8 @@ struct NoteContentView: View {
                         WebsiteLinkCardView(
                             url: websitePreviewURL,
                             backgroundColor: appSettings.themePalette.linkPreviewBackground,
-                            borderColor: appSettings.themePalette.linkPreviewBorder
+                            borderColor: appSettings.themePalette.linkPreviewBorder,
+                            layout: mediaLayout
                         )
                     }
 

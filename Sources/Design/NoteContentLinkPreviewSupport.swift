@@ -5,17 +5,28 @@ import WebKit
 struct WebsiteLinkCardView: View {
     private static let cornerRadius: CGFloat = 14
     private static let horizontalImageAspectRatio: CGFloat = 16.0 / 9.0
+    private static let maximumFeedColumnWidth: CGFloat = 360
+    private static let maximumDetailColumnWidth: CGFloat = 620
+    private static let compactFeedChromeAllowance: CGFloat = 118
+    private static let detailChromeAllowance: CGFloat = 48
 
     @EnvironmentObject private var appSettings: AppSettingsStore
     let url: URL
     let backgroundColor: Color
     let borderColor: Color
+    let layout: NoteContentMediaLayout
     @StateObject private var loader: LinkMetadataLoader
 
-    init(url: URL, backgroundColor: Color, borderColor: Color) {
+    init(
+        url: URL,
+        backgroundColor: Color,
+        borderColor: Color,
+        layout: NoteContentMediaLayout = .feed
+    ) {
         self.url = url
         self.backgroundColor = backgroundColor
         self.borderColor = borderColor
+        self.layout = layout
         _loader = StateObject(wrappedValue: LinkMetadataLoader(url: url))
     }
 
@@ -30,6 +41,7 @@ struct WebsiteLinkCardView: View {
         .onDisappear {
             loader.cancelPendingLoad()
         }
+        .frame(maxWidth: boundedCardWidth, alignment: .leading)
     }
 
     @ViewBuilder
@@ -42,14 +54,14 @@ struct WebsiteLinkCardView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 11)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: boundedCardWidth, alignment: .leading)
             .background(backgroundColor)
             .clipShape(cardShape)
             .overlay(cardShape.stroke(borderColor, lineWidth: 0.7))
         } else {
             metadataBlock
                 .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: boundedCardWidth, alignment: .leading)
                 .background(backgroundColor)
                 .clipShape(cardShape)
                 .overlay(cardShape.stroke(borderColor, lineWidth: 0.7))
@@ -67,7 +79,7 @@ struct WebsiteLinkCardView: View {
                     .scaledToFill()
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: boundedCardWidth)
         .aspectRatio(Self.horizontalImageAspectRatio, contentMode: .fit)
         .clipped()
         .accessibilityHidden(true)
@@ -136,6 +148,18 @@ struct WebsiteLinkCardView: View {
         loader.image != nil || !loader.hasResolvedMetadata
     }
 
+    private var boundedCardWidth: CGFloat {
+        let screenWidth = UIScreen.main.bounds.width
+        let chromeAllowance = layout == .feed ? Self.compactFeedChromeAllowance : Self.detailChromeAllowance
+        let maximumWidth = layout == .feed ? Self.maximumFeedColumnWidth : Self.maximumDetailColumnWidth
+
+        guard screenWidth.isFinite, screenWidth > chromeAllowance else {
+            return maximumWidth
+        }
+
+        return min(screenWidth - chromeAllowance, maximumWidth)
+    }
+
     private var displayTitle: String {
         loader.title ?? fallbackTitle
     }
@@ -193,7 +217,8 @@ struct YouTubeInlinePlayerView: View {
             WebsiteLinkCardView(
                 url: url,
                 backgroundColor: appSettings.themePalette.linkPreviewBackground,
-                borderColor: appSettings.themePalette.linkPreviewBorder
+                borderColor: appSettings.themePalette.linkPreviewBorder,
+                layout: layout
             )
         }
     }
