@@ -37,6 +37,9 @@ struct SearchView: View {
         let visibleItems = viewModel.visibleItems
         let visibleProfiles = viewModel.displayedProfiles
         let visibleReplyCounts = ReplyCountEstimator.counts(for: visibleItems)
+        let hasVisibleResults = viewModel.selectedScope == .people
+            ? !visibleProfiles.isEmpty
+            : !visibleItems.isEmpty
 
         NavigationStack {
             ZStack {
@@ -44,21 +47,7 @@ struct SearchView: View {
                     .ignoresSafeArea()
 
                 List {
-                    if let suggestion = viewModel.suggestedContentSearch {
-                        searchActionRow(suggestion)
-                            .listRowInsets(
-                                EdgeInsets(
-                                    top: 8,
-                                    leading: Self.feedHorizontalInset,
-                                    bottom: 8,
-                                    trailing: Self.feedHorizontalInset
-                                )
-                            )
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-
-                    if viewModel.isLoading && !viewModel.hasAnySearchResults {
+                    if viewModel.isLoading && !hasVisibleResults {
                         ForEach(0..<6, id: \.self) { _ in
                             loadingRow
                                 .listRowInsets(
@@ -73,67 +62,70 @@ struct SearchView: View {
                                 .listRowBackground(Color.clear)
                         }
                     } else {
-                        if !visibleProfiles.isEmpty {
-                            Section {
-                                ForEach(visibleProfiles) { profile in
-                                    profileResultRow(profile)
-                                        .listRowInsets(
-                                            EdgeInsets(
-                                                top: 8,
-                                                leading: Self.feedHorizontalInset,
-                                                bottom: 8,
-                                                trailing: Self.feedHorizontalInset
-                                            )
-                                        )
-                                        .listRowSeparator(.visible)
-                                        .listRowSeparatorTint(appSettings.themePalette.chromeBorder)
-                                        .listRowBackground(Color.clear)
-                                }
-                            } header: {
-                                Text(viewModel.isSearching ? "People" : "Suggestions")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                                    .textCase(nil)
-                            }
-                        }
-
-                        if let activeContentSearch = viewModel.activeContentSearch {
-                            if visibleItems.isEmpty {
-                                notesEmptyState(activeContentSearch)
-                                    .listRowInsets(
-                                        EdgeInsets(
-                                            top: 0,
-                                            leading: Self.feedHorizontalInset,
-                                            bottom: 0,
-                                            trailing: Self.feedHorizontalInset
-                                        )
-                                    )
-                                    .listRowSeparator(.hidden)
-                                    .listRowBackground(Color.clear)
-                            } else {
+                        switch viewModel.selectedScope {
+                        case .people:
+                            if !visibleProfiles.isEmpty {
                                 Section {
-                                    ForEach(visibleItems) { item in
-                                        noteResultRow(item, visibleReplyCounts: visibleReplyCounts)
+                                    ForEach(visibleProfiles) { profile in
+                                        profileResultRow(profile)
+                                            .listRowInsets(
+                                                EdgeInsets(
+                                                    top: 8,
+                                                    leading: Self.feedHorizontalInset,
+                                                    bottom: 8,
+                                                    trailing: Self.feedHorizontalInset
+                                                )
+                                            )
+                                            .listRowSeparator(.visible)
+                                            .listRowSeparatorTint(appSettings.themePalette.chromeBorder)
+                                            .listRowBackground(Color.clear)
                                     }
                                 } header: {
-                                    Text(activeContentSearch.sectionTitle)
+                                    Text(viewModel.isSearching ? "People" : "Suggestions")
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(appSettings.themePalette.secondaryForeground)
                                         .textCase(nil)
                                 }
-                            }
-                        } else if visibleProfiles.isEmpty {
-                            emptyState
-                            .listRowInsets(
-                                EdgeInsets(
-                                    top: 0,
-                                    leading: Self.feedHorizontalInset,
-                                    bottom: 0,
-                                    trailing: Self.feedHorizontalInset
+                            } else {
+                                emptyState
+                                .listRowInsets(
+                                    EdgeInsets(
+                                        top: 0,
+                                        leading: Self.feedHorizontalInset,
+                                        bottom: 0,
+                                        trailing: Self.feedHorizontalInset
+                                    )
                                 )
-                            )
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                            }
+                        case .notes:
+                            if let activeContentSearch = viewModel.activeContentSearch {
+                                if visibleItems.isEmpty {
+                                    notesEmptyState(activeContentSearch)
+                                        .listRowInsets(
+                                            EdgeInsets(
+                                                top: 0,
+                                                leading: Self.feedHorizontalInset,
+                                                bottom: 0,
+                                                trailing: Self.feedHorizontalInset
+                                            )
+                                        )
+                                        .listRowSeparator(.hidden)
+                                        .listRowBackground(Color.clear)
+                                } else {
+                                    Section {
+                                        ForEach(visibleItems) { item in
+                                            noteResultRow(item, visibleReplyCounts: visibleReplyCounts)
+                                        }
+                                    } header: {
+                                        Text(activeContentSearch.sectionTitle)
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                                            .textCase(nil)
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -156,7 +148,7 @@ struct SearchView: View {
                         .listRowBackground(Color.clear)
                     }
 
-                    if !visibleItems.isEmpty || viewModel.isLoadingMore {
+                    if viewModel.selectedScope == .notes && (!visibleItems.isEmpty || viewModel.isLoadingMore) {
                         Color.clear
                             .frame(height: Self.bottomScrollClearance)
                             .listRowInsets(EdgeInsets())
@@ -191,7 +183,17 @@ struct SearchView: View {
                 }
                 .onChange(of: viewModel.searchText) { _, _ in
                     viewModel.handleSearchTextChanged()
-                    if viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if viewModel.selectedScope == .people &&
+                        viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Task {
+                            await viewModel.loadIfNeeded()
+                        }
+                    }
+                }
+                .onChange(of: viewModel.selectedScope) { _, _ in
+                    viewModel.handleSearchScopeChanged()
+                    if viewModel.selectedScope == .people &&
+                        viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Task {
                             await viewModel.loadIfNeeded()
                         }
@@ -267,9 +269,13 @@ struct SearchView: View {
     }
 
     private var searchBar: some View {
-        SearchBarSection(searchText: $viewModel.searchText) {
+        SearchBarSection(
+            searchText: $viewModel.searchText,
+            selectedScope: $viewModel.selectedScope,
+            placeholder: viewModel.selectedScope.placeholder
+        ) {
             Task {
-                await viewModel.activateSuggestedContentSearch()
+                await viewModel.submitSearch()
             }
         }
     }

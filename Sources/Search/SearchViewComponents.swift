@@ -224,8 +224,21 @@ struct SearchBarSection: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     @Binding var searchText: String
-    var placeholder = "Search notes, profiles, and hashtags"
+    private let selectedScope: Binding<SearchViewModel.SearchScope>?
+    let placeholder: String
     let onSubmit: () -> Void
+
+    init(
+        searchText: Binding<String>,
+        selectedScope: Binding<SearchViewModel.SearchScope>? = nil,
+        placeholder: String = "Search",
+        onSubmit: @escaping () -> Void
+    ) {
+        _searchText = searchText
+        self.selectedScope = selectedScope
+        self.placeholder = placeholder
+        self.onSubmit = onSubmit
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -277,6 +290,18 @@ struct SearchBarSection: View {
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .padding(.bottom, 10)
+
+            if let selectedScope {
+                Picker("Search", selection: selectedScope) {
+                    ForEach(SearchViewModel.SearchScope.allCases) { scope in
+                        Text(scope.title)
+                            .tag(scope)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+            }
         }
     }
 

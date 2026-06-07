@@ -55,4 +55,29 @@ final class SearchViewModelRelayTargetTests: XCTestCase {
         XCTAssertFalse(targets.contains("wss://indexer.coracle.social/"))
         XCTAssertFalse(targets.contains("wss://relay.nos.social/"))
     }
+
+    func testNotesScopeRoutesPlainQueryToNoteSearch() throws {
+        let viewModel = SearchViewModel(
+            relayURL: try XCTUnwrap(URL(string: "wss://relay.damus.io/"))
+        )
+
+        viewModel.selectedScope = .notes
+        viewModel.searchText = "bitcoin"
+
+        XCTAssertEqual(
+            viewModel.contentSearchKindForCurrentModeForTesting(),
+            .notes(query: "bitcoin")
+        )
+    }
+
+    func testPeopleScopeDoesNotRoutePlainQueryToNoteSearch() throws {
+        let viewModel = SearchViewModel(
+            relayURL: try XCTUnwrap(URL(string: "wss://relay.damus.io/"))
+        )
+
+        viewModel.selectedScope = .people
+        viewModel.searchText = "bitcoin"
+
+        XCTAssertNil(viewModel.contentSearchKindForCurrentModeForTesting())
+    }
 }

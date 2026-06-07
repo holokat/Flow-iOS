@@ -14,6 +14,7 @@ final class SearchViewModel: ObservableObject {
     }
 
     @Published var searchText = ""
+    @Published var selectedScope: SearchScope = .people
     @Published private(set) var trendingNotes: [FeedItem] = [] {
         didSet {
             trendingNotesRevision &+= 1
@@ -195,12 +196,11 @@ final class SearchViewModel: ObservableObject {
 
     func handleSearchTextChanged() {
         searchTask?.cancel()
-        activeContentSearch = nil
-        searchedNotes = []
 
         let query = searchQuery
         guard !query.isEmpty else {
             latestSearchRequestID = UUID()
+            activeContentSearch = nil
             searchedNotes = []
             profileMatches = []
             errorMessage = nil
@@ -208,22 +208,37 @@ final class SearchViewModel: ObservableObject {
             return
         }
 
-        profileMatches = []
+        switch selectedScope {
+        case .people:
+            activeContentSearch = nil
+            searchedNotes = []
+            profileMatches = []
+        case .notes:
+            profileMatches = []
+            searchedNotes = []
+        }
+
         errorMessage = nil
 
-        if supportsContentSearch, query.eventReference != nil {
+        switch selectedScope {
+        case .people:
             searchTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 220_000_000)
+                try? await Task.sleep(nanoseconds: 320_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.performProfileSearch()
+            }
+        case .notes:
+            guard contentSearchKindForCurrentMode() != nil else {
+                activeContentSearch = nil
+                isLoading = false
+                return
+            }
+            isLoading = true
+            searchTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 320_000_000)
                 guard !Task.isCancelled else { return }
                 await self?.activateSuggestedContentSearch()
             }
-            return
-        }
-
-        searchTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 320_000_000)
-            guard !Task.isCancelled else { return }
-            await self?.performProfileSearch()
         }
     }
 
@@ -248,7 +263,12 @@ final class SearchViewModel: ObservableObject {
 
     func loadIfNeeded() async {
         if isSearching {
-            await performProfileSearch()
+            switch selectedScope {
+            case .people:
+                await performProfileSearch()
+            case .notes:
+                await activateSuggestedContentSearch()
+            }
             return
         }
 
@@ -259,7 +279,9 @@ final class SearchViewModel: ObservableObject {
 
     func refresh() async {
         if isSearching {
-            if activeContentSearch == nil {
+            if selectedScope == .notes {
+                await activateSuggestedContentSearch()
+            } else if activeContentSearch == nil {
                 await performProfileSearch()
             } else {
                 await activateSuggestedContentSearch()
@@ -289,6 +311,32 @@ final class SearchViewModel: ObservableObject {
     func activateSuggestedContentSearch() async {
         guard let suggestion = suggestedContentSearch else { return }
         await performContentSearch(suggestion)
+    }
+
+    func submitSearch() async {
+        searchTask?.cancel()
+
+        switch selectedScope {
+        case .people:
+            await performProfileSearch()
+        case .notes:
+            await activateSuggestedContentSearch()
+        }
+    }
+
+    func handleSearchScopeChanged() {
+        searchTask?.cancel()
+        errorMessage = nil
+
+        switch selectedScope {
+        case .people:
+            activeContentSearch = nil
+            searchedNotes = []
+        case .notes:
+            profileMatches = []
+        }
+
+        handleSearchTextChanged()
     }
 
     private func refreshPopularProfiles() async {
@@ -371,14 +419,14 @@ final class SearchViewModel: ObservableObject {
             return
         }
 
-        if supportsContentSearch, query.normalizedHashtag != nil {
+        if selectedScope == .notes, supportsContentSearch, query.normalizedHashtag != nil {
             profileMatches = []
             errorMessage = nil
             isLoading = false
             return
         }
 
-        if supportsContentSearch, query.eventReference != nil {
+        if selectedScope == .notes, supportsContentSearch, query.eventReference != nil {
             profileMatches = []
             errorMessage = nil
             isLoading = false
@@ -1077,6 +1125,15 @@ final class SearchViewModel: ObservableObject {
 
     func keywordSearchRelayTargetsForTesting() -> [URL] {
         keywordSearchRelayTargets()
+    }
+
+    func contentSearchKindForCurrentModeForTesting() -> SuggestedContentSearch.Kind? {
+        contentSearchKindForCurrentMode()
+    }
+
+    private func contentSearchKindForCurrentMode() -> SuggestedContentSearch.Kind? {
+        guard selectedScope == .notes, supportsContentSearch else { return nil }
+        return searchQuery.suggestedContentSearch?.kind
     }
 
     private func hashtagSearchRelayTargets() -> [URL] {
