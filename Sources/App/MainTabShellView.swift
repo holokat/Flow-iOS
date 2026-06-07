@@ -711,7 +711,7 @@ struct ScrollChromeLayout {
     static let defaultBottomTabBarHeight: CGFloat = 50
     static let topOfFeedRestoreThreshold: CGFloat = 8
     static let visualOffsetPublishThreshold: CGFloat = 0.5
-    static let dimmedChromeOpacity: Double = 0.15
+    static let dimmedChromeOpacity: Double = 0
 
     static func isBottomTabBarVisible(
         isHomeSideMenuPresented: Bool,
