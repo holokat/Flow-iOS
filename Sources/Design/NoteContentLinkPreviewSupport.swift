@@ -3,7 +3,8 @@ import SwiftUI
 import WebKit
 
 struct WebsiteLinkCardView: View {
-    private static let imageSize: CGFloat = 64
+    private static let cornerRadius: CGFloat = 14
+    private static let horizontalImageAspectRatio: CGFloat = 16.0 / 9.0
 
     @EnvironmentObject private var appSettings: AppSettingsStore
     let url: URL
@@ -20,43 +21,7 @@ struct WebsiteLinkCardView: View {
 
     var body: some View {
         Link(destination: url) {
-            HStack(alignment: .top, spacing: 10) {
-                previewImageSlot
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(FlowLayoutGuardrails.softWrapped(displayTitle))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(appSettings.themePalette.foreground)
-                        .lineLimit(1)
-                        .multilineTextAlignment(.leading)
-                        .redacted(reason: loader.hasResolvedMetadata ? [] : .placeholder)
-
-                    Text(FlowLayoutGuardrails.softWrapped(displayURL, maxNonBreakingRunLength: 18))
-                        .font(.caption)
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                        .lineLimit(1)
-                        .multilineTextAlignment(.leading)
-                        .redacted(reason: loader.hasResolvedMetadata ? [] : .placeholder)
-
-                    Text(FlowLayoutGuardrails.softWrapped(loader.hostDisplay, maxNonBreakingRunLength: 18))
-                        .font(.caption2)
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, minHeight: Self.imageSize, alignment: .topLeading)
-
-                Spacer(minLength: 0)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(backgroundColor)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(borderColor, lineWidth: 0.5)
-            )
+            cardContent
         }
         .buttonStyle(.plain)
         .task(id: url) {
@@ -68,19 +33,76 @@ struct WebsiteLinkCardView: View {
     }
 
     @ViewBuilder
+    private var cardContent: some View {
+        if shouldUseLargeImagePreview {
+            VStack(alignment: .leading, spacing: 0) {
+                previewImageSlot
+
+                metadataBlock
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 11)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(backgroundColor)
+            .clipShape(cardShape)
+            .overlay(cardShape.stroke(borderColor, lineWidth: 0.7))
+        } else {
+            metadataBlock
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(backgroundColor)
+                .clipShape(cardShape)
+                .overlay(cardShape.stroke(borderColor, lineWidth: 0.7))
+        }
+    }
+
+    @ViewBuilder
     private var previewImageSlot: some View {
-        Group {
+        ZStack {
+            placeholderImage
+
             if let image = loader.image {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-            } else {
-                placeholderImage
             }
         }
-        .frame(width: Self.imageSize, height: Self.imageSize)
+        .frame(maxWidth: .infinity)
+        .aspectRatio(Self.horizontalImageAspectRatio, contentMode: .fit)
         .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityHidden(true)
+    }
+
+    private var metadataBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sourceRow
+
+            Text(FlowLayoutGuardrails.softWrapped(displayTitle))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(appSettings.themePalette.foreground)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .redacted(reason: loader.hasResolvedMetadata ? [] : .placeholder)
+        }
+    }
+
+    private var sourceRow: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "link")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                .frame(width: 18, height: 18)
+                .background(appSettings.themePalette.secondaryFill, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+
+            Text(FlowLayoutGuardrails.softWrapped(sourceDisplay, maxNonBreakingRunLength: 18))
+                .font(.caption)
+                .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                .lineLimit(1)
+                .redacted(reason: loader.hasResolvedMetadata ? [] : .placeholder)
+
+            Spacer(minLength: 0)
+        }
     }
 
     private var placeholderImage: some View {
@@ -106,8 +128,21 @@ struct WebsiteLinkCardView: View {
         }
     }
 
+    private var cardShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+    }
+
+    private var shouldUseLargeImagePreview: Bool {
+        loader.image != nil || !loader.hasResolvedMetadata
+    }
+
     private var displayTitle: String {
         loader.title ?? fallbackTitle
+    }
+
+    private var sourceDisplay: String {
+        let host = loader.hostDisplay.trimmingCharacters(in: .whitespacesAndNewlines)
+        return host.isEmpty ? displayURL : host
     }
 
     private var displayURL: String {
