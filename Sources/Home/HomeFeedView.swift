@@ -346,6 +346,7 @@ struct HomeFeedView: View {
     private func feedTopChromeClearance(height: CGFloat) -> some View {
         Color.clear
             .frame(height: max(0, height))
+            .id(Self.feedTopAnchorID)
             .accessibilityHidden(true)
     }
 
@@ -425,7 +426,6 @@ struct HomeFeedView: View {
         if isFirst {
             row
                 .background(feedTopOffsetReader)
-                .id(Self.feedTopAnchorID)
         } else {
             row
         }

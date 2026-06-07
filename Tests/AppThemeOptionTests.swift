@@ -1184,7 +1184,8 @@ final class AppThemeOptionTests: XCTestCase {
         let trackedHeaderRange = try XCTUnwrap(listContent.range(of: "topTrackedRow(feedModeHeaderRow.homeFeedListRow(), isFirst: true)"))
 
         XCTAssertTrue(source.contains("private func topTrackedRow<Row: View>(_ row: Row, isFirst: Bool) -> some View"))
-        XCTAssertTrue(source.contains(".background(feedTopOffsetReader)\n                .id(Self.feedTopAnchorID)"))
+        XCTAssertTrue(source.contains("private func feedTopChromeClearance(height: CGFloat) -> some View {\n        Color.clear\n            .frame(height: max(0, height))\n            .id(Self.feedTopAnchorID)"))
+        XCTAssertFalse(source.contains(".background(feedTopOffsetReader)\n                .id(Self.feedTopAnchorID)"))
         XCTAssertFalse(source.contains("feedTopAnchorRow"))
         XCTAssertFalse(source.contains("feedTopPadding"))
         XCTAssertFalse(source.contains("topContentPadding"))
