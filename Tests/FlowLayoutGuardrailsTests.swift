@@ -77,6 +77,16 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertEqual(size.height, 300, accuracy: 0.0001)
     }
 
+    func testFeedImageGalleryUsesBoundedGridInsteadOfHorizontalCarousel() throws {
+        let source = try Self.sourceText(at: "Sources/Design/NoteImageGalleryView.swift")
+
+        XCTAssertTrue(source.contains("private func feedGallery(_ urls: [URL]) -> some View"))
+        XCTAssertTrue(source.contains("private func feedGridTileWidth(availableWidth: CGFloat) -> CGFloat"))
+        XCTAssertTrue(source.contains("private var deduplicatedImageURLs: [URL]"))
+        XCTAssertFalse(source.contains("ScrollView(.horizontal, showsIndicators: false)"))
+        XCTAssertFalse(source.contains("LazyHStack(spacing: feedGallerySpacing)"))
+    }
+
     func testProfileHeaderWidthUsesFiniteProposal() {
         XCTAssertEqual(
             ProfileHeaderLayoutGuardrails.boundedWidth(

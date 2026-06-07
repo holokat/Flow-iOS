@@ -27,19 +27,21 @@ struct NoteImageGalleryView: View {
     @State private var isPreparingRemixEditor = false
 
     var body: some View {
+        let displayURLs = deduplicatedImageURLs
+
         Group {
-            if imageURLs.count == 1 {
-                singleImageCell(url: imageURLs[0], index: 0)
+            if displayURLs.count == 1 {
+                singleImageCell(url: displayURLs[0], index: 0)
             } else if layout == .feed {
-                feedGallery
+                feedGallery(displayURLs)
             } else {
-                pagedGallery
+                pagedGallery(displayURLs)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .fullScreenCover(item: $selectedImage) { selected in
             NoteImageFullscreenViewer(
-                urls: imageURLs,
+                urls: deduplicatedImageURLs,
                 sourceEvent: sourceEvent,
                 initialIndex: selected.id,
                 reactionCount: reactionCount,
@@ -77,12 +79,40 @@ struct NoteImageGalleryView: View {
         layout == .feed ? 18 : 12
     }
 
-    private var feedGalleryHeight: CGFloat {
+    private var deduplicatedImageURLs: [URL] {
+        var seen = Set<String>()
+        return imageURLs.filter { url in
+            seen.insert(url.absoluteString.lowercased()).inserted
+        }
+    }
+
+    private func feedGalleryHeight(for urls: [URL]) -> CGFloat {
         let availableWidth = max(UIScreen.main.bounds.width - 92, 220)
-        let width = imageURLs.count == 1 ? availableWidth : feedTileWidth(availableWidth: availableWidth)
-        let ratio = imageURLs.first.flatMap { aspectRatioHint(for: $0) }
+        guard urls.count > 1 else {
+            let ratio = urls.first.flatMap { aspectRatioHint(for: $0) }
+            return NoteImageLayoutGuide.naturalHeight(
+                width: availableWidth,
+                aspectRatio: ratio,
+                minHeight: 170,
+                maxHeight: 340
+            )
+        }
+
+        return feedGridHeight(imageCount: urls.count)
+    }
+
+    private func feedGridHeight(imageCount: Int) -> CGFloat {
+        let rowCount = max(1, Int(ceil(Double(imageCount) / 2.0)))
+        return CGFloat(rowCount) * feedGridTileHeight +
+            CGFloat(max(0, rowCount - 1)) * feedGallerySpacing
+    }
+
+    private let feedGridTileHeight: CGFloat = 170
+
+    private func singleFeedImageHeight(for url: URL, availableWidth: CGFloat) -> CGFloat {
+        let ratio = aspectRatioHint(for: url)
         return NoteImageLayoutGuide.naturalHeight(
-            width: width,
+            width: availableWidth,
             aspectRatio: ratio,
             minHeight: 170,
             maxHeight: 340
@@ -93,40 +123,55 @@ struct NoteImageGalleryView: View {
         6
     }
 
-    private var feedGallery: some View {
+    private func feedGallery(_ urls: [URL]) -> some View {
         GeometryReader { geometry in
             let width = max(geometry.size.width, 1)
-            let tileWidth = feedTileWidth(availableWidth: width)
 
-            if imageURLs.count == 1, let url = imageURLs.first {
+            if urls.count == 1, let url = urls.first {
                 feedTile(
                     url: url,
                     index: 0,
                     width: width,
-                    height: feedGalleryHeight
+                    height: singleFeedImageHeight(for: url, availableWidth: width)
                 )
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: feedGallerySpacing) {
-                        ForEach(Array(imageURLs.enumerated()), id: \.offset) { index, url in
-                            feedTile(
-                                url: url,
-                                index: index,
-                                width: tileWidth,
-                                height: feedGalleryHeight
-                            )
+                let tileWidth = feedGridTileWidth(availableWidth: width)
+
+                VStack(alignment: .leading, spacing: feedGallerySpacing) {
+                    ForEach(0..<feedGridRowCount(imageCount: urls.count), id: \.self) { rowIndex in
+                        HStack(spacing: feedGallerySpacing) {
+                            ForEach(0..<2, id: \.self) { columnIndex in
+                                let index = rowIndex * 2 + columnIndex
+
+                                if index < urls.count {
+                                    feedTile(
+                                        url: urls[index],
+                                        index: index,
+                                        width: tileWidth,
+                                        height: feedGridTileHeight
+                                    )
+                                } else {
+                                    Color.clear
+                                        .frame(width: tileWidth, height: feedGridTileHeight)
+                                        .accessibilityHidden(true)
+                                }
+                            }
                         }
                     }
-                    .frame(height: feedGalleryHeight, alignment: .leading)
                 }
+                .frame(width: width, height: feedGridHeight(imageCount: urls.count), alignment: .topLeading)
+                .clipped()
             }
         }
-        .frame(height: feedGalleryHeight)
+        .frame(height: feedGalleryHeight(for: urls))
     }
 
-    private func feedTileWidth(availableWidth: CGFloat) -> CGFloat {
-        let proposedWidth = availableWidth * 0.74
-        return max(min(proposedWidth, 360), 220)
+    private func feedGridRowCount(imageCount: Int) -> Int {
+        max(1, Int(ceil(Double(imageCount) / 2.0)))
+    }
+
+    private func feedGridTileWidth(availableWidth: CGFloat) -> CGFloat {
+        max((availableWidth - feedGallerySpacing) / 2, 1)
     }
 
     private func feedTile(url: URL, index: Int, width: CGFloat, height: CGFloat) -> some View {
@@ -153,12 +198,12 @@ struct NoteImageGalleryView: View {
         )
     }
 
-    private var pagedGallery: some View {
+    private func pagedGallery(_ urls: [URL]) -> some View {
         GeometryReader { geometry in
             let width = max(geometry.size.width, 1)
 
             TabView(selection: $visibleImageIndex) {
-                ForEach(Array(imageURLs.enumerated()), id: \.offset) { index, url in
+                ForEach(Array(urls.enumerated()), id: \.offset) { index, url in
                     NoteSingleImageCellView(
                         url: url,
                         cornerRadius: mediaCornerRadius,
