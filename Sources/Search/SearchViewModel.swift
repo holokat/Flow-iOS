@@ -61,12 +61,19 @@ final class SearchViewModel: ObservableObject {
     private(set) var relayURL: URL
 
     private static let searchableRelayURLs: [URL] = [
-        NostrFeedService.nostrArchivesSearchRelayURL
+        NostrFeedService.nostrArchivesSearchRelayURL,
+        URL(string: "wss://indexer.nostrarchives.com/"),
+        URL(string: "wss://indexer.coracle.social/"),
+        URL(string: "wss://relay.nos.social/"),
+        URL(string: "wss://nos.lol/"),
+        URL(string: "wss://relay.damus.io/"),
+        URL(string: "wss://relay.primal.net/")
     ].compactMap { $0 }
 
     private static let bigRelayURLs: [URL] = [
         URL(string: "wss://relay.damus.io/"),
         URL(string: "wss://nos.lol/"),
+        URL(string: "wss://relay.primal.net/"),
         URL(string: "wss://relay.nostr.band/"),
         URL(string: "wss://nostr.mom/")
     ].compactMap { $0 }
@@ -74,8 +81,8 @@ final class SearchViewModel: ObservableObject {
     private static let searchFeedKinds = [1, 6, 20, 21, 22, 1063, 1222, 30023, 1111, 1244]
     private static let noteSearchFetchTimeout: TimeInterval = 5
     private static let profileSearchFetchTimeout: TimeInterval = 6
-    private static let noteSearchRelayFetchMode: RelayFetchMode = .firstNonEmptyRelay
-    private static let profileSearchRelayFetchMode: RelayFetchMode = .firstNonEmptyRelay
+    private static let noteSearchRelayFetchMode: RelayFetchMode = .allRelays
+    private static let profileSearchRelayFetchMode: RelayFetchMode = .allRelays
 
     init(
         relayURL: URL,
@@ -483,28 +490,8 @@ final class SearchViewModel: ObservableObject {
         primaryRelayURLs: [URL],
         fallbackRelayURLs: [URL]
     ) async -> FeedFetchResult {
-        let primary = await performKeywordNoteSearch(query: query, relayURLs: primaryRelayURLs)
-        if !primary.items.isEmpty {
-            return primary
-        }
-
-        let normalizedFallback = Self.normalizedRelayURLs(fallbackRelayURLs)
-        let normalizedPrimary = Self.normalizedRelayURLs(primaryRelayURLs)
-        let fallbackKeys = normalizedFallback.map { $0.absoluteString.lowercased() }
-        let primaryKeys = normalizedPrimary.map { $0.absoluteString.lowercased() }
-        guard fallbackKeys != primaryKeys else {
-            return primary
-        }
-
-        let fallback = await performKeywordNoteSearch(query: query, relayURLs: normalizedFallback)
-        if !fallback.items.isEmpty {
-            return fallback
-        }
-
-        return FeedFetchResult(
-            items: [],
-            failed: primary.failed || fallback.failed
-        )
+        let relayURLs = Self.normalizedRelayURLs(primaryRelayURLs + fallbackRelayURLs)
+        return await performKeywordNoteSearch(query: query, relayURLs: relayURLs)
     }
 
     private func fetchLocalKeywordNotes(query: String) async -> FeedFetchResult {
@@ -1071,7 +1058,7 @@ final class SearchViewModel: ObservableObject {
     }
 
     private func keywordSearchRelayTargets() -> [URL] {
-        Self.normalizedRelayURLs(Self.searchableRelayURLs)
+        Self.normalizedRelayURLs(Self.searchableRelayURLs + Self.bigRelayURLs + readRelayURLs)
     }
 
     private func fallbackKeywordSearchRelayTargets() -> [URL] {

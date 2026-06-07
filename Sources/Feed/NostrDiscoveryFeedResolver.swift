@@ -154,13 +154,41 @@ struct NostrDiscoveryFeedResolver: Sendable {
         hydrationMode: FeedItemHydrationMode = .full,
         moderationSnapshot: MuteFilterSnapshot? = nil
     ) async -> [FeedItem] {
-        let _ = query
-        let _ = kinds
-        let _ = limit
-        let _ = until
-        let _ = hydrationMode
-        let _ = moderationSnapshot
-        return []
+        guard limit > 0 else { return [] }
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else { return [] }
+
+        let localLimit = localSearchProbeLimit(for: limit, moderationSnapshot: moderationSnapshot)
+        let filter = NostrFilter(
+            kinds: kinds,
+            limit: localLimit,
+            until: until
+        )
+
+        let terms = normalizedSearchTerms(from: normalizedQuery)
+        let kindsSet = Set(kinds)
+        let cachedEvents = FlowNostrDB.shared.queryEvents(filter: filter) ?? []
+        let visibleEvents = filterVisibleEvents(cachedEvents, moderationSnapshot: moderationSnapshot)
+        let timelineEvents = Array(
+            deduplicateEvents(visibleEvents)
+                .filter { event in
+                    guard kindsSet.contains(event.kind) else { return false }
+                    return eventMatchesSearchTerms(event, terms: terms)
+                }
+                .sorted(by: { lhs, rhs in
+                    if lhs.createdAt == rhs.createdAt {
+                        return lhs.id > rhs.id
+                    }
+                    return lhs.createdAt > rhs.createdAt
+                })
+                .prefix(limit)
+        )
+
+        return await buildLocalFeedItems(
+            timelineEvents,
+            hydrationMode: hydrationMode,
+            moderationSnapshot: moderationSnapshot
+        )
     }
 
     func fetchTrendingNotes(
@@ -300,13 +328,38 @@ struct NostrDiscoveryFeedResolver: Sendable {
         hydrationMode: FeedItemHydrationMode = .full,
         moderationSnapshot: MuteFilterSnapshot? = nil
     ) async -> [FeedItem] {
-        let _ = hashtag
-        let _ = kinds
-        let _ = limit
-        let _ = until
-        let _ = hydrationMode
-        let _ = moderationSnapshot
-        return []
+        guard limit > 0 else { return [] }
+        let normalizedHashtag = NostrEvent.normalizedHashtagValue(hashtag)
+        guard !normalizedHashtag.isEmpty else { return [] }
+
+        let localLimit = localSearchProbeLimit(for: limit, moderationSnapshot: moderationSnapshot)
+        let filter = NostrFilter(
+            kinds: kinds,
+            limit: localLimit,
+            until: until,
+            tagFilters: ["t": [normalizedHashtag]]
+        )
+
+        let kindsSet = Set(kinds)
+        let cachedEvents = FlowNostrDB.shared.queryEvents(filter: filter) ?? []
+        let visibleEvents = filterVisibleEvents(cachedEvents, moderationSnapshot: moderationSnapshot)
+        let timelineEvents = Array(
+            deduplicateEvents(visibleEvents)
+                .filter { kindsSet.contains($0.kind) && event($0, containsHashtag: normalizedHashtag) }
+                .sorted(by: { lhs, rhs in
+                    if lhs.createdAt == rhs.createdAt {
+                        return lhs.id > rhs.id
+                    }
+                    return lhs.createdAt > rhs.createdAt
+                })
+                .prefix(limit)
+        )
+
+        return await buildLocalFeedItems(
+            timelineEvents,
+            hydrationMode: hydrationMode,
+            moderationSnapshot: moderationSnapshot
+        )
     }
 
     func fetchHashtagFeed(
@@ -380,6 +433,13 @@ struct NostrDiscoveryFeedResolver: Sendable {
         return min(max(limit * 4, limit), 240)
     }
 
+    private func localSearchProbeLimit(
+        for limit: Int,
+        moderationSnapshot: MuteFilterSnapshot?
+    ) -> Int {
+        min(max(expandedTimelineLimit(for: limit, moderationSnapshot: moderationSnapshot) * 10, 500), 2_000)
+    }
+
     private func filterVisibleEvents(
         _ events: [NostrEvent],
         moderationSnapshot: MuteFilterSnapshot?
@@ -423,6 +483,36 @@ struct NostrDiscoveryFeedResolver: Sendable {
             .lowercased()
 
         return terms.allSatisfy { haystack.contains($0) }
+    }
+
+    private func event(_ event: NostrEvent, containsHashtag hashtag: String) -> Bool {
+        event.tags.contains { tag in
+            guard tag.count > 1,
+                  tag[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "t" else {
+                return false
+            }
+            return NostrEvent.normalizedHashtagValue(tag[1]) == hashtag
+        }
+    }
+
+    private func buildLocalFeedItems(
+        _ events: [NostrEvent],
+        hydrationMode: FeedItemHydrationMode,
+        moderationSnapshot: MuteFilterSnapshot?
+    ) async -> [FeedItem] {
+        guard !events.isEmpty else { return [] }
+
+        switch hydrationMode {
+        case .cachedProfilesOnly:
+            return await buildCachedFeedItems(events, moderationSnapshot)
+        case .full:
+            return await buildFeedItems(
+                metadataFallbackRelayURLs,
+                events,
+                hydrationMode,
+                moderationSnapshot
+            )
+        }
     }
 
     private func deduplicateEvents(_ events: [NostrEvent]) -> [NostrEvent] {
