@@ -44,6 +44,70 @@ final class NoteContentLinkResolverTests: XCTestCase {
         )
     }
 
+    func testLocalNetworkWebURLsAreNotLoadable() {
+        let blockedValues = [
+            "http://localhost/avatar.jpg",
+            "https://printer.local/image.png",
+            "http://192.168.1.42/photo.jpg",
+            "http://10.0.0.5/photo.jpg",
+            "http://172.16.0.8/photo.jpg",
+            "http://[fe80::1]/photo.jpg",
+            "http://[::1]/photo.jpg"
+        ]
+
+        for value in blockedValues {
+            XCTAssertNil(NoteContentParser.webURL(from: value), value)
+        }
+
+        XCTAssertEqual(
+            NoteContentParser.webURL(from: "https://example.com/photo.jpg")?.absoluteString,
+            "https://example.com/photo.jpg"
+        )
+    }
+
+    func testLocalNetworkMediaURLDoesNotBecomeImageGalleryURL() {
+        let event = NostrEvent(
+            id: String(repeating: "1", count: 64),
+            pubkey: String(repeating: "a", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 1,
+            tags: [],
+            content: "bad http://192.168.1.42/photo.jpg good https://example.com/photo.jpg",
+            sig: String(repeating: "f", count: 128)
+        )
+
+        XCTAssertEqual(
+            NoteContentParser.imageURLs(in: event).map(\.absoluteString),
+            ["https://example.com/photo.jpg"]
+        )
+    }
+
+    func testLocalNetworkRelayURLsAreRejected() {
+        XCTAssertNil(RelayURLSupport.normalizedURL(from: "ws://192.168.1.42:8080/"))
+        XCTAssertNil(RelayURLSupport.normalizedURL(from: "wss://relay.local/"))
+        XCTAssertNil(NoteContentParser.relayHintURL(from: "wss://10.0.0.4/"))
+        XCTAssertEqual(
+            RelayURLSupport.normalizedURL(from: "wss://relay.example.com")?.absoluteString,
+            "wss://relay.example.com/"
+        )
+    }
+
+    func testLocalNetworkProfileAvatarURLIsRejected() {
+        let profile = NostrProfile(
+            name: "Local Avatar",
+            displayName: nil,
+            picture: "http://192.168.1.42/avatar.jpg",
+            banner: nil,
+            about: nil,
+            nip05: nil,
+            website: nil,
+            lud06: nil,
+            lud16: nil
+        )
+
+        XCTAssertNil(profile.resolvedAvatarURL)
+    }
+
     func testMentionLinkUsesInAppProfileRouteWhenProfileTapAvailable() throws {
         let pubkey = String(format: "%064x", 1)
         let npub = try XCTUnwrap(PublicKey(hex: pubkey)?.npub)

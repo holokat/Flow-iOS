@@ -131,7 +131,11 @@ enum RelayURLSupport {
             components.path = "/"
         }
 
-        return components.url
+        guard let url = components.url,
+              FlowURLSafety.isPubliclyLoadableRelayURL(url) else {
+            return nil
+        }
+        return url
     }
 
     static func normalizedRelayURLString(_ relayURL: URL) -> String? {

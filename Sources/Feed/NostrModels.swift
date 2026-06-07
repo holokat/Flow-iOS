@@ -38,7 +38,11 @@ enum ProfileAvatarURLResolver {
 
 extension NostrProfile {
     var resolvedAvatarURL: URL? {
-        ProfileAvatarURLResolver.url(from: picture)
+        guard let url = ProfileAvatarURLResolver.url(from: picture),
+              FlowURLSafety.isPubliclyLoadableWebURL(url) else {
+            return nil
+        }
+        return url
     }
 }
 

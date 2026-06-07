@@ -189,7 +189,11 @@ final class ProfileViewModel: ObservableObject {
     }
 
     var bannerURL: URL? {
-        guard let banner = profile?.banner?.trimmed, let url = URL(string: banner) else { return nil }
+        guard let banner = profile?.banner?.trimmed,
+              let url = URL(string: banner),
+              FlowURLSafety.isPubliclyLoadableWebURL(url) else {
+            return nil
+        }
         return url
     }
 

@@ -630,7 +630,9 @@ struct ProfileEditorSheet: View {
             }
         }
 
-        guard let url = URL(string: urlString), !urlString.isEmpty else {
+        guard let url = URL(string: urlString),
+              !urlString.isEmpty,
+              FlowURLSafety.isPubliclyLoadableWebURL(url) else {
             switch target {
             case .avatar:
                 avatarRemoteByteCount = nil

@@ -371,9 +371,12 @@ enum NoteContentParser {
     static func relayHintURL(from raw: String?) -> URL? {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        guard isSupportedRelayHint(trimmed) else { return nil }
-        return URL(string: trimmed)
+        guard !trimmed.isEmpty,
+              let url = URL(string: trimmed),
+              FlowURLSafety.isPubliclyLoadableRelayURL(url) else {
+            return nil
+        }
+        return url
     }
     
     static func hashtagActionURL(for tokenValue: String) -> URL? {
@@ -433,10 +436,11 @@ enum NoteContentParser {
         if let url = URL(string: sanitized),
            let scheme = url.scheme?.lowercased(),
            scheme == "http" || scheme == "https" {
-            return url
+            return FlowURLSafety.isPubliclyLoadableWebURL(url) ? url : nil
         }
 
-        return URL(string: "https://\(sanitized)")
+        guard let url = URL(string: "https://\(sanitized)") else { return nil }
+        return FlowURLSafety.isPubliclyLoadableWebURL(url) ? url : nil
     }
 
     static func youtubeVideoEmbed(from urlString: String) -> YouTubeVideoEmbed? {
@@ -1031,11 +1035,6 @@ enum NoteContentParser {
             return nil
         }
         return normalized
-    }
-
-    private static func isSupportedRelayHint(_ value: String) -> Bool {
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized.hasPrefix("ws://") || normalized.hasPrefix("wss://")
     }
 
     private static func encodedUInt32(_ value: Int) -> Data? {

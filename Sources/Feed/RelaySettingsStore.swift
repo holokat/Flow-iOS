@@ -439,6 +439,11 @@ final class RelaySettingsStore: ObservableObject {
             return nil
         }
 
+        guard let url = components.url,
+              FlowURLSafety.isPubliclyLoadableRelayURL(url) else {
+            return nil
+        }
+
         let portPart = components.port.map { ":\($0)" } ?? ""
         var pathPart = components.path
         if pathPart.isEmpty {

@@ -488,7 +488,7 @@ struct HomeSlideoutMenuView: View {
     private func preferredBannerURL(from profile: NostrProfile) -> URL? {
         guard let banner = trimmedNonEmpty(profile.banner),
               let url = URL(string: banner),
-              url.scheme != nil else {
+              FlowURLSafety.isPubliclyLoadableWebURL(url) else {
             return nil
         }
         return url

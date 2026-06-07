@@ -1,9 +1,131 @@
 import AVFoundation
 import CryptoKit
+import Darwin
 import Foundation
 import ImageIO
 import SwiftUI
 import UIKit
+
+enum FlowURLSafety {
+    static func isPubliclyLoadableWebURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host, !host.isEmpty else {
+            return false
+        }
+        return !isLocalNetworkHost(host)
+    }
+
+    static func isPubliclyLoadableRelayURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "ws" || scheme == "wss",
+              let host = url.host, !host.isEmpty else {
+            return false
+        }
+        return !isLocalNetworkHost(host)
+    }
+
+    static func isLocalNetworkHost(_ rawHost: String) -> Bool {
+        let host = canonicalHost(rawHost)
+        guard !host.isEmpty else { return true }
+
+        if host == "localhost" ||
+            host.hasSuffix(".localhost") ||
+            host == "local" ||
+            host.hasSuffix(".local") {
+            return true
+        }
+
+        if let bytes = ipv4Bytes(from: host) {
+            return isLocalIPv4(bytes)
+        }
+
+        if let bytes = ipv6Bytes(from: host) {
+            return isLocalIPv6(bytes)
+        }
+
+        return false
+    }
+
+    private static func canonicalHost(_ rawHost: String) -> String {
+        var host = rawHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if host.hasPrefix("["), host.hasSuffix("]") {
+            host.removeFirst()
+            host.removeLast()
+        }
+        while host.hasSuffix(".") {
+            host.removeLast()
+        }
+        if let zoneIndex = host.firstIndex(of: "%") {
+            host = String(host[..<zoneIndex])
+        }
+        return host
+    }
+
+    private static func ipv4Bytes(from host: String) -> [UInt8]? {
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return nil }
+
+        var bytes: [UInt8] = []
+        for part in parts {
+            guard !part.isEmpty,
+                  part.allSatisfy(\.isNumber),
+                  let value = UInt8(String(part)) else {
+                return nil
+            }
+            bytes.append(value)
+        }
+        return bytes
+    }
+
+    private static func ipv6Bytes(from host: String) -> [UInt8]? {
+        var address = in6_addr()
+        let parsed = host.withCString { pointer in
+            inet_pton(AF_INET6, pointer, &address)
+        }
+        guard parsed == 1 else { return nil }
+        return withUnsafeBytes(of: address) { Array($0) }
+    }
+
+    private static func isLocalIPv4(_ bytes: [UInt8]) -> Bool {
+        guard bytes.count == 4 else { return true }
+        switch bytes[0] {
+        case 0, 10, 127:
+            return true
+        case 100:
+            return (64...127).contains(bytes[1])
+        case 169:
+            return bytes[1] == 254
+        case 172:
+            return (16...31).contains(bytes[1])
+        case 192:
+            return bytes[1] == 168
+        case 198:
+            return bytes[1] == 18 || bytes[1] == 19
+        case 224...255:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isLocalIPv6(_ bytes: [UInt8]) -> Bool {
+        guard bytes.count == 16 else { return true }
+
+        if bytes.allSatisfy({ $0 == 0 }) { return true }
+        if bytes.prefix(15).allSatisfy({ $0 == 0 }), bytes[15] == 1 { return true }
+        if bytes[0] & 0xfe == 0xfc { return true }
+        if bytes[0] == 0xfe, bytes[1] & 0xc0 == 0x80 { return true }
+        if bytes[0] == 0xff { return true }
+
+        let mappedIPv4Prefix = Array(repeating: UInt8(0), count: 10) + [0xff, 0xff]
+        if Array(bytes.prefix(12)) == mappedIPv4Prefix {
+            return isLocalIPv4(Array(bytes.suffix(4)))
+        }
+
+        return false
+    }
+}
 
 enum FlowMediaCache {
     static let sharedURLCacheMemoryCapacity = 64 * 1_024 * 1_024
@@ -727,8 +849,7 @@ actor FlowImageCache {
     }
 
     private func isCacheable(_ url: URL) -> Bool {
-        guard let scheme = url.scheme?.lowercased() else { return false }
-        return scheme == "http" || scheme == "https"
+        FlowURLSafety.isPubliclyLoadableWebURL(url)
     }
 
     private func loadDataFromDisk(for url: URL, cacheKey: NSURL) -> Data? {

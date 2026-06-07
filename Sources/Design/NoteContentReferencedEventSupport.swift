@@ -305,9 +305,12 @@ private enum EmbeddedReferencedNoteResolver {
             let rawRelayHints: [String] = metadata.relays ?? []
             let relayHints = rawRelayHints.compactMap { relay -> URL? in
                 let trimmed = relay.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return nil }
-                guard isSupportedRelayHint(trimmed) else { return nil }
-                return URL(string: trimmed)
+                guard !trimmed.isEmpty,
+                      let url = URL(string: trimmed),
+                      FlowURLSafety.isPubliclyLoadableRelayURL(url) else {
+                    return nil
+                }
+                return url
             }
 
             if let eventID = metadata.eventId?.lowercased(),
@@ -366,10 +369,10 @@ private enum EmbeddedReferencedNoteResolver {
         var seen = Set<String>()
         var deduped: [URL] = []
         for relayURL in urls {
-            guard isSupportedRelayHint(relayURL.absoluteString) else { continue }
-            let key = relayURL.absoluteString.lowercased()
+            guard let normalizedURL = RelayURLSupport.normalizedURL(from: relayURL.absoluteString) else { continue }
+            let key = normalizedURL.absoluteString.lowercased()
             guard seen.insert(key).inserted else { continue }
-            deduped.append(relayURL)
+            deduped.append(normalizedURL)
         }
         return deduped
     }
@@ -455,10 +458,6 @@ private enum EmbeddedReferencedNoteResolver {
         value.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
     }
 
-    private static func isSupportedRelayHint(_ value: String) -> Bool {
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized.hasPrefix("ws://") || normalized.hasPrefix("wss://")
-    }
 }
 
 struct NostrEventReferenceFallbackView: View {
