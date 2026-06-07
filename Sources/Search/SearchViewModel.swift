@@ -60,15 +60,21 @@ final class SearchViewModel: ObservableObject {
     private(set) var readRelayURLs: [URL]
     private(set) var relayURL: URL
 
-    private static let searchableRelayURLs: [URL] = [
-        NostrFeedService.nostrArchivesSearchRelayURL,
-        URL(string: "wss://indexer.nostrarchives.com/"),
-        URL(string: "wss://indexer.coracle.social/"),
-        URL(string: "wss://relay.nos.social/"),
-        URL(string: "wss://nos.lol/"),
-        URL(string: "wss://relay.damus.io/"),
-        URL(string: "wss://relay.primal.net/")
+    private static let dittoSearchRelayURLs: [URL] = [
+        URL(string: "wss://relay.ditto.pub/"),
+        URL(string: "wss://relay.dreamith.to/")
     ].compactMap { $0 }
+
+    private static var searchableRelayURLs: [URL] {
+        normalizedRelayURLs(
+            dittoSearchRelayURLs + [
+                NostrFeedService.nostrArchivesSearchRelayURL,
+                URL(string: "wss://indexer.nostrarchives.com/"),
+                URL(string: "wss://indexer.coracle.social/"),
+                URL(string: "wss://relay.nos.social/")
+            ].compactMap { $0 }
+        )
+    }
 
     private static let bigRelayURLs: [URL] = [
         URL(string: "wss://relay.damus.io/"),
@@ -1058,11 +1064,15 @@ final class SearchViewModel: ObservableObject {
     }
 
     private func keywordSearchRelayTargets() -> [URL] {
-        Self.normalizedRelayURLs(Self.searchableRelayURLs + Self.bigRelayURLs + readRelayURLs)
+        Self.searchableRelayURLs
     }
 
     private func fallbackKeywordSearchRelayTargets() -> [URL] {
-        Self.normalizedRelayURLs(Self.bigRelayURLs + readRelayURLs)
+        []
+    }
+
+    func keywordSearchRelayTargetsForTesting() -> [URL] {
+        keywordSearchRelayTargets()
     }
 
     private func hashtagSearchRelayTargets() -> [URL] {
