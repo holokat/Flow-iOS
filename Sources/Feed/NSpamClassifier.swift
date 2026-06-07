@@ -745,7 +745,7 @@ actor NSpamAuthorScorer {
         if let exactScore = labels.exactScore(for: pubkey) {
             return exactScore
         }
-        let notes = cachedNoteInputs(for: pubkey)
+        let notes = await cachedNoteInputs(for: pubkey)
         return await cache.score(
             for: normalizedPubkey(pubkey),
             currentNoteCount: notes.count,
@@ -774,7 +774,8 @@ actor NSpamAuthorScorer {
             )
             return exactScore
         }
-        let notes = mergedNoteInputs(seedNotes: seedNotes, cachedNotes: cachedNoteInputs(for: normalized))
+        let cachedNotes = await cachedNoteInputs(for: normalized)
+        let notes = mergedNoteInputs(seedNotes: seedNotes, cachedNotes: cachedNotes)
         guard !notes.isEmpty, let classifier = classifierIfAvailable() else {
             await cache.put(
                 pubkey: normalized,
@@ -793,7 +794,7 @@ actor NSpamAuthorScorer {
             )
             return 0
         }
-        let adjustedScore = personalizedScore(
+        let adjustedScore = await personalizedScore(
             baseScore: score,
             candidatePubkey: normalized,
             candidateNotes: notes,
@@ -808,8 +809,8 @@ actor NSpamAuthorScorer {
         return adjustedScore
     }
 
-    func cachedNoteCountForTesting(pubkey: String) -> Int {
-        cachedNoteInputs(for: pubkey).count
+    func cachedNoteCountForTesting(pubkey: String) async -> Int {
+        await cachedNoteInputs(for: pubkey).count
     }
 
     private nonisolated func mergedNoteInputs(
@@ -847,20 +848,29 @@ actor NSpamAuthorScorer {
         return classifier
     }
 
-    private nonisolated func personalizedScore(
+    private func personalizedScore(
         baseScore: Float,
         candidatePubkey: String,
         candidateNotes: [NSpamNoteInput],
         labels: NSpamPersonalizationLabels
-    ) -> Float {
-        let spamNotes = labels.markedSpamPubkeys
-            .filter { $0 != candidatePubkey }
-            .map { cachedNoteInputs(for: $0) }
-            .filter { !$0.isEmpty }
-        let notSpamNotes = labels.notSpamPubkeys
-            .filter { $0 != candidatePubkey }
-            .map { cachedNoteInputs(for: $0) }
-            .filter { !$0.isEmpty }
+    ) async -> Float {
+        var spamNotes: [[NSpamNoteInput]] = []
+        let markedSpamPubkeys = labels.markedSpamPubkeys.filter { $0 != candidatePubkey }
+        for pubkey in markedSpamPubkeys {
+            let notes = await cachedNoteInputs(for: pubkey)
+            if !notes.isEmpty {
+                spamNotes.append(notes)
+            }
+        }
+
+        var notSpamNotes: [[NSpamNoteInput]] = []
+        let notSpamPubkeys = labels.notSpamPubkeys.filter { $0 != candidatePubkey }
+        for pubkey in notSpamPubkeys {
+            let notes = await cachedNoteInputs(for: pubkey)
+            if !notes.isEmpty {
+                notSpamNotes.append(notes)
+            }
+        }
         return NSpamLocalPersonalizer.adjustedScore(
             baseScore: baseScore,
             candidateNotes: candidateNotes,
@@ -869,7 +879,7 @@ actor NSpamAuthorScorer {
         )
     }
 
-    private nonisolated func cachedNoteInputs(for pubkey: String) -> [NSpamNoteInput] {
+    private func cachedNoteInputs(for pubkey: String) async -> [NSpamNoteInput] {
         let normalized = normalizedPubkey(pubkey)
         guard !normalized.isEmpty else { return [] }
         let filter = NostrFilter(
@@ -877,7 +887,7 @@ actor NSpamAuthorScorer {
             kinds: Self.scorableKinds,
             limit: Self.maxCachedNotesPerAuthor
         )
-        let events = FlowNostrDB.shared.queryEvents(filter: filter) ?? []
+        let events = await SeenEventStore.shared.queryEvents(filter: filter)
         return events
             .sorted { lhs, rhs in
                 if lhs.createdAt == rhs.createdAt {

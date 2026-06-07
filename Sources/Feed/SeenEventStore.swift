@@ -71,6 +71,42 @@ actor SeenEventStore: SeenEventStoring {
         return resolved
     }
 
+    func queryEvents(filter: NostrFilter) async -> [NostrEvent] {
+        let idSet = normalizedSet(filter.ids)
+        let authorSet = normalizedSet(filter.authors)
+        let kindSet = filter.kinds.map(Set.init)
+        let tagFilters = normalizedTagFilters(filter.tagFilters)
+
+        let filtered = eventsByID.values.filter { event in
+            let eventID = normalizeEventID(event.id)
+            if let idSet, !idSet.contains(eventID) {
+                return false
+            }
+            if let authorSet, !authorSet.contains(event.pubkey.lowercased()) {
+                return false
+            }
+            if let kindSet, !kindSet.contains(event.kind) {
+                return false
+            }
+            if let since = filter.since, event.createdAt < since {
+                return false
+            }
+            if let until = filter.until, event.createdAt > until {
+                return false
+            }
+            return matchesTagFilters(event, tagFilters: tagFilters)
+        }
+        .sorted { lhs, rhs in
+            if lhs.createdAt == rhs.createdAt {
+                return lhs.id.lowercased() > rhs.id.lowercased()
+            }
+            return lhs.createdAt > rhs.createdAt
+        }
+
+        guard let limit = filter.limit else { return filtered }
+        return Array(filtered.prefix(max(limit, 0)))
+    }
+
     private func storeEvent(_ event: NostrEvent, normalizedID: String? = nil) {
         let resolvedID = normalizedID ?? normalizeEventID(event.id)
         guard !resolvedID.isEmpty else { return }
@@ -103,5 +139,49 @@ actor SeenEventStore: SeenEventStoring {
 
     private func normalizeKey(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func normalizedSet(_ values: [String]?) -> Set<String>? {
+        guard let values else { return nil }
+        let normalized = values
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+        return normalized.isEmpty ? nil : Set(normalized)
+    }
+
+    private func normalizedTagFilters(_ filters: [String: [String]]?) -> [String: Set<String>] {
+        guard let filters else { return [:] }
+        return filters.reduce(into: [String: Set<String>]()) { result, pair in
+            let key = pair.key
+                .trimmingCharacters(in: CharacterSet(charactersIn: "#").union(.whitespacesAndNewlines))
+                .lowercased()
+            let values = pair.value
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+            guard !key.isEmpty, !values.isEmpty else { return }
+            result[key] = Set(values)
+        }
+    }
+
+    private func matchesTagFilters(
+        _ event: NostrEvent,
+        tagFilters: [String: Set<String>]
+    ) -> Bool {
+        guard !tagFilters.isEmpty else { return true }
+        for (tagName, allowedValues) in tagFilters {
+            let hasMatchingTag = event.tags.contains { tag in
+                guard tag.count > 1,
+                      tag[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == tagName else {
+                    return false
+                }
+                return allowedValues.contains(
+                    tag[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                )
+            }
+            if !hasMatchingTag {
+                return false
+            }
+        }
+        return true
     }
 }

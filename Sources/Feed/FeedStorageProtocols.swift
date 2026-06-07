@@ -24,6 +24,7 @@ protocol SeenEventStoring: Actor, Sendable {
     func storeRecentFeed(key: String, events: [NostrEvent]) async
     func recentFeed(key: String) async -> [NostrEvent]?
     func events(ids: [String]) async -> [String: NostrEvent]
+    func queryEvents(filter: NostrFilter) async -> [NostrEvent]
 }
 
 protocol FollowListSnapshotStoring: Actor, Sendable {

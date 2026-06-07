@@ -129,6 +129,7 @@ struct NostrFeedService: Sendable {
     private var discoveryFeedResolver: NostrDiscoveryFeedResolver {
         NostrDiscoveryFeedResolver(
             relayTimelineFetcher: relayTimelineFetcher,
+            seenEventStore: seenEventStore,
             nostrArchivesSearchRelayURL: Self.nostrArchivesSearchRelayURL,
             trendingRelayURLs: Self.trendingRelayURLs,
             metadataFallbackRelayURLs: Self.metadataFallbackRelayURLs,

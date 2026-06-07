@@ -37,7 +37,7 @@ final class NSpamClassifierTests: XCTestCase {
             content: "cached reply used for spam scoring"
         )
 
-        XCTAssertTrue(FlowNostrDB.shared.ingest(events: [event]))
+        await SeenEventStore.shared.store(events: [event])
 
         let noteCount = await NSpamAuthorScorer.shared.cachedNoteCountForTesting(pubkey: authorPubkey)
         XCTAssertGreaterThan(noteCount, 0)

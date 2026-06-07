@@ -65,7 +65,6 @@ final class FeedVisibilityTests: XCTestCase {
 
         let relayURL = URL(string: "wss://relay.example.com")!
         let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let nostrDatabase = FlowNostrDB(fileManager: fileManager)
         let seenEventStore = SeenEventStore(fileManager: fileManager)
         let authorPubkey = hex("a")
         let article = makeEvent(
@@ -90,7 +89,6 @@ final class FeedVisibilityTests: XCTestCase {
         let service = makeProfileFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            nostrDatabase: nostrDatabase,
             seenEventStore: seenEventStore
         )
         let profileEventService = ProfileEventService(
@@ -124,7 +122,6 @@ final class FeedVisibilityTests: XCTestCase {
         let relayURL = URL(string: "wss://relay.example.com")!
         let authorReadRelayURL = URL(string: "wss://author-profile-read.example")!
         let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let nostrDatabase = FlowNostrDB(fileManager: fileManager)
         let seenEventStore = SeenEventStore(fileManager: fileManager)
         let authorPubkey = hex("b")
         let relayListEvent = makeEvent(
@@ -150,7 +147,6 @@ final class FeedVisibilityTests: XCTestCase {
         let service = makeProfileFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            nostrDatabase: nostrDatabase,
             seenEventStore: seenEventStore
         )
         let profileEventService = ProfileEventService(
@@ -182,7 +178,6 @@ final class FeedVisibilityTests: XCTestCase {
 
         let relayURL = URL(string: "wss://relay.example.com")!
         let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let nostrDatabase = FlowNostrDB(fileManager: fileManager)
         let seenEventStore = SeenEventStore(fileManager: fileManager)
         let authorPubkey = hex("d")
         let replyTargetID = hex("e")
@@ -213,7 +208,6 @@ final class FeedVisibilityTests: XCTestCase {
         let service = makeProfileFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            nostrDatabase: nostrDatabase,
             seenEventStore: seenEventStore
         )
         let profileEventService = ProfileEventService(
@@ -245,7 +239,6 @@ final class FeedVisibilityTests: XCTestCase {
 
         let relayURL = URL(string: "wss://relay.example.com")!
         let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let nostrDatabase = FlowNostrDB(fileManager: fileManager)
         let seenEventStore = SeenEventStore(fileManager: fileManager)
         let authorPubkey = hex("f")
         let note = makeEvent(
@@ -263,7 +256,6 @@ final class FeedVisibilityTests: XCTestCase {
         let service = makeProfileFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            nostrDatabase: nostrDatabase,
             seenEventStore: seenEventStore
         )
         let profileEventService = ProfileEventService(
@@ -305,7 +297,6 @@ final class FeedVisibilityTests: XCTestCase {
         let relayURL = URL(string: "wss://relay.example.com")!
         let authorReadRelayURL = URL(string: "wss://author-article-read.example")!
         let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let nostrDatabase = FlowNostrDB(fileManager: fileManager)
         let seenEventStore = SeenEventStore(fileManager: fileManager)
         let authorPubkey = hex("c")
         let relayListEvent = makeEvent(
@@ -339,7 +330,6 @@ final class FeedVisibilityTests: XCTestCase {
         let service = makeProfileFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            nostrDatabase: nostrDatabase,
             seenEventStore: seenEventStore
         )
         let profileEventService = ProfileEventService(
@@ -372,7 +362,6 @@ final class FeedVisibilityTests: XCTestCase {
 
         let relayURL = URL(string: "wss://relay.example.com")!
         let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let nostrDatabase = FlowNostrDB(fileManager: fileManager)
         let seenEventStore = SeenEventStore(fileManager: fileManager)
         let authorPubkey = hex("d")
         let note = makeEvent(
@@ -397,7 +386,6 @@ final class FeedVisibilityTests: XCTestCase {
         let service = makeProfileFeedService(
             relayClient: relayClient,
             fileManager: fileManager,
-            nostrDatabase: nostrDatabase,
             seenEventStore: seenEventStore
         )
         let profileEventService = ProfileEventService(
@@ -532,7 +520,6 @@ private final class FeedVisibilityTestFileManager: FileManager, @unchecked Senda
 private func makeProfileFeedService(
     relayClient: any NostrRelayEventFetching,
     fileManager: FeedVisibilityTestFileManager,
-    nostrDatabase: FlowNostrDB,
     seenEventStore: SeenEventStore
 ) -> NostrFeedService {
     let profileSnapshotStore = ProfileSnapshotStore(fileManager: fileManager)
@@ -546,7 +533,6 @@ private func makeProfileFeedService(
         relayHintCache: ProfileRelayHintCache(),
         followListCache: followListCache,
         seenEventStore: seenEventStore,
-        nostrDatabase: nostrDatabase,
         presentationCache: FeedPresentationCache()
     )
 }

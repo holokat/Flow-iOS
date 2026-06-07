@@ -1614,7 +1614,6 @@ private final class HomeFeedViewModelHarness {
         let fileManager = HomeFeedTestFileManager(rootURL: rootURL)
         let defaults = UserDefaults(suiteName: "HomeFeedViewModelTests-\(UUID().uuidString)")!
         let filterStore = HomeFeedFilterStore(defaults: defaults)
-        let nostrDatabase = FlowNostrDB(fileManager: fileManager)
         let profileSnapshotStore = ProfileSnapshotStore(fileManager: fileManager)
         let relayHintCache = ProfileRelayHintCache()
         let followListCache = FollowListSnapshotCache(fileManager: fileManager)
@@ -1647,8 +1646,7 @@ private final class HomeFeedViewModelHarness {
             profileCache: profileCache,
             relayHintCache: relayHintCache,
             followListCache: followListCache,
-            seenEventStore: seenEventStore,
-            nostrDatabase: nostrDatabase
+            seenEventStore: seenEventStore
         )
 
         viewModel = HomeFeedViewModel(

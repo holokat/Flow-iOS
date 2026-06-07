@@ -2,6 +2,7 @@ import Foundation
 
 struct NostrDiscoveryFeedResolver: Sendable {
     private let relayTimelineFetcher: RelayTimelineFetcher
+    private let seenEventStore: any SeenEventStoring
     private let nostrArchivesSearchRelayURL: URL
     private let trendingRelayURLs: [URL]
     private let metadataFallbackRelayURLs: [URL]
@@ -11,6 +12,7 @@ struct NostrDiscoveryFeedResolver: Sendable {
 
     init(
         relayTimelineFetcher: RelayTimelineFetcher,
+        seenEventStore: any SeenEventStoring,
         nostrArchivesSearchRelayURL: URL,
         trendingRelayURLs: [URL],
         metadataFallbackRelayURLs: [URL],
@@ -19,6 +21,7 @@ struct NostrDiscoveryFeedResolver: Sendable {
         buildAuthorOnlyFeedItems: @escaping @Sendable ([URL], [NostrEvent], MuteFilterSnapshot?) async -> [FeedItem]
     ) {
         self.relayTimelineFetcher = relayTimelineFetcher
+        self.seenEventStore = seenEventStore
         self.nostrArchivesSearchRelayURL = nostrArchivesSearchRelayURL
         self.trendingRelayURLs = trendingRelayURLs
         self.metadataFallbackRelayURLs = metadataFallbackRelayURLs
@@ -167,7 +170,7 @@ struct NostrDiscoveryFeedResolver: Sendable {
 
         let terms = normalizedSearchTerms(from: normalizedQuery)
         let kindsSet = Set(kinds)
-        let cachedEvents = FlowNostrDB.shared.queryEvents(filter: filter) ?? []
+        let cachedEvents = await seenEventStore.queryEvents(filter: filter)
         let visibleEvents = filterVisibleEvents(cachedEvents, moderationSnapshot: moderationSnapshot)
         let timelineEvents = Array(
             deduplicateEvents(visibleEvents)
@@ -341,7 +344,7 @@ struct NostrDiscoveryFeedResolver: Sendable {
         )
 
         let kindsSet = Set(kinds)
-        let cachedEvents = FlowNostrDB.shared.queryEvents(filter: filter) ?? []
+        let cachedEvents = await seenEventStore.queryEvents(filter: filter)
         let visibleEvents = filterVisibleEvents(cachedEvents, moderationSnapshot: moderationSnapshot)
         let timelineEvents = Array(
             deduplicateEvents(visibleEvents)
