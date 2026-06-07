@@ -19,6 +19,15 @@ extension SearchViewModel {
             }
         }
 
+        var iconName: String {
+            switch self {
+            case .people:
+                return "person.fill"
+            case .notes:
+                return "note.text"
+            }
+        }
+
         var placeholder: String {
             switch self {
             case .people:

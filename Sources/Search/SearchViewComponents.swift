@@ -241,68 +241,111 @@ struct SearchBarSection: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(appSettings.themePalette.mutedForeground)
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.title3.weight(.medium))
+                .foregroundStyle(appSettings.themePalette.mutedForeground)
 
-                TextField(placeholder, text: $searchText)
-                    .font(appSettings.appFont(.body))
-                    .foregroundStyle(appSettings.themePalette.foreground)
-                    .tint(appSettings.primaryColor)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.search)
-                    .onSubmit(onSubmit)
-
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.headline)
-                            .foregroundStyle(appSettings.themePalette.mutedForeground)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear search")
-                }
-            }
-            .padding(.horizontal, 15)
-            .padding(.vertical, 13)
-            .background {
-                searchFieldGlassBackground
-            }
-            .overlay {
-                searchFieldGlassRim
-            }
-            .shadow(
-                color: Color.white.opacity(searchFieldTopGlowOpacity),
-                radius: 1.2,
-                x: 0,
-                y: -0.7
-            )
-            .shadow(
-                color: Color.black.opacity(searchFieldDropShadowOpacity),
-                radius: SearchBarGlassStyle.fieldShadowRadius,
-                x: 0,
-                y: SearchBarGlassStyle.fieldShadowYOffset
-            )
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
+            TextField(placeholder, text: $searchText)
+                .font(appSettings.appFont(.body))
+                .foregroundStyle(appSettings.themePalette.foreground)
+                .tint(appSettings.primaryColor)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit(onSubmit)
+                .frame(minWidth: 0)
 
             if let selectedScope {
-                Picker("Search", selection: selectedScope) {
-                    ForEach(SearchViewModel.SearchScope.allCases) { scope in
-                        Text(scope.title)
-                            .tag(scope)
-                    }
+                scopeSelector(selectedScope)
+            }
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.headline)
+                        .foregroundStyle(appSettings.themePalette.mutedForeground)
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
             }
         }
+        .padding(.horizontal, 15)
+        .padding(.vertical, 13)
+        .background {
+            searchFieldGlassBackground
+        }
+        .overlay {
+            searchFieldGlassRim
+        }
+        .shadow(
+            color: Color.white.opacity(searchFieldTopGlowOpacity),
+            radius: 1.2,
+            x: 0,
+            y: -0.7
+        )
+        .shadow(
+            color: Color.black.opacity(searchFieldDropShadowOpacity),
+            radius: SearchBarGlassStyle.fieldShadowRadius,
+            x: 0,
+            y: SearchBarGlassStyle.fieldShadowYOffset
+        )
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+    }
+
+    private func scopeSelector(_ selectedScope: Binding<SearchViewModel.SearchScope>) -> some View {
+        HStack(spacing: 2) {
+            ForEach(SearchViewModel.SearchScope.allCases) { scope in
+                let isSelected = selectedScope.wrappedValue == scope
+
+                Button {
+                    withAnimation(.snappy(duration: 0.18)) {
+                        selectedScope.wrappedValue = scope
+                    }
+                } label: {
+                    Image(systemName: scope.iconName)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(width: 30, height: 30)
+                        .foregroundStyle(isSelected ? selectedScopeIconForeground : unselectedScopeIconForeground)
+                        .background {
+                            if isSelected {
+                                Circle()
+                                    .fill(appSettings.primaryColor)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(scope.title)
+                .accessibilityValue(isSelected ? "Selected" : "")
+            }
+        }
+        .padding(3)
+        .background {
+            Capsule(style: .continuous)
+                .fill(scopeSelectorBackground)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Search type")
+    }
+
+    private var selectedScopeIconForeground: Color {
+        effectiveSearchColorScheme == .light ? .white : appSettings.themePalette.background
+    }
+
+    private var unselectedScopeIconForeground: Color {
+        appSettings.themePalette.mutedForeground
+    }
+
+    private var scopeSelectorBackground: Color {
+        if effectiveSearchColorScheme == .light {
+            return Color.black.opacity(0.055)
+        }
+
+        return Color.white.opacity(0.09)
     }
 
     private var searchFieldGlassBackground: some View {
