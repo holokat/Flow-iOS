@@ -52,8 +52,6 @@ struct NoteMediaPlaceholderView: View {
 }
 
 struct NoteBlurRevealContainer<Content: View>: View {
-    @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject private var appSettings: AppSettingsStore
     let cornerRadius: CGFloat
     let onReveal: () -> Void
     let content: Content
@@ -92,14 +90,14 @@ struct NoteBlurRevealContainer<Content: View>: View {
             .background(
                 ZStack {
                     Capsule(style: .continuous)
-                        .fill(appSettings.themePalette.modalBackground)
+                        .fill(Color.white.opacity(0.94))
 
                     Capsule(style: .continuous)
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    Color.white.opacity(0.28),
-                                    Color.white.opacity(0.08),
+                                    Color.white.opacity(0.44),
+                                    Color.white.opacity(0.16),
                                     Color.clear
                                 ],
                                 startPoint: .topLeading,
@@ -111,7 +109,7 @@ struct NoteBlurRevealContainer<Content: View>: View {
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    Color.black.opacity(0.18),
+                                    Color.black.opacity(0.08),
                                     Color.clear
                                 ],
                                 startPoint: .bottom,
@@ -124,7 +122,7 @@ struct NoteBlurRevealContainer<Content: View>: View {
                 Capsule(style: .continuous)
                     .stroke(revealPillStroke, lineWidth: 0.5)
             )
-            .shadow(color: Color.black.opacity(0.18), radius: 14, x: 0, y: 8)
+            .shadow(color: Color.black.opacity(0.22), radius: 16, x: 0, y: 9)
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -132,15 +130,11 @@ struct NoteBlurRevealContainer<Content: View>: View {
         .accessibilityLabel("Reveal media")
     }
 
-    private var effectiveColorScheme: ColorScheme {
-        appSettings.preferredColorScheme ?? colorScheme
-    }
-
     private var revealPillForeground: Color {
-        effectiveColorScheme == .light ? .black : .white
+        Color.black.opacity(0.82)
     }
 
     private var revealPillStroke: Color {
-        effectiveColorScheme == .light ? Color.black.opacity(0.08) : Color.white.opacity(0.16)
+        Color.black.opacity(0.14)
     }
 }
