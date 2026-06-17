@@ -422,6 +422,7 @@ struct HomeFeedView: View {
                 topTrackedRow(
                     feedRow(item, visibleReplyCounts: visibleReplyCounts)
                         .transition(FlowTransitionMotion.feedItemInsertionTransition(reduceMotion: accessibilityReduceMotion))
+                        .id(item.id)
                         .homeFeedListRow(),
                     isFirst: tracksFirstRowTop && index == 0
                 )

@@ -184,7 +184,7 @@ final class HomeFeedViewModel: ObservableObject {
     }
 
     var bufferedRevealScrollTargetID: String? {
-        visibleBufferedNewItems.last?.id
+        visibleBufferedNewItems.first?.id
     }
 
     var isUsingCustomFilters: Bool {

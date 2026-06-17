@@ -1209,6 +1209,7 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertLessThan(showRange.lowerBound, scrollRange.lowerBound)
         XCTAssertFalse(revealSource.contains("feedScrollTarget = Self.feedTopAnchorID"))
+        XCTAssertTrue(source.contains(".id(item.id)\n                        .homeFeedListRow()"))
     }
 
     func testHomeFeedKeepsScrollChromeOffsetReaderOutsideLazyRows() throws {
