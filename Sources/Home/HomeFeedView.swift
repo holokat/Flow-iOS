@@ -52,7 +52,10 @@ struct HomeFeedView: View {
         navigationRoot
             .modifier(sheetsModifier)
             .modifier(lifecycleModifier)
-            .onAppear(perform: updateRootVisibility)
+            .onAppear {
+                updateRootVisibility()
+                showScrollChromeAtRest()
+            }
             .onChange(of: selectedThreadItem) { _, _ in
                 updateRootVisibility()
             }
@@ -219,6 +222,11 @@ struct HomeFeedView: View {
             && selectedHashtagRoute == nil
             && selectedProfileRoute == nil
             && selectedRelayRoute == nil
+    }
+
+    private func showScrollChromeAtRest() {
+        scrollChromeTracker.resetBaseline()
+        scrollChromeStore.showChromeAtRest()
     }
 
     private func handleProfileMetadataUpdated(_ notification: Notification) {

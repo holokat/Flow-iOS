@@ -775,6 +775,36 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(updated.hasMeasuredScrollY)
     }
 
+    @MainActor
+    func testScrollChromeStoreCanForceStartupChromeVisible() {
+        let store = ScrollChromeStore()
+        store.publishVisualOffsetsIfNeeded(
+            ScrollChromeOffsets(
+                previousScrollY: 90,
+                topBarOffset: -66,
+                bottomBarOffset: 84,
+                hasMeasuredScrollY: true
+            )
+        )
+
+        XCTAssertEqual(store.offsets.bottomBarOffset, 84, accuracy: 0.0001)
+
+        store.showChromeAtRest()
+
+        XCTAssertEqual(store.offsets.topBarOffset, 0, accuracy: 0.0001)
+        XCTAssertEqual(store.offsets.bottomBarOffset, 0, accuracy: 0.0001)
+        XCTAssertFalse(store.offsets.hasMeasuredScrollY)
+        XCTAssertEqual(
+            ScrollChromeLayout.chromeOpacity(
+                bottomBarOffset: store.offsets.bottomBarOffset,
+                bottomBarHeight: 50,
+                safeAreaBottom: 34
+            ),
+            1,
+            accuracy: 0.0001
+        )
+    }
+
     func testScrollChromeTracksUpwardScrollDeltaContinuously() {
         let initial = ScrollChromeOffsets(
             previousScrollY: 30,
@@ -943,14 +973,19 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("scrollChromeStore: homeScrollChromeStore"))
         XCTAssertTrue(shellSource.contains("ScrollChromeOpacityReader("))
         XCTAssertTrue(shellSource.contains("ScrollChromeLayout.chromeOpacity("))
+        XCTAssertTrue(shellSource.contains("homeScrollChromeStore.showChromeAtRest()"))
         XCTAssertTrue(shellSource.contains("}\n            .frame(maxWidth: .infinity)\n            .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)\n            .background("))
-        XCTAssertTrue(shellSource.contains("appSettings.themePalette.background\n                    .ignoresSafeArea(edges: .bottom)\n            )\n            .opacity(chromeOpacity)"))
+        XCTAssertTrue(shellSource.contains("appSettings.themePalette.background\n                    .ignoresSafeArea(edges: .bottom)"))
+        XCTAssertTrue(shellSource.contains(".contentShape(Rectangle())\n            .opacity(chromeOpacity)"))
         XCTAssertTrue(shellSource.contains("TabView(selection: tabSelection)"))
         XCTAssertTrue(shellSource.contains("func flowNativeTabBarHidden() -> some View"))
         XCTAssertTrue(shellSource.contains(".environment(\\.flowBottomTabBarHeight, bottomTabBarHeight)"))
         XCTAssertTrue(shellSource.contains("private var customBottomNavBar: some View"))
         XCTAssertTrue(homeSource.contains("let scrollChromeStore: ScrollChromeStore"))
         XCTAssertTrue(homeSource.contains("@ObservedObject var scrollChromeStore: ScrollChromeStore"))
+        XCTAssertTrue(homeSource.contains("showScrollChromeAtRest()"))
+        XCTAssertTrue(homeSource.contains("scrollChromeTracker.resetBaseline()"))
+        XCTAssertTrue(homeSource.contains("scrollChromeStore.showChromeAtRest()"))
         XCTAssertTrue(homeSource.contains("HomeFeedTopNavigationChromeView("))
         XCTAssertTrue(homeSource.contains("HomeFeedNewNotesChromeOverlay("))
         XCTAssertTrue(profileSource.contains("@Environment(\\.flowScrollChromeStore)"))

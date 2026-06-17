@@ -104,6 +104,7 @@ struct MainTabShellView: View {
                 .environmentObject(relaySettings)
         }
         .task {
+            homeScrollChromeStore.showChromeAtRest()
             relaySettings.configure(
                 accountPubkey: auth.currentAccount?.pubkey,
                 nsec: auth.currentNsec
@@ -167,6 +168,9 @@ struct MainTabShellView: View {
             syncActivityTabActiveState()
         }
         .onChange(of: scenePhase) { _, _ in
+            if scenePhase == .active, selectedTab == .home, isHomeRootVisible {
+                homeScrollChromeStore.showChromeAtRest()
+            }
             Task {
                 await activityViewModel.sceneDidChange(isActive: scenePhase == .active)
             }
@@ -614,6 +618,10 @@ struct ScrollChromeOffsets: Equatable {
 final class ScrollChromeStore: ObservableObject {
     @Published private(set) var offsets = ScrollChromeOffsets()
 
+    func showChromeAtRest() {
+        offsets = ScrollChromeOffsets()
+    }
+
     func publishVisualOffsetsIfNeeded(_ updated: ScrollChromeOffsets) {
         guard ScrollChromeLayout.shouldPublishVisualOffsets(updated, over: offsets) else { return }
         offsets = ScrollChromeLayout.publishedVisualOffsets(from: updated)
@@ -623,6 +631,10 @@ final class ScrollChromeStore: ObservableObject {
 
 final class ScrollChromeTracker {
     private var state = ScrollChromeOffsets()
+
+    func resetBaseline() {
+        state = ScrollChromeOffsets()
+    }
 
     func offsetsByApplyingScroll(
         currentScrollY: CGFloat,
