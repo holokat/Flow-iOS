@@ -83,7 +83,7 @@ struct MainTabShellView: View {
             }
             .allowsHitTesting(false)
         }
-        .overlay(alignment: .bottom) {
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             if isBottomTabBarVisible {
                 customBottomNavBar
             }
@@ -281,6 +281,7 @@ struct MainTabShellView: View {
                 appSettings.themePalette.background
                     .ignoresSafeArea(edges: .bottom)
             )
+            .contentShape(Rectangle())
             .opacity(chromeOpacity)
         }
     }

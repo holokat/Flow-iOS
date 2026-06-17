@@ -56,6 +56,19 @@ enum FlowLayoutGuardrails {
         return Swift.min(Swift.max(value, minRatio), maxRatio)
     }
 
+    static func boundedFiniteWidth(
+        _ proposedWidth: CGFloat?,
+        fallbackWidth: CGFloat = UIScreen.main.bounds.width
+    ) -> CGFloat {
+        let fallback = fallbackWidth.isFinite && fallbackWidth > 0
+            ? fallbackWidth
+            : UIScreen.main.bounds.width
+        guard let proposedWidth, proposedWidth.isFinite, proposedWidth > 0 else {
+            return fallback
+        }
+        return min(proposedWidth, fallback)
+    }
+
     static func aspectFitMediaSize(
         availableWidth: CGFloat?,
         aspectRatio: CGFloat?,
@@ -63,10 +76,7 @@ enum FlowLayoutGuardrails {
         fallbackWidth: CGFloat = UIScreen.main.bounds.width,
         preservesAvailableWidthWhenHeightCapped: Bool = false
     ) -> CGSize {
-        let width = availableWidth.flatMap { value -> CGFloat? in
-            guard value.isFinite, value > 0 else { return nil }
-            return value
-        } ?? fallbackWidth
+        let width = boundedFiniteWidth(availableWidth, fallbackWidth: fallbackWidth)
         let ratio = clampedAspectRatio(aspectRatio) ?? 16.0 / 9.0
         let boundedMaxHeight = maxHeight.isFinite && maxHeight > 0 ? maxHeight : width / ratio
         let heightForFullWidth = width / ratio

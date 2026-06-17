@@ -77,12 +77,31 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertEqual(size.height, 300, accuracy: 0.0001)
     }
 
+    func testBoundedFiniteWidthRejectsInvalidAndCapsToFallback() {
+        XCTAssertEqual(
+            FlowLayoutGuardrails.boundedFiniteWidth(.infinity, fallbackWidth: 320),
+            320,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            FlowLayoutGuardrails.boundedFiniteWidth(420, fallbackWidth: 320),
+            320,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            FlowLayoutGuardrails.boundedFiniteWidth(240, fallbackWidth: 320),
+            240,
+            accuracy: 0.0001
+        )
+    }
+
     func testFeedImageGalleryUsesBoundedGridInsteadOfHorizontalCarousel() throws {
         let source = try Self.sourceText(at: "Sources/Design/NoteImageGalleryView.swift")
 
         XCTAssertTrue(source.contains("private func feedGallery(_ urls: [URL]) -> some View"))
         XCTAssertTrue(source.contains("private func feedGridTileWidth(availableWidth: CGFloat) -> CGFloat"))
         XCTAssertTrue(source.contains("private var deduplicatedImageURLs: [URL]"))
+        XCTAssertTrue(source.contains("private struct NoteSingleImageCellLayout: Layout"))
         XCTAssertFalse(source.contains("ScrollView(.horizontal, showsIndicators: false)"))
         XCTAssertFalse(source.contains("LazyHStack(spacing: feedGallerySpacing)"))
     }
@@ -95,7 +114,18 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
 
         XCTAssertTrue(cardSource.contains("private static let compactFeedChromeAllowance"))
         XCTAssertTrue(cardSource.contains("private var boundedCardWidth: CGFloat"))
+        XCTAssertTrue(cardSource.contains("WebsiteLinkCardWidthLayout"))
         XCTAssertFalse(cardSource.contains(".frame(maxWidth: .infinity"))
+    }
+
+    func testMainTabShellUsesSafeAreaInsetForCustomBottomNavigation() throws {
+        let source = try Self.sourceText(at: "Sources/App/MainTabShellView.swift")
+        let start = try XCTUnwrap(source.range(of: "var body: some View")?.lowerBound)
+        let end = try XCTUnwrap(source.range(of: "@ViewBuilder\n    private var nativeTabView")?.lowerBound)
+        let bodySource = String(source[start..<end])
+
+        XCTAssertTrue(bodySource.contains(".safeAreaInset(edge: .bottom, spacing: 0)"))
+        XCTAssertFalse(bodySource.contains(".overlay(alignment: .bottom)"))
     }
 
     func testProfileHeaderWidthUsesFiniteProposal() {

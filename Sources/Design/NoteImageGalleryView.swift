@@ -39,6 +39,7 @@ struct NoteImageGalleryView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
         .fullScreenCover(item: $selectedImage) { selected in
             NoteImageFullscreenViewer(
                 urls: deduplicatedImageURLs,
@@ -868,24 +869,30 @@ struct NoteSingleImageCellView: View {
     }
 
     var body: some View {
-        imageBody
-            .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay {
-                FeedImageContextMenuOverlay(
-                    url: url,
-                    cornerRadius: cornerRadius,
-                    isRemixDisabled: isRemixDisabled,
-                    onTap: handleTap,
-                    onRemix: onRemix,
-                    onSave: onSave,
-                    onAddToNote: onAddToNote
-                )
-            }
+        NoteSingleImageCellLayout(
+            aspectRatio: layoutAspectRatio,
+            fixedHeight: maxHeight
+        ) {
+            imageBody
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay {
+                    FeedImageContextMenuOverlay(
+                        url: url,
+                        cornerRadius: cornerRadius,
+                        isRemixDisabled: isRemixDisabled,
+                        onTap: handleTap,
+                        onRemix: onRemix,
+                        onSave: onSave,
+                        onAddToNote: onAddToNote
+                    )
+                }
+        }
         .accessibilityLabel("Open image")
         .accessibilityAddTraits(.isButton)
-        .aspectRatio(contextMenuAspectRatio, contentMode: .fit)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
         .task(id: feedImageLimitResetKey) {
             bypassFileSizeLimits = false
             isShowingTapToLoadPrompt = false
@@ -931,6 +938,10 @@ struct NoteSingleImageCellView: View {
 
     private var contextMenuAspectRatio: CGFloat? {
         maxHeight == nil ? reservedAspectRatio : nil
+    }
+
+    private var layoutAspectRatio: CGFloat {
+        contextMenuAspectRatio ?? reservedAspectRatio
     }
 
     @ViewBuilder
@@ -1059,5 +1070,46 @@ struct NoteSingleImageCellView: View {
 
     private var feedImageLimitResetKey: String {
         "\(url.absoluteString)|wifi:\(networkPath.isUsingWiFi)"
+    }
+}
+
+private struct NoteSingleImageCellLayout: Layout {
+    let aspectRatio: CGFloat
+    let fixedHeight: CGFloat?
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let width = FlowLayoutGuardrails.boundedFiniteWidth(proposal.width)
+        return CGSize(width: width, height: height(for: width))
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let width = max(bounds.width, 1)
+        let height = max(bounds.height, 1)
+
+        for subview in subviews {
+            subview.place(
+                at: CGPoint(x: bounds.minX, y: bounds.minY),
+                proposal: ProposedViewSize(width: width, height: height)
+            )
+        }
+    }
+
+    private func height(for width: CGFloat) -> CGFloat {
+        if let fixedHeight, fixedHeight.isFinite, fixedHeight > 0 {
+            return fixedHeight
+        }
+
+        let ratio = FlowLayoutGuardrails.clampedAspectRatio(aspectRatio)
+            ?? NoteImageLayoutGuide.defaultSingleImageAspectRatio
+        return width / ratio
     }
 }

@@ -31,17 +31,23 @@ struct WebsiteLinkCardView: View {
     }
 
     var body: some View {
-        Link(destination: url) {
-            cardContent
+        WebsiteLinkCardWidthLayout(
+            maximumWidth: maximumCardWidth,
+            fallbackWidth: fallbackCardWidth
+        ) {
+            Link(destination: url) {
+                cardContent
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
         .task(id: url) {
             await loader.startIfNeeded()
         }
         .onDisappear {
             loader.cancelPendingLoad()
         }
-        .frame(maxWidth: boundedCardWidth, alignment: .leading)
+        .frame(maxWidth: maximumCardWidth, alignment: .leading)
+        .clipped()
     }
 
     @ViewBuilder
@@ -149,15 +155,22 @@ struct WebsiteLinkCardView: View {
     }
 
     private var boundedCardWidth: CGFloat {
+        min(fallbackCardWidth, maximumCardWidth)
+    }
+
+    private var maximumCardWidth: CGFloat {
+        layout == .feed ? Self.maximumFeedColumnWidth : Self.maximumDetailColumnWidth
+    }
+
+    private var fallbackCardWidth: CGFloat {
         let screenWidth = UIScreen.main.bounds.width
         let chromeAllowance = layout == .feed ? Self.compactFeedChromeAllowance : Self.detailChromeAllowance
-        let maximumWidth = layout == .feed ? Self.maximumFeedColumnWidth : Self.maximumDetailColumnWidth
 
         guard screenWidth.isFinite, screenWidth > chromeAllowance else {
-            return maximumWidth
+            return maximumCardWidth
         }
 
-        return min(screenWidth - chromeAllowance, maximumWidth)
+        return screenWidth - chromeAllowance
     }
 
     private var displayTitle: String {
@@ -188,6 +201,50 @@ struct WebsiteLinkCardView: View {
             return String(absoluteString.prefix(87)) + "..."
         }
         return absoluteString
+    }
+}
+
+private struct WebsiteLinkCardWidthLayout: Layout {
+    let maximumWidth: CGFloat
+    let fallbackWidth: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        guard let subview = subviews.first else { return .zero }
+        let width = resolvedWidth(for: proposal.width)
+        let size = subview.sizeThatFits(
+            ProposedViewSize(width: width, height: proposal.height)
+        )
+        return CGSize(width: min(max(size.width, 0), width), height: max(size.height, 0))
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let width = min(max(bounds.width, 1), resolvedWidth(for: bounds.width))
+
+        for subview in subviews {
+            subview.place(
+                at: CGPoint(x: bounds.minX, y: bounds.minY),
+                proposal: ProposedViewSize(width: width, height: bounds.height)
+            )
+        }
+    }
+
+    private func resolvedWidth(for proposedWidth: CGFloat?) -> CGFloat {
+        min(
+            FlowLayoutGuardrails.boundedFiniteWidth(
+                proposedWidth,
+                fallbackWidth: fallbackWidth
+            ),
+            maximumWidth
+        )
     }
 }
 
