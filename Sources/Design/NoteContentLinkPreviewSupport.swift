@@ -318,18 +318,18 @@ enum YouTubeEmbedNavigationPolicy {
         }
 
         if scheme != "http" && scheme != "https" {
-            return isUserInitiated ? .openExternally(navigationURL) : .cancel
+            return isUserInitiated || isNewWindow ? .openExternally(navigationURL) : .cancel
         }
 
         if isEmbedNavigation(navigationURL, embedURL: embedURL) {
             return .allowInWebView
         }
 
-        guard isUserInitiated else { return .cancel }
-
         if isNewWindow {
             return .openExternally(navigationURL)
         }
+
+        guard isUserInitiated else { return .cancel }
 
         return .openExternally(navigationURL)
     }

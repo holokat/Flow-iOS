@@ -296,10 +296,25 @@ final class NoteContentLinkResolverTests: XCTestCase {
             YouTubeEmbedNavigationPolicy.decision(
                 for: watchURL,
                 embedURL: embedURL,
-                isNewWindow: true,
+                isNewWindow: false,
                 isUserInitiated: false
             ),
             .cancel
+        )
+    }
+
+    func testYouTubeEmbedNavigationOpensJavaScriptNewWindowWatchURLExternally() throws {
+        let embedURL = try XCTUnwrap(URL(string: "https://www.youtube.com/embed/dQw4w9WgXcQ?playsinline=1&rel=0"))
+        let watchURL = try XCTUnwrap(URL(string: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+
+        XCTAssertEqual(
+            YouTubeEmbedNavigationPolicy.decision(
+                for: watchURL,
+                embedURL: embedURL,
+                isNewWindow: true,
+                isUserInitiated: false
+            ),
+            .openExternally(watchURL)
         )
     }
 
