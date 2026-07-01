@@ -21,8 +21,8 @@ struct ComposePollEditorView: View {
             }
 
             VStack(spacing: 10) {
-                ForEach(Array(draft.options.indices), id: \.self) { index in
-                    optionRow(index: index)
+                ForEach(Array(draft.options.enumerated()), id: \.element.id) { index, option in
+                    optionRow(index: index, option: option)
                 }
 
                 Button {
@@ -122,7 +122,7 @@ struct ComposePollEditorView: View {
         )
     }
 
-    private func optionRow(index: Int) -> some View {
+    private func optionRow(index: Int, option: ComposePollOption) -> some View {
         HStack(alignment: .center, spacing: 10) {
             Text("\(index + 1)")
                 .font(.footnote.weight(.semibold))
@@ -135,7 +135,7 @@ struct ComposePollEditorView: View {
 
             TextField(
                 "Option \(index + 1)",
-                text: optionTextBinding(index),
+                text: optionTextBinding(optionID: option.id),
                 axis: .vertical
             )
             .textFieldStyle(.plain)
@@ -144,7 +144,7 @@ struct ComposePollEditorView: View {
 
             if draft.options.count > 2 {
                 Button {
-                    draft.options.remove(at: index)
+                    draft.options.removeAll { $0.id == option.id }
                 } label: {
                     Image(systemName: "minus.circle.fill")
                         .font(.title3)
@@ -162,14 +162,13 @@ struct ComposePollEditorView: View {
         )
     }
 
-    private func optionTextBinding(_ index: Int) -> Binding<String> {
+    private func optionTextBinding(optionID: String) -> Binding<String> {
         Binding(
             get: {
-                guard draft.options.indices.contains(index) else { return "" }
-                return draft.options[index].text
+                draft.options.first(where: { $0.id == optionID })?.text ?? ""
             },
             set: { newValue in
-                guard draft.options.indices.contains(index) else { return }
+                guard let index = draft.options.firstIndex(where: { $0.id == optionID }) else { return }
                 draft.options[index].text = newValue
             }
         )
