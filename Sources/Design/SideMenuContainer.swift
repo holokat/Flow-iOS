@@ -32,7 +32,7 @@ enum SideMenuTransitionLayout {
     static let menuZIndex: Double = 2
     static let usesParentZStack = true
     static let keepsMenuBehindPrimaryContent = false
-    static let clipsCompositionToContainerBounds = true
+    static let menuFillsFullContainerHeight = true
 
     static func animation(reduceMotion: Bool) -> Animation? {
         guard !reduceMotion else { return nil }
@@ -50,14 +50,6 @@ enum SideMenuTransitionLayout {
         let explicitTopSafeArea = max(0, explicitTopSafeAreaInset)
         guard explicitTopSafeArea <= 0 else { return explicitTopSafeArea }
         return max(0, geometryTopSafeAreaInset)
-    }
-
-    static func menuTopOffset(topSafeAreaInset: CGFloat) -> CGFloat {
-        max(0, topSafeAreaInset)
-    }
-
-    static func menuHeight(for containerHeight: CGFloat, topSafeAreaInset: CGFloat) -> CGFloat {
-        max(0, containerHeight - menuTopOffset(topSafeAreaInset: topSafeAreaInset))
     }
 
     static func primaryContentOpenOffset(for containerWidth: CGFloat) -> CGFloat {
@@ -87,26 +79,40 @@ struct SideMenuContainer<Content: View, Menu: View>: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let menuWidth = SideMenuTransitionLayout.menuWidth(for: geometry.size.width)
+            let contentOffset = SideMenuTransitionLayout.primaryContentOpenOffset(
+                for: geometry.size.width
+            )
             let resolvedTopSafeArea = SideMenuTransitionLayout.resolvedTopSafeArea(
                 explicitTopSafeAreaInset: topSafeAreaInset,
                 geometryTopSafeAreaInset: geometry.safeAreaInsets.top
             )
-            let menuTopOffset = SideMenuTransitionLayout.menuTopOffset(
-                topSafeAreaInset: resolvedTopSafeArea
-            )
-            let menuHeight = SideMenuTransitionLayout.menuHeight(
-                for: geometry.size.height,
-                topSafeAreaInset: resolvedTopSafeArea
-            )
-            let contentOffset = SideMenuTransitionLayout.primaryContentOpenOffset(
-                for: geometry.size.width
-            )
+            let bottomSafeArea = max(0, geometry.safeAreaInsets.bottom)
 
-            ZStack(alignment: .leading) {
+            ZStack(alignment: .topLeading) {
                 primaryContentLayer(offset: contentOffset)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
                     .zIndex(SideMenuTransitionLayout.primaryContentZIndex)
 
+                menuComposition(topSafeArea: resolvedTopSafeArea, bottomSafeArea: bottomSafeArea)
+                    .ignoresSafeArea()
+                    .zIndex(SideMenuTransitionLayout.menuZIndex)
+            }
+            .animation(
+                SideMenuTransitionLayout.animation(reduceMotion: accessibilityReduceMotion),
+                value: isOpen
+            )
+        }
+    }
+
+    // Rendered edge-to-edge (under the status bar and home indicator) so the
+    // drawer and scrim cover the full screen. The safe-area insets are resolved
+    // in the outer geometry (the expanded one reports zero) and handed to the
+    // menu content through the environment.
+    private func menuComposition(topSafeArea: CGFloat, bottomSafeArea: CGFloat) -> some View {
+        GeometryReader { geometry in
+            let menuWidth = SideMenuTransitionLayout.menuWidth(for: geometry.size.width)
+
+            ZStack(alignment: .topLeading) {
                 if isOpen {
                     backdropLayer()
                         .zIndex(SideMenuTransitionLayout.backdropZIndex)
@@ -115,31 +121,28 @@ struct SideMenuContainer<Content: View, Menu: View>: View {
 
                 menuLayer(
                     width: menuWidth,
-                    height: menuHeight,
-                    topOffset: menuTopOffset
+                    height: geometry.size.height,
+                    safeAreaInsets: EdgeInsets(
+                        top: topSafeArea,
+                        leading: 0,
+                        bottom: bottomSafeArea,
+                        trailing: 0
+                    )
                 )
                     .zIndex(SideMenuTransitionLayout.menuZIndex)
             }
-            .frame(width: geometry.size.width, height: geometry.size.height)
-            .clipped()
-            .animation(
-                SideMenuTransitionLayout.animation(reduceMotion: accessibilityReduceMotion),
-                value: isOpen
-            )
         }
     }
 
-    private func menuLayer(width: CGFloat, height: CGFloat, topOffset: CGFloat) -> some View {
+    private func menuLayer(width: CGFloat, height: CGFloat, safeAreaInsets: EdgeInsets) -> some View {
         menu
             .environment(\.sideMenuPresentationIsOpen, isOpen)
+            .environment(\.sideMenuSafeAreaInsets, safeAreaInsets)
             .frame(width: width, height: height, alignment: .topLeading)
             .clipShape(SideMenuTrailingRoundedShape(radius: SideMenuTransitionLayout.menuTrailingCornerRadius))
             .contentShape(SideMenuTrailingRoundedShape(radius: SideMenuTransitionLayout.menuTrailingCornerRadius))
             .shadow(color: .black.opacity(isOpen ? 0.18 : 0), radius: isOpen ? 22 : 0, x: 10, y: 16)
-            .offset(
-                x: isOpen ? 0 : -width * SideMenuTransitionLayout.menuClosedOffsetFraction,
-                y: topOffset
-            )
+            .offset(x: isOpen ? 0 : -width * SideMenuTransitionLayout.menuClosedOffsetFraction)
             .opacity(isOpen ? 1 : SideMenuTransitionLayout.menuClosedOpacity)
             .allowsHitTesting(isOpen)
             .accessibilityHidden(!isOpen)
@@ -217,9 +220,20 @@ private struct SideMenuPresentationIsOpenKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct SideMenuSafeAreaInsetsKey: EnvironmentKey {
+    static let defaultValue = EdgeInsets()
+}
+
 extension EnvironmentValues {
     var sideMenuPresentationIsOpen: Bool {
         get { self[SideMenuPresentationIsOpenKey.self] }
         set { self[SideMenuPresentationIsOpenKey.self] = newValue }
+    }
+
+    /// Screen safe-area insets the full-bleed side menu ignores; menu content
+    /// uses these to keep controls clear of the status bar and home indicator.
+    var sideMenuSafeAreaInsets: EdgeInsets {
+        get { self[SideMenuSafeAreaInsetsKey.self] }
+        set { self[SideMenuSafeAreaInsetsKey.self] = newValue }
     }
 }

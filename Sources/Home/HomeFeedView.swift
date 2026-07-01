@@ -1505,24 +1505,15 @@ private struct HomeFeedRootContent<
                 bottomBarHeight: bottomTabBarHeight,
                 safeAreaBottom: safeAreaBottom
             )
-            Group {
-                if isShowingSideMenu {
-                    SideMenuContainer(
-                        isOpen: $isShowingSideMenu
-                    ) {
-                        sideMenuContent()
-                    } content: {
-                        primaryContent(
-                            contentPadding: contentPadding,
-                            safeAreaBottom: safeAreaBottom
-                        )
-                    }
-                } else {
-                    primaryContent(
-                        contentPadding: contentPadding,
-                        safeAreaBottom: safeAreaBottom
-                    )
-                }
+            SideMenuContainer(
+                isOpen: $isShowingSideMenu
+            ) {
+                sideMenuContent()
+            } content: {
+                primaryContent(
+                    contentPadding: contentPadding,
+                    safeAreaBottom: safeAreaBottom
+                )
             }
         }
         .toolbar(.hidden, for: .navigationBar)

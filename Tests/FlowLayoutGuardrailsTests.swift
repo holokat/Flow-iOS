@@ -403,11 +403,6 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.menuWidthFraction, 0.75)
         XCTAssertLessThanOrEqual(SideMenuTransitionLayout.menuWidthFraction, 0.80)
         XCTAssertEqual(
-            SideMenuTransitionLayout.menuTopOffset(topSafeAreaInset: 59),
-            59,
-            accuracy: 0.0001
-        )
-        XCTAssertEqual(
             SideMenuTransitionLayout.resolvedTopSafeArea(
                 explicitTopSafeAreaInset: 59,
                 geometryTopSafeAreaInset: 92
@@ -424,12 +419,10 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
             accuracy: 0.0001
         )
         XCTAssertEqual(
-            SideMenuTransitionLayout.menuHeight(for: 852, topSafeAreaInset: 59),
-            793,
-            accuracy: 0.0001
-        )
-        XCTAssertEqual(
-            SideMenuTransitionLayout.menuTopOffset(topSafeAreaInset: -8),
+            SideMenuTransitionLayout.resolvedTopSafeArea(
+                explicitTopSafeAreaInset: -12,
+                geometryTopSafeAreaInset: -8
+            ),
             0,
             accuracy: 0.0001
         )
@@ -439,7 +432,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertGreaterThan(SideMenuTransitionLayout.backdropOpacity, 0.16)
         XCTAssertTrue(SideMenuTransitionLayout.usesParentZStack)
         XCTAssertFalse(SideMenuTransitionLayout.keepsMenuBehindPrimaryContent)
-        XCTAssertTrue(SideMenuTransitionLayout.clipsCompositionToContainerBounds)
+        XCTAssertTrue(SideMenuTransitionLayout.menuFillsFullContainerHeight)
         XCTAssertGreaterThan(SideMenuTransitionLayout.menuZIndex, SideMenuTransitionLayout.primaryContentZIndex)
         XCTAssertGreaterThan(SideMenuTransitionLayout.menuZIndex, SideMenuTransitionLayout.backdropZIndex)
         XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.menuClosedOffsetFraction, 1)

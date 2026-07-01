@@ -1448,16 +1448,20 @@ final class AppThemeOptionTests: XCTestCase {
         let sideMenuRange = try XCTUnwrap(homeSource.range(of: "SideMenuContainer("))
         let sideMenuCallSource = homeSource[sideMenuRange.lowerBound...]
 
-        XCTAssertTrue(homeSource.contains("if isShowingSideMenu"))
+        // The container must stay mounted regardless of menu state so the
+        // open/close spring and row stagger animations can play.
+        XCTAssertFalse(homeSource.contains("if isShowingSideMenu {\n                    SideMenuContainer("))
         XCTAssertTrue(homeSource.contains("private func primaryContent("))
-        XCTAssertTrue(homeSource.contains("SideMenuContainer(\n                        isOpen: $isShowingSideMenu\n                    )"))
+        XCTAssertTrue(homeSource.contains("SideMenuContainer(\n                isOpen: $isShowingSideMenu\n            )"))
         XCTAssertTrue(sideMenuCallSource.contains("isOpen: $isShowingSideMenu"))
         XCTAssertFalse(sideMenuCallSource.contains("topSafeAreaInset: safeAreaTop"))
         XCTAssertTrue(sideMenuSource.contains("let resolvedTopSafeArea = SideMenuTransitionLayout.resolvedTopSafeArea("))
         XCTAssertTrue(sideMenuSource.contains("explicitTopSafeAreaInset: topSafeAreaInset,"))
         XCTAssertTrue(sideMenuSource.contains("geometryTopSafeAreaInset: geometry.safeAreaInsets.top"))
         XCTAssertTrue(sideMenuSource.contains(".frame(width: width, height: height, alignment: .topLeading)"))
-        XCTAssertTrue(sideMenuSource.contains(".offset(\n                x: isOpen ? 0 : -width * SideMenuTransitionLayout.menuClosedOffsetFraction,\n                y: topOffset\n            )"))
+        XCTAssertTrue(sideMenuSource.contains(".ignoresSafeArea()"))
+        XCTAssertTrue(sideMenuSource.contains(".environment(\\.sideMenuSafeAreaInsets, safeAreaInsets)"))
+        XCTAssertTrue(sideMenuSource.contains(".offset(x: isOpen ? 0 : -width * SideMenuTransitionLayout.menuClosedOffsetFraction)"))
     }
 
     func testAudioPlayerProgressClampsToPlayableRange() {

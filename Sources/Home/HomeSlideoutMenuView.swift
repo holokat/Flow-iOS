@@ -4,6 +4,7 @@ struct HomeSlideoutMenuView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.sideMenuPresentationIsOpen) private var isMenuPresented
+    @Environment(\.sideMenuSafeAreaInsets) private var menuSafeAreaInsets
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var relaySettings: RelaySettingsStore
@@ -39,6 +40,8 @@ struct HomeSlideoutMenuView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            menuFooter
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(menuBackground)
@@ -106,6 +109,16 @@ struct HomeSlideoutMenuView: View {
                     )
                 }
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var menuFooter: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Rectangle()
+                .fill(appSettings.themePalette.chromeBorder.opacity(0.6))
+                .frame(height: 0.7)
+                .padding(.horizontal, 16)
 
             if auth.isLoggedIn {
                 revealedMenuRow(index: 4) {
@@ -116,10 +129,28 @@ struct HomeSlideoutMenuView: View {
                         action: onLogout
                     )
                 }
-                .padding(.top, SideMenuTransitionLayout.logoutTopSpacing)
+                .padding(.top, SideMenuTransitionLayout.logoutTopSpacing - 8)
+            }
+
+            revealedMenuRow(index: 5) {
+                Text(appVersionLabel)
+                    .font(appSettings.appFont(.caption2))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground.opacity(0.8))
+                    .padding(.horizontal, 16)
+                    .padding(.top, auth.isLoggedIn ? 6 : 14)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, max(menuSafeAreaInsets.bottom, 12) + 4)
+    }
+
+    private var appVersionLabel: String {
+        let info = Bundle.main.infoDictionary
+        let appName = (info?["CFBundleDisplayName"] as? String)
+            ?? (info?["CFBundleName"] as? String)
+            ?? "App"
+        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = (info?["CFBundleVersion"] as? String).map { " (\($0))" } ?? ""
+        return "\(appName) \(version)\(build)"
     }
 
     private func accountProfileHeader(_ account: AuthAccount) -> some View {
@@ -129,11 +160,12 @@ struct HomeSlideoutMenuView: View {
         return VStack(alignment: .leading, spacing: 0) {
             SideMenuProfileBannerArtwork(
                 bannerURL: accountHeaderBannerURL,
-                menuBackground: menuBackground
+                menuBackground: menuBackground,
+                topSafeAreaInset: menuSafeAreaInsets.top
             )
             .overlay(alignment: .topTrailing) {
                 closeMenuButton
-                    .padding(.top, 18)
+                    .padding(.top, menuSafeAreaInsets.top + 12)
                     .padding(.trailing, 16)
             }
 
@@ -179,7 +211,7 @@ struct HomeSlideoutMenuView: View {
             closeMenuButton
         }
         .padding(.horizontal, 16)
-        .padding(.top, 18)
+        .padding(.top, menuSafeAreaInsets.top + 12)
         .padding(.bottom, 14)
     }
 
@@ -245,27 +277,18 @@ struct HomeSlideoutMenuView: View {
         )
     }
 
-    private func accountHeaderFallbackAvatar(fallbackName: String) -> some View {
-        ZStack {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [Color.accentColor.opacity(0.85), Color.accentColor.opacity(0.45)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            Text(fallbackName.prefix(1).uppercased())
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(.white)
-        }
-    }
-
     private struct SideMenuProfileBannerArtwork: View {
         let bannerURL: URL?
         let menuBackground: Color
+        let topSafeAreaInset: CGFloat
 
         @EnvironmentObject private var appSettings: AppSettingsStore
+
+        // The drawer bleeds under the status bar, so the banner grows by the
+        // top inset to keep the same visible artwork height below it.
+        private var bannerHeight: CGFloat {
+            SideMenuTransitionLayout.profileBannerHeight + max(0, topSafeAreaInset)
+        }
 
         var body: some View {
             GeometryReader { proxy in
@@ -273,10 +296,10 @@ struct HomeSlideoutMenuView: View {
 
                 Rectangle()
                     .fill(menuBackground)
-                    .frame(width: width, height: SideMenuTransitionLayout.profileBannerHeight)
+                    .frame(width: width, height: bannerHeight)
                     .overlay(alignment: .topLeading) {
                         bannerContent
-                            .frame(width: width, height: SideMenuTransitionLayout.profileBannerHeight)
+                            .frame(width: width, height: bannerHeight)
                             .clipped()
                     }
                     .overlay(alignment: .topLeading) {
@@ -288,7 +311,7 @@ struct HomeSlideoutMenuView: View {
                             startPoint: .top,
                             endPoint: .bottom
                         )
-                        .frame(width: width, height: SideMenuTransitionLayout.profileBannerHeight)
+                        .frame(width: width, height: bannerHeight)
                     }
                     .overlay(alignment: .bottomLeading) {
                         LinearGradient(
@@ -306,7 +329,7 @@ struct HomeSlideoutMenuView: View {
                     .clipped()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: SideMenuTransitionLayout.profileBannerHeight)
+            .frame(height: bannerHeight)
             .background(menuBackground)
             .clipped()
         }
