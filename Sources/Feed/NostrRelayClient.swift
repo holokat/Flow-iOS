@@ -221,10 +221,23 @@ public final class RelaySingleResumeContinuationBox<Success>: @unchecked Sendabl
     }
 }
 
+extension Notification.Name {
+    static let relayConnectionsDidReset = Notification.Name("flow.relayConnectionsDidReset")
+}
+
 actor NostrRelayPool {
     static let shared = NostrRelayPool()
 
     private var connections: [String: NostrRelaySocketConnection] = [:]
+
+    /// Tears down every pooled socket so the next request reconnects fresh.
+    /// Sockets silently die while the app is suspended; reusing them makes
+    /// every fetch time out until the ping loop eventually notices.
+    func resetAllConnections() async {
+        for connection in connections.values {
+            await connection.resetConnection()
+        }
+    }
 
     func fetchEvents(
         relayURL: URL,
@@ -299,7 +312,9 @@ private actor NostrRelaySocketConnection {
     private let relayURL: URL
     private let session: URLSession
     private let pingIntervalNanoseconds: UInt64 = 25_000_000_000
+    private let pingTimeoutNanoseconds: UInt64 = 10_000_000_000
 
+    private var lastInboundMessageAt: Date?
     private var socket: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
     private var pingTask: Task<Void, Never>?
@@ -323,6 +338,7 @@ private actor NostrRelaySocketConnection {
 
         let subscriptionID = UUID().uuidString
         let request = try serializeJSONArray(["REQ", subscriptionID, filter.jsonObject])
+        let queryStartedAt = Date()
 
         return try await withThrowingTaskGroup(of: [NostrEvent].self) { group in
             group.addTask {
@@ -332,9 +348,9 @@ private actor NostrRelaySocketConnection {
                 try await Task.sleep(
                     nanoseconds: Self.timeoutNanoseconds(for: timeout)
                 )
-                await self.cancelQuery(
+                await self.handleQueryTimeout(
                     subscriptionID: subscriptionID,
-                    error: RelayConnectionTimeoutError.timedOut
+                    queryStartedAt: queryStartedAt
                 )
                 throw RelayConnectionTimeoutError.timedOut
             }
@@ -465,6 +481,29 @@ private actor NostrRelaySocketConnection {
         }
     }
 
+    private func handleQueryTimeout(
+        subscriptionID: String,
+        queryStartedAt: Date
+    ) async {
+        // A relay that is alive sends *something* (events, EOSE, other
+        // subscriptions' traffic) within the query window. Total silence
+        // means the socket died while the app was suspended — tear it down
+        // so the next request reconnects instead of timing out forever.
+        let socketWasSilent = (lastInboundMessageAt ?? .distantPast) < queryStartedAt
+        await cancelQuery(
+            subscriptionID: subscriptionID,
+            error: RelayConnectionTimeoutError.timedOut
+        )
+        if socketWasSilent {
+            await handleSocketFailure(RelayConnectionTimeoutError.timedOut)
+        }
+    }
+
+    func resetConnection() async {
+        guard socket != nil else { return }
+        await handleSocketFailure(RelayClientError.closed("Connection reset for reconnect."))
+    }
+
     private func cancelQuery(
         subscriptionID: String,
         error: Error
@@ -540,6 +579,7 @@ private actor NostrRelaySocketConnection {
                 do {
                     try await Task.sleep(nanoseconds: pingIntervalNanoseconds)
                     try await self.awaitPing(on: socket)
+                    self.recordPongReceived()
                 } catch {
                     if Task.isCancelled {
                         return
@@ -554,6 +594,7 @@ private actor NostrRelaySocketConnection {
     private func handle(
         message: URLSessionWebSocketTask.Message
     ) async {
+        lastInboundMessageAt = Date()
         let text: String
         switch message {
         case .string(let value):
@@ -675,9 +716,14 @@ private actor NostrRelaySocketConnection {
         try await socket.send(.string(text))
     }
 
+    private func recordPongReceived() {
+        lastInboundMessageAt = Date()
+    }
+
     private func awaitPing(
         on socket: URLSessionWebSocketTask
     ) async throws {
+        let pingTimeout = pingTimeoutNanoseconds
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let singleResumeContinuation = RelaySingleResumeContinuationBox(continuation)
             socket.sendPing { error in
@@ -686,6 +732,12 @@ private actor NostrRelaySocketConnection {
                 } else {
                     singleResumeContinuation.resume(returning: ())
                 }
+            }
+            // A pong that never arrives (half-open TCP after app suspension)
+            // would otherwise hang here until the OS gives up minutes later.
+            Task {
+                try? await Task.sleep(nanoseconds: pingTimeout)
+                singleResumeContinuation.resume(throwing: RelayConnectionTimeoutError.timedOut)
             }
         }
     }

@@ -509,7 +509,10 @@ struct HomeFeedView: View {
     }
 
     private func refreshFeed() async {
-        await viewModel.refresh()
+        // Force so a pull always fetches, even when a background silent
+        // refresh is in flight (previously the pull was queued and looked
+        // like a no-op).
+        await viewModel.refresh(force: true)
     }
 
     private func revealBufferedNewItems() {

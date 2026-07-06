@@ -20,6 +20,7 @@ struct FlowApp: App {
     @State private var launchSplashSelection = WelcomeArtworkSelection.initial()
     @State private var isLaunchSplashVisible = false
     @State private var hasPresentedLaunchSplash = false
+    @State private var didEnterBackground = false
 
     init() {
         FlowMediaCache.configureSharedURLCache()
@@ -141,7 +142,11 @@ struct FlowApp: App {
             }
             .onChange(of: scenePhase) { _, newValue in
                 updateBreakReminderMonitoring()
+                if newValue == .background {
+                    didEnterBackground = true
+                }
                 guard newValue == .active else { return }
+                recoverRelayConnectionsAfterBackgroundIfNeeded()
                 Task(priority: .utility) {
                     await presentPendingSharedComposeDraftIfPossible()
                 }
@@ -152,6 +157,18 @@ struct FlowApp: App {
                     await presentPendingSharedComposeDraftIfPossible()
                 }
             }
+    }
+
+    // Relay sockets silently die while the app is suspended. Reconnect them
+    // eagerly on wake (as NDK does) and let feeds refresh themselves, instead
+    // of leaving every fetch to time out against a zombie connection.
+    private func recoverRelayConnectionsAfterBackgroundIfNeeded() {
+        guard didEnterBackground else { return }
+        didEnterBackground = false
+        Task {
+            await NostrRelayPool.shared.resetAllConnections()
+            NotificationCenter.default.post(name: .relayConnectionsDidReset, object: nil)
+        }
     }
 
     @MainActor

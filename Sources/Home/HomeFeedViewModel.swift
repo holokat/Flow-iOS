@@ -75,6 +75,7 @@ final class HomeFeedViewModel: ObservableObject {
     private var lastLiveCatchUpBySignature: [String: Date] = [:]
     private var resetFeedTask: Task<Void, Never>?
     private var profileUpdatesTask: Task<Void, Never>?
+    private var connectionRecoveryTask: Task<Void, Never>?
     private var isPrefetchingMore = false
     private var latestRefreshRequestID = 0
     private var trendingPaginationState: TrendingPaginationState?
@@ -106,6 +107,7 @@ final class HomeFeedViewModel: ObservableObject {
         self.mediaOnly = defaults.mediaOnly
 
         startObservingProfileUpdates()
+        startObservingConnectionRecovery()
     }
 
     deinit {
@@ -114,6 +116,27 @@ final class HomeFeedViewModel: ObservableObject {
         resetFeedTask?.cancel()
         trendingEmptyRetryTask?.cancel()
         profileUpdatesTask?.cancel()
+        connectionRecoveryTask?.cancel()
+    }
+
+    private func startObservingConnectionRecovery() {
+        connectionRecoveryTask = Task { [weak self] in
+            let notifications = NotificationCenter.default.notifications(
+                named: .relayConnectionsDidReset
+            )
+            for await _ in notifications {
+                guard let self else { return }
+                // Fresh sockets are up after a foreground wake; refresh so new
+                // notes arrive without a manual pull, buffered behind the
+                // new-notes pill instead of yanking the visible list. Force
+                // past any request stuck on the old dead connections.
+                guard !self.items.isEmpty else {
+                    await self.refresh(silent: true, force: true)
+                    continue
+                }
+                await self.refresh(silent: true, force: true, publishFetchedItems: false)
+            }
+        }
     }
 
     private func startObservingProfileUpdates() {
