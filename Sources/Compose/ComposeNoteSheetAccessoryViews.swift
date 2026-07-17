@@ -91,7 +91,7 @@ struct ComposeComposerCardView: View {
     let mode: ComposeNoteSheetMode
     @Binding var pollDraft: ComposePollDraft?
     @Binding var isEditorFocused: Bool
-    @Binding var editorSelectedRange: NSRange
+    let editorSelectionRequest: ComposeTextSelectionRequest
     @Binding var selectedMentions: [ComposeSelectedMention]
     @Binding var mentionSuggestionAnchorY: CGFloat
     let activeMentionQuery: ComposeMentionQuery?
@@ -161,7 +161,7 @@ struct ComposeComposerCardView: View {
         ComposeMultilineTextView(
             text: $viewModel.text,
             isFocused: $isEditorFocused,
-            selectedRange: $editorSelectedRange,
+            selectionRequest: editorSelectionRequest,
             mentions: $selectedMentions,
             mentionAnchorY: $mentionSuggestionAnchorY,
             mentionColor: UIColor(appSettings.primaryColor),

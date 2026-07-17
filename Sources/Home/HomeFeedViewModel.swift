@@ -75,7 +75,11 @@ final class HomeFeedViewModel: ObservableObject {
     private var lastLiveCatchUpBySignature: [String: Date] = [:]
     private var resetFeedTask: Task<Void, Never>?
     private var profileUpdatesTask: Task<Void, Never>?
+    private var profileApplyTask: Task<Void, Never>?
     private var connectionRecoveryTask: Task<Void, Never>?
+    private var assetPrefetchTask: Task<Void, Never>?
+    private var pendingResolvedProfiles: [String: NostrProfile] = [:]
+    private var backgroundUpdatesPaused = false
     private var isPrefetchingMore = false
     private var latestRefreshRequestID = 0
     private var trendingPaginationState: TrendingPaginationState?
@@ -116,7 +120,9 @@ final class HomeFeedViewModel: ObservableObject {
         resetFeedTask?.cancel()
         trendingEmptyRetryTask?.cancel()
         profileUpdatesTask?.cancel()
+        profileApplyTask?.cancel()
         connectionRecoveryTask?.cancel()
+        assetPrefetchTask?.cancel()
     }
 
     private func startObservingConnectionRecovery() {
@@ -126,17 +132,22 @@ final class HomeFeedViewModel: ObservableObject {
             )
             for await _ in notifications {
                 guard let self else { return }
-                // Fresh sockets are up after a foreground wake; refresh so new
-                // notes arrive without a manual pull, buffered behind the
-                // new-notes pill instead of yanking the visible list. Force
-                // past any request stuck on the old dead connections.
-                guard !self.items.isEmpty else {
-                    await self.refresh(silent: true, force: true)
-                    continue
-                }
-                await self.refresh(silent: true, force: true, publishFetchedItems: false)
+                await self.recoverAfterRelayConnectionReset()
             }
         }
+    }
+
+    private func recoverAfterRelayConnectionReset() async {
+        guard !backgroundUpdatesPaused else { return }
+
+        // Restarting live subscriptions already performs a bounded catch-up.
+        // Avoid doing a full feed refresh at the same time; the duplicate
+        // hydration and list updates were a major foreground hitch.
+        guard !items.isEmpty else {
+            await refresh(silent: true, force: true)
+            return
+        }
+        startLiveUpdatesIfNeeded(forceRestart: true)
     }
 
     private func startObservingProfileUpdates() {
@@ -144,8 +155,29 @@ final class HomeFeedViewModel: ObservableObject {
         profileUpdatesTask = Task { [weak self] in
             for await resolved in stream {
                 guard let self else { return }
-                await self.applyResolvedProfiles(resolved)
+                self.enqueueResolvedProfiles(resolved)
             }
+        }
+    }
+
+    private func enqueueResolvedProfiles(_ resolved: [String: NostrProfile]) {
+        guard !resolved.isEmpty else { return }
+        pendingResolvedProfiles.merge(resolved, uniquingKeysWith: { _, incoming in incoming })
+        schedulePendingProfileApplicationIfNeeded()
+    }
+
+    private func schedulePendingProfileApplicationIfNeeded() {
+        guard !backgroundUpdatesPaused else { return }
+        guard profileApplyTask == nil else { return }
+
+        profileApplyTask = Task(priority: .utility) { [weak self] in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.profileApplyTask = nil
+            guard !self.backgroundUpdatesPaused else { return }
+            let resolved = self.pendingResolvedProfiles
+            self.pendingResolvedProfiles.removeAll(keepingCapacity: true)
+            self.applyResolvedProfiles(resolved)
         }
     }
 
@@ -414,6 +446,33 @@ final class HomeFeedViewModel: ObservableObject {
             await refresh()
         } else {
             startLiveUpdatesIfNeeded()
+        }
+    }
+
+    func setBackgroundUpdatesPaused(_ isPaused: Bool) {
+        guard backgroundUpdatesPaused != isPaused else { return }
+        backgroundUpdatesPaused = isPaused
+
+        if isPaused {
+            profileApplyTask?.cancel()
+            profileApplyTask = nil
+            assetPrefetchTask?.cancel()
+            assetPrefetchTask = nil
+            liveUpdatesTask?.cancel()
+            liveUpdatesTask = nil
+            liveCatchUpTask?.cancel()
+            liveCatchUpTask = nil
+            liveCatchUpToken &+= 1
+            return
+        }
+
+        schedulePendingProfileApplicationIfNeeded()
+        if items.isEmpty {
+            Task(priority: .utility) { [weak self] in
+                await self?.refresh(silent: true)
+            }
+        } else {
+            startLiveUpdatesIfNeeded(forceRestart: true)
         }
     }
 
@@ -846,6 +905,8 @@ final class HomeFeedViewModel: ObservableObject {
                 }
             }
 
+            guard !Task.isCancelled, !backgroundUpdatesPaused else { return }
+
             if requestSource != feedSource || requestUserPubkey != currentUserPubkey {
                 guard latestRefreshRequestID == refreshRequestID else { return }
                 needsRefreshAfterCurrentRequest = true
@@ -891,6 +952,7 @@ final class HomeFeedViewModel: ObservableObject {
                     requestHydrationMode: requestHydrationMode
                 )
                 guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, !backgroundUpdatesPaused else { return }
 
                 if requestSource != feedSource || requestUserPubkey != currentUserPubkey {
                     guard latestRefreshRequestID == refreshRequestID else { return }
@@ -1333,6 +1395,7 @@ final class HomeFeedViewModel: ObservableObject {
     }
 
     private func startLiveUpdatesIfNeeded(forceRestart: Bool = false) {
+        guard !backgroundUpdatesPaused else { return }
         let liveKinds = feedKinds(for: feedSource)
         guard !liveKinds.isEmpty else { return }
         let source = feedSource
@@ -1405,6 +1468,7 @@ final class HomeFeedViewModel: ObservableObject {
         for targets: [HomeFeedLiveSubscriptionTarget],
         force: Bool = false
     ) {
+        guard !backgroundUpdatesPaused else { return }
         guard liveCatchUpTask == nil else { return }
         guard !targets.isEmpty else { return }
 
@@ -1435,6 +1499,7 @@ final class HomeFeedViewModel: ObservableObject {
         let catchUpTimeout = Self.liveCatchUpFetchTimeout
         let service = service
 
+        var catchUpEvents: [NostrEvent] = []
         await withTaskGroup(of: [NostrEvent].self) { group in
             for target in targets {
                 group.addTask {
@@ -1450,66 +1515,98 @@ final class HomeFeedViewModel: ObservableObject {
 
             for await events in group {
                 guard !Task.isCancelled else { return }
-                for event in events {
-                    await handleLiveEvent(event)
-                }
+                catchUpEvents.append(contentsOf: events)
             }
         }
+
+        guard !Task.isCancelled else { return }
+        await handleLiveEvents(catchUpEvents)
     }
 
     private func handleLiveEvent(_ event: NostrEvent) async {
-        let normalizedEventID = event.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard feedKinds(for: feedSource).contains(event.kind) else { return }
-        guard !normalizedEventID.isEmpty, !knownEventIDs.contains(normalizedEventID) else { return }
+        await handleLiveEvents([event])
+    }
 
-        await service.ingestLiveEvents([event])
+    private func handleLiveEvents(_ events: [NostrEvent]) async {
+        guard !backgroundUpdatesPaused, !events.isEmpty else { return }
 
+        let requestSource = feedSource
+        let allowedKinds = Set(feedKinds(for: requestSource))
+        var seenEventIDs = Set<String>()
+        let candidates = events.filter { event in
+            let eventID = event.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard allowedKinds.contains(event.kind), !eventID.isEmpty else { return false }
+            guard !knownEventIDs.contains(eventID) else { return false }
+            return seenEventIDs.insert(eventID).inserted
+        }
+        guard !candidates.isEmpty else { return }
+
+        let requestRelayURLs = hydrationRelayURLs(for: requestSource)
+        let moderationSnapshot = muteFilterSnapshot
+        await service.ingestLiveEvents(candidates)
         let hydrated = await service.buildFeedItems(
-            relayURLs: hydrationRelayURLs(for: feedSource),
-            events: [event],
-            moderationSnapshot: muteFilterSnapshot
+            relayURLs: requestRelayURLs,
+            events: candidates,
+            moderationSnapshot: moderationSnapshot
         )
-        guard let item = hydrated.first else { return }
-        guard !knownEventIDs.contains(item.id) else { return }
-        guard itemIsAllowedForCurrentSource(item) else { return }
 
-        knownEventIDs.insert(item.id)
-        let currentArticleReplacementKeys = feedSource == .articles
-            ? Self.articleReplacementKeys(in: items)
-            : []
-        if feedSource == .articles,
-           Self.containsArticleReplacement(for: item, in: currentArticleReplacementKeys) {
-            items = pruneItemsForSource(
-                pruneMutedItems(
-                    mergeItemArrays(
-                        primary: [item],
-                        secondary: items,
-                        feedSource: feedSource
-                    )
-                )
-            )
-            let visibleItemIDs = Set(items.map(\.id))
-            let visibleArticleReplacementKeys = Self.articleReplacementKeys(in: items)
-            bufferedNewItems = mergeItemArrays(
-                primary: bufferedNewItems,
-                secondary: [],
-                feedSource: feedSource
-            ).filter {
-                !visibleItemIDs.contains($0.id) &&
-                    !Self.containsArticleReplacement(for: $0, in: visibleArticleReplacementKeys)
-            }
-            knownEventIDs = visibleItemIDs
-            knownEventIDs.formUnion(bufferedNewItems.map(\.id))
-            scheduleAssetPrefetch(for: [item])
+        guard !Task.isCancelled,
+              !backgroundUpdatesPaused,
+              requestSource == feedSource else {
             return
         }
 
+        let newItems = hydrated.filter { item in
+            !knownEventIDs.contains(item.id) && itemIsAllowedForCurrentSource(item)
+        }
+        guard !newItems.isEmpty else { return }
+
+        if requestSource == .articles {
+            applyLiveArticleItems(newItems)
+        } else {
+            knownEventIDs.formUnion(newItems.map(\.id))
+            bufferedNewItems = mergeItemArrays(
+                primary: newItems,
+                secondary: bufferedNewItems,
+                feedSource: requestSource
+            )
+        }
+        scheduleAssetPrefetch(for: newItems)
+    }
+
+    private func applyLiveArticleItems(_ newItems: [FeedItem]) {
+        let currentReplacementKeys = Self.articleReplacementKeys(in: items)
+        let visibleReplacements = newItems.filter {
+            Self.containsArticleReplacement(for: $0, in: currentReplacementKeys)
+        }
+        let bufferedCandidates = newItems.filter {
+            !Self.containsArticleReplacement(for: $0, in: currentReplacementKeys)
+        }
+
+        if !visibleReplacements.isEmpty {
+            items = pruneItemsForSource(
+                pruneMutedItems(
+                    mergeItemArrays(
+                        primary: visibleReplacements,
+                        secondary: items,
+                        feedSource: .articles
+                    )
+                )
+            )
+        }
+
+        let visibleItemIDs = Set(items.map(\.id))
+        let visibleReplacementKeys = Self.articleReplacementKeys(in: items)
         bufferedNewItems = mergeItemArrays(
-            primary: [item],
+            primary: bufferedCandidates,
             secondary: bufferedNewItems,
-            feedSource: feedSource
-        )
-        scheduleAssetPrefetch(for: [item])
+            feedSource: .articles
+        ).filter {
+            !visibleItemIDs.contains($0.id) &&
+                !Self.containsArticleReplacement(for: $0, in: visibleReplacementKeys)
+        }
+        knownEventIDs = visibleItemIDs
+        knownEventIDs.formUnion(bufferedNewItems.map(\.id))
     }
 
     private func mergeKeepingNewest(itemsToMerge: [FeedItem]) {
@@ -2007,10 +2104,12 @@ final class HomeFeedViewModel: ObservableObject {
     }
 
     private func scheduleAssetPrefetch(for sourceItems: [FeedItem]) {
+        guard !backgroundUpdatesPaused else { return }
         let prefetchItems = Array(sourceItems.prefix(assetPrefetchItemCount))
         guard !prefetchItems.isEmpty else { return }
 
-        Task(priority: .utility) {
+        assetPrefetchTask?.cancel()
+        assetPrefetchTask = Task(priority: .utility) {
             let urls = Array(
                 prefetchItems.flatMap(\.prefetchImageURLs)
             )

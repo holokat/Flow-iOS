@@ -2,11 +2,6 @@ import UIKit
 import UniformTypeIdentifiers
 
 final class ShareViewController: UIViewController {
-    private enum ActionButtonMode {
-        case close
-        case openFlow
-    }
-
     private enum ShareExtensionError: LocalizedError {
         case noSupportedMedia
         case failedToLoadMedia
@@ -26,7 +21,6 @@ final class ShareViewController: UIViewController {
     private let detailLabel = UILabel()
     private let actionButton = UIButton(type: .system)
     private var hasStartedProcessing = false
-    private var actionButtonMode: ActionButtonMode = .close
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -78,13 +72,10 @@ final class ShareViewController: UIViewController {
                 throw ShareExtensionError.noSupportedMedia
             }
 
-            _ = try FlowSharedComposeDraftStore.savePendingDraft(items: pendingItems)
-            let didOpenFlow = await openFlowCompose()
-            if didOpenFlow {
-                extensionContext?.completeRequest(returningItems: nil)
-            } else {
-                showOpenFlowFallback(attachmentCount: pendingItems.count)
-            }
+            _ = try await Task.detached(priority: .userInitiated) {
+                try FlowSharedComposeDraftStore.savePendingDraft(items: pendingItems)
+            }.value
+            showSavedForHalo(attachmentCount: pendingItems.count)
         } catch {
             showFailure(
                 message: (error as? LocalizedError)?.errorDescription
@@ -97,7 +88,7 @@ final class ShareViewController: UIViewController {
         view.backgroundColor = .systemBackground
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.text = "Opening Halo"
+        titleLabel.text = "Add to Halo"
         titleLabel.font = .preferredFont(forTextStyle: .title2)
         titleLabel.textAlignment = .center
 
@@ -147,75 +138,23 @@ final class ShareViewController: UIViewController {
         activityIndicator.stopAnimating()
         titleLabel.text = "Couldn't Share"
         detailLabel.text = message
-        actionButtonMode = .close
         actionButton.setTitle("Close", for: .normal)
         actionButton.isHidden = false
     }
 
-    private func showOpenFlowFallback(attachmentCount: Int) {
+    private func showSavedForHalo(attachmentCount: Int) {
         activityIndicator.stopAnimating()
-        titleLabel.text = "Open Halo"
+        titleLabel.text = "Ready in Halo"
         detailLabel.text = attachmentCount == 1
-            ? "Your attachment is ready. Tap below to open the composer in Halo."
-            : "Your attachments are ready. Tap below to open the composer in Halo."
-        actionButtonMode = .openFlow
-        actionButton.setTitle("Open Halo", for: .normal)
+            ? "Your attachment is saved. Tap Done, then open Halo and the new post will appear automatically."
+            : "Your \(attachmentCount) attachments are saved. Tap Done, then open Halo and the new post will appear automatically."
+        actionButton.setTitle("Done", for: .normal)
         actionButton.isHidden = false
     }
 
     @objc
     private func handleActionButtonTap() {
-        switch actionButtonMode {
-        case .close:
-            extensionContext?.completeRequest(returningItems: nil)
-        case .openFlow:
-            Task { @MainActor in
-                actionButton.isEnabled = false
-                let didOpenFlow = await openFlowCompose()
-                actionButton.isEnabled = true
-
-                if didOpenFlow {
-                    extensionContext?.completeRequest(returningItems: nil)
-                } else {
-                    actionButtonMode = .close
-                    showFailure(message: "Couldn't open Halo right now.")
-                }
-            }
-        }
-    }
-
-    @MainActor
-    private func openFlowCompose() async -> Bool {
-        let composeURL = FlowSharedComposeDraftStore.shareComposeURL
-
-        if let extensionContext {
-            let didOpenViaExtensionContext = await withCheckedContinuation { continuation in
-                extensionContext.open(composeURL) { success in
-                    continuation.resume(returning: success)
-                }
-            }
-            if didOpenViaExtensionContext {
-                return true
-            }
-        }
-
-        return openFlowViaResponderChain(composeURL)
-    }
-
-    @MainActor
-    private func openFlowViaResponderChain(_ url: URL) -> Bool {
-        let selector = sel_registerName("openURL:")
-        var responder: UIResponder? = self
-
-        while let current = responder {
-            if current.responds(to: selector) {
-                _ = current.perform(selector, with: url)
-                return true
-            }
-            responder = current.next
-        }
-
-        return false
+        extensionContext?.completeRequest(returningItems: nil)
     }
 
     private func supportedItemProviders() -> [NSItemProvider] {

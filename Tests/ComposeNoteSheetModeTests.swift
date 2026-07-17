@@ -52,11 +52,25 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         XCTAssertEqual(viewModel.remainingCharacterCount, 0)
     }
 
+    func testShareExtensionQueuesDraftWithoutAttemptingUnsupportedAppLaunch() throws {
+        let source = try Self.sourceText(at: "Sources/ShareExtension/ShareViewController.swift")
+
+        XCTAssertTrue(source.contains("FlowSharedComposeDraftStore.savePendingDraft"))
+        XCTAssertFalse(source.contains("extensionContext.open"))
+        XCTAssertFalse(source.contains("sel_registerName"))
+    }
+
+    func testPendingShareBypassesCustomLaunchSplash() throws {
+        let source = try Self.sourceText(at: "Sources/App/FlowApp.swift")
+
+        XCTAssertTrue(source.contains("FlowSharedComposeDraftStore.loadPendingDraft() != nil"))
+        XCTAssertFalse(source.contains("4_000_000_000"))
+    }
+
     @MainActor
     func testComposeTextViewCoordinatorAllowsTypingPastSoftLimit() {
         var textValue = String(repeating: "a", count: 238)
         var isFocusedValue = true
-        var selectedRangeValue = NSRange(location: (textValue as NSString).length, length: 0)
         var mentionsValue: [ComposeSelectedMention] = []
         var mentionAnchorYValue: CGFloat = 44
         let coordinator = ComposeMultilineTextView.Coordinator(
@@ -67,10 +81,6 @@ final class ComposeNoteSheetModeTests: XCTestCase {
             isFocused: Binding(
                 get: { isFocusedValue },
                 set: { isFocusedValue = $0 }
-            ),
-            selectedRange: Binding(
-                get: { selectedRangeValue },
-                set: { selectedRangeValue = $0 }
             ),
             mentions: Binding(
                 get: { mentionsValue },
@@ -195,16 +205,15 @@ final class ComposeNoteSheetModeTests: XCTestCase {
     }
 
     @MainActor
-    func testComposeTextViewCoordinatorDoesNotEchoUnchangedInputState() {
+    func testComposeTextViewCoordinatorCoalescesUnchangedInputState() async {
         var textValue = ""
         var textSetCount = 0
         var isFocusedValue = true
-        var selectedRangeValue = NSRange(location: 0, length: 0)
-        var selectedRangeSetCount = 0
         var mentionsValue: [ComposeSelectedMention] = []
         var mentionAnchorYValue: CGFloat = 44
         var mentionAnchorYSetCount = 0
         var mentionQueryChangeCount = 0
+        let textReported = expectation(description: "Text reported after native input transaction")
 
         let coordinator = ComposeMultilineTextView.Coordinator(
             text: Binding(
@@ -212,18 +221,12 @@ final class ComposeNoteSheetModeTests: XCTestCase {
                 set: { newValue in
                     textValue = newValue
                     textSetCount += 1
+                    textReported.fulfill()
                 }
             ),
             isFocused: Binding(
                 get: { isFocusedValue },
                 set: { isFocusedValue = $0 }
-            ),
-            selectedRange: Binding(
-                get: { selectedRangeValue },
-                set: { newValue in
-                    selectedRangeValue = newValue
-                    selectedRangeSetCount += 1
-                }
             ),
             mentions: Binding(
                 get: { mentionsValue },
@@ -246,9 +249,9 @@ final class ComposeNoteSheetModeTests: XCTestCase {
 
         coordinator.textViewDidChange(textView)
         coordinator.textViewDidChange(textView)
+        await fulfillment(of: [textReported], timeout: 1)
 
         XCTAssertEqual(textSetCount, 1)
-        XCTAssertEqual(selectedRangeSetCount, 1)
         XCTAssertEqual(mentionAnchorYSetCount, 0)
         XCTAssertEqual(mentionQueryChangeCount, 0)
     }
@@ -268,10 +271,9 @@ final class ComposeNoteSheetModeTests: XCTestCase {
     }
 
     @MainActor
-    func testComposeTextViewCoordinatorIgnoresStaleSelectionEchoAfterTyping() {
+    func testComposeTextViewCoordinatorAppliesEachSelectionRequestOnlyOnce() {
         var textValue = ""
         var isFocusedValue = true
-        var selectedRangeValue = NSRange(location: 5, length: 0)
         var mentionsValue: [ComposeSelectedMention] = []
         var mentionAnchorYValue: CGFloat = 44
 
@@ -283,10 +285,6 @@ final class ComposeNoteSheetModeTests: XCTestCase {
             isFocused: Binding(
                 get: { isFocusedValue },
                 set: { isFocusedValue = $0 }
-            ),
-            selectedRange: Binding(
-                get: { selectedRangeValue },
-                set: { selectedRangeValue = $0 }
             ),
             mentions: Binding(
                 get: { mentionsValue },
@@ -300,16 +298,18 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         )
         let textView = UITextView()
         textView.text = "hello!"
-        textView.selectedRange = NSRange(location: 6, length: 0)
+        let request = ComposeTextSelectionRequest(range: NSRange(location: 5, length: 0))
 
-        coordinator.textViewDidChange(textView)
         coordinator.applyExternalSelectionIfNeeded(
             to: textView,
-            selectedRange: NSRange(location: 5, length: 0)
+            request: request
         )
+        XCTAssertEqual(textView.selectedRange, NSRange(location: 5, length: 0))
+
+        textView.selectedRange = NSRange(location: 6, length: 0)
+        coordinator.applyExternalSelectionIfNeeded(to: textView, request: request)
 
         XCTAssertEqual(textView.selectedRange, NSRange(location: 6, length: 0))
-        XCTAssertEqual(selectedRangeValue, NSRange(location: 6, length: 0))
     }
 
     @MainActor

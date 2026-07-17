@@ -165,7 +165,7 @@ struct FlowApp: App {
     private func recoverRelayConnectionsAfterBackgroundIfNeeded() {
         guard didEnterBackground else { return }
         didEnterBackground = false
-        Task {
+        Task(priority: .utility) {
             await NostrRelayPool.shared.resetAllConnections()
             NotificationCenter.default.post(name: .relayConnectionsDidReset, object: nil)
         }
@@ -216,15 +216,24 @@ struct FlowApp: App {
         guard authManager.isLoggedIn else { return }
         guard !hasPresentedLaunchSplash else { return }
 
+        // A shared attachment is an explicit request to compose. Do not cover
+        // that handoff with the decorative launch overlay or delay its sheet.
+        if FlowSharedComposeDraftStore.loadPendingDraft() != nil {
+            hasPresentedLaunchSplash = true
+            return
+        }
+
         hasPresentedLaunchSplash = true
         launchSplashSelection = WelcomeArtworkSelection.initial()
         withAnimation(.easeInOut(duration: 0.20)) {
             isLaunchSplashVisible = true
         }
 
-        try? await Task.sleep(nanoseconds: 4_000_000_000)
+        // The OS already displays Halo's launch screen. Keep this optional
+        // brand beat brief so it never reads as a four-second loading state.
+        try? await Task.sleep(nanoseconds: 650_000_000)
 
-        withAnimation(.spring(response: 0.68, dampingFraction: 0.90)) {
+        withAnimation(.easeOut(duration: 0.18)) {
             isLaunchSplashVisible = false
         }
     }

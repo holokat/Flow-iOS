@@ -1367,11 +1367,21 @@ enum ComposeNoteSheetMode: Equatable {
     }
 }
 
+struct ComposeTextSelectionRequest: Equatable {
+    let id: UUID
+    let range: NSRange
+
+    init(id: UUID = UUID(), range: NSRange) {
+        self.id = id
+        self.range = range
+    }
+}
+
 struct ComposeMultilineTextView: UIViewRepresentable {
     @EnvironmentObject private var appSettings: AppSettingsStore
     @Binding var text: String
     @Binding var isFocused: Bool
-    @Binding var selectedRange: NSRange
+    let selectionRequest: ComposeTextSelectionRequest
     @Binding var mentions: [ComposeSelectedMention]
     @Binding var mentionAnchorY: CGFloat
     let mentionColor: UIColor
@@ -1381,7 +1391,6 @@ struct ComposeMultilineTextView: UIViewRepresentable {
         Coordinator(
             text: $text,
             isFocused: $isFocused,
-            selectedRange: $selectedRange,
             mentions: $mentions,
             mentionAnchorY: $mentionAnchorY,
             onMentionQueryChange: onMentionQueryChange
@@ -1422,7 +1431,10 @@ struct ComposeMultilineTextView: UIViewRepresentable {
             context.coordinator.isApplyingProgrammaticUpdate = false
         }
 
-        context.coordinator.applyExternalSelectionIfNeeded(to: uiView, selectedRange: selectedRange)
+        context.coordinator.applyExternalSelectionIfNeeded(
+            to: uiView,
+            request: selectionRequest
+        )
 
         if isFocused {
             guard uiView.window != nil, !uiView.isFirstResponder else { return }
@@ -1457,31 +1469,24 @@ struct ComposeMultilineTextView: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         @Binding private var text: String
         @Binding private var isFocused: Bool
-        @Binding private var selectedRange: NSRange
         @Binding private var mentions: [ComposeSelectedMention]
         @Binding private var mentionAnchorY: CGFloat
         private let onMentionQueryChange: (ComposeMentionQuery?) -> Void
         var isApplyingProgrammaticUpdate = false
         private var lastReportedMentionQuery: ComposeMentionQuery?
-        // Keep selection reconciliation stateful. UITextView reports a new caret
-        // before SwiftUI has necessarily re-rendered with that binding value;
-        // applying the older bound range during that update moves the cursor
-        // backward while typing. Do not replace this with a stateless clamp/set
-        // helper unless you also preserve the stale-echo guard below.
-        private var pendingTextViewSelectionReport: NSRange?
-        private var staleSelectionEchoes: [NSRange] = []
+        private var lastAppliedSelectionRequestID: UUID?
+        private var pendingTextReport: String?
+        private var isTextReportScheduled = false
 
         init(
             text: Binding<String>,
             isFocused: Binding<Bool>,
-            selectedRange: Binding<NSRange>,
             mentions: Binding<[ComposeSelectedMention]>,
             mentionAnchorY: Binding<CGFloat>,
             onMentionQueryChange: @escaping (ComposeMentionQuery?) -> Void
         ) {
             _text = text
             _isFocused = isFocused
-            _selectedRange = selectedRange
             _mentions = mentions
             _mentionAnchorY = mentionAnchorY
             self.onMentionQueryChange = onMentionQueryChange
@@ -1503,56 +1508,62 @@ struct ComposeMultilineTextView: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             guard !isApplyingProgrammaticUpdate else { return }
-            reportSelectedRange(textView.selectedRange)
-            reportText(textView.text)
+            scheduleTextReport(textView.text)
             updateMentionQuery(for: textView)
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
             guard !isApplyingProgrammaticUpdate else { return }
-            guard reportSelectedRange(textView.selectedRange) else { return }
             updateMentionQuery(for: textView)
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
             reportFocus(true)
-            reportSelectedRange(textView.selectedRange)
             updateMentionQuery(for: textView)
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
+            flushPendingTextReport()
             reportFocus(false)
-            reportSelectedRange(textView.selectedRange)
             lastReportedMentionQuery = nil
             onMentionQueryChange(nil)
         }
 
-        func applyExternalSelectionIfNeeded(to textView: UITextView, selectedRange: NSRange) {
+        func applyExternalSelectionIfNeeded(
+            to textView: UITextView,
+            request: ComposeTextSelectionRequest
+        ) {
+            guard request.id != lastAppliedSelectionRequestID else { return }
             guard textView.markedTextRange == nil else { return }
+            lastAppliedSelectionRequestID = request.id
 
             let clampedRange = ComposeMultilineTextView.clampedRange(
-                selectedRange,
+                request.range,
                 maxLength: textView.text.utf16.count
             )
-
-            // A range we just reported from UITextView is authoritative. Older
-            // SwiftUI echoes are ignored, while explicit external selections
-            // like mention or draft insertion are still allowed through.
-            if let pendingTextViewSelectionReport {
-                if clampedRange == pendingTextViewSelectionReport {
-                    self.pendingTextViewSelectionReport = nil
-                    staleSelectionEchoes.removeAll()
-                } else if staleSelectionEchoes.contains(clampedRange) {
-                    return
-                } else {
-                    self.pendingTextViewSelectionReport = nil
-                    staleSelectionEchoes.removeAll()
-                }
-            }
 
             if textView.selectedRange != clampedRange {
                 textView.selectedRange = clampedRange
             }
+        }
+
+        private func scheduleTextReport(_ newValue: String) {
+            pendingTextReport = newValue
+            guard !isTextReportScheduled else { return }
+            isTextReportScheduled = true
+
+            // Let UIKit finish the native input transaction before invalidating
+            // SwiftUI. This also coalesces multiple edits delivered in one runloop.
+            DispatchQueue.main.async { [weak self] in
+                self?.flushPendingTextReport()
+            }
+        }
+
+        private func flushPendingTextReport() {
+            isTextReportScheduled = false
+            guard let pendingTextReport else { return }
+            self.pendingTextReport = nil
+            reportText(pendingTextReport)
         }
 
         private func updateMentionQuery(for textView: UITextView) {
@@ -1590,18 +1601,6 @@ struct ComposeMultilineTextView: UIViewRepresentable {
         private func reportFocus(_ newValue: Bool) -> Bool {
             guard isFocused != newValue else { return false }
             isFocused = newValue
-            return true
-        }
-
-        @discardableResult
-        private func reportSelectedRange(_ newValue: NSRange) -> Bool {
-            guard selectedRange != newValue else { return false }
-            staleSelectionEchoes.append(selectedRange)
-            if staleSelectionEchoes.count > 4 {
-                staleSelectionEchoes.removeFirst(staleSelectionEchoes.count - 4)
-            }
-            pendingTextViewSelectionReport = newValue
-            selectedRange = newValue
             return true
         }
 

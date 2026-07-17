@@ -54,7 +54,9 @@ struct ComposeNoteSheet: View {
     @State private var previewingMediaAttachment: ComposeMediaAttachment?
     @State private var isShowingKlipyGIFPicker = false
     @State private var isShowingDraftLibrary = false
-    @State private var editorSelectedRange = NSRange(location: 0, length: 0)
+    @State private var editorSelectionRequest = ComposeTextSelectionRequest(
+        range: NSRange(location: 0, length: 0)
+    )
     @State private var selectedMentions: [ComposeSelectedMention] = []
     @State private var activeMentionQuery: ComposeMentionQuery?
     @State private var mentionSuggestions: [ComposeMentionSuggestion] = []
@@ -126,7 +128,9 @@ struct ComposeNoteSheet: View {
             applyInitialAttachmentsIfNeeded()
             applyInitialSelectedMentionsIfNeeded()
             applyInitialPollDraftIfNeeded()
-            editorSelectedRange = NSRange(location: (viewModel.text as NSString).length, length: 0)
+            requestEditorSelection(
+                NSRange(location: (viewModel.text as NSString).length, length: 0)
+            )
             isEditorFocused = true
             await applyInitialSharedAttachmentsIfNeeded()
         }
@@ -342,7 +346,7 @@ struct ComposeNoteSheet: View {
             mode: mode,
             pollDraft: $pollDraft,
             isEditorFocused: $isEditorFocused,
-            editorSelectedRange: $editorSelectedRange,
+            editorSelectionRequest: editorSelectionRequest,
             selectedMentions: $selectedMentions,
             mentionSuggestionAnchorY: $mentionSuggestionAnchorY,
             activeMentionQuery: activeMentionQuery,
@@ -435,7 +439,7 @@ struct ComposeNoteSheet: View {
         )
         viewModel.text = insertion.text
         selectedMentions = insertion.mentions
-        editorSelectedRange = insertion.selectedRange
+        requestEditorSelection(insertion.selectedRange)
         mentionSuggestions = []
         activeMentionQuery = nil
         isLoadingMentionSuggestions = false
@@ -1046,7 +1050,7 @@ struct ComposeNoteSheet: View {
         activeMentionQuery = nil
         mentionSuggestions = []
         activeSavedDraftID = nil
-        editorSelectedRange = NSRange(location: 0, length: 0)
+        requestEditorSelection(NSRange(location: 0, length: 0))
         LocalPublicationStore.shared.registerPublishing(item: preparedPublication.item)
         onOptimisticPublished?(preparedPublication.item)
         toastCenter.show(preparedPublication.isReply ? "Reply publishing" : preparedPublication.isPoll ? "Poll publishing" : "Note publishing", style: .info)
@@ -1112,7 +1116,9 @@ struct ComposeNoteSheet: View {
         guard viewModel.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         guard !initialText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         viewModel.text = initialText
-        editorSelectedRange = NSRange(location: (initialText as NSString).length, length: 0)
+        requestEditorSelection(
+            NSRange(location: (initialText as NSString).length, length: 0)
+        )
     }
 
     private func applyInitialSelectedMentionsIfNeeded() {
@@ -1241,7 +1247,7 @@ struct ComposeNoteSheet: View {
 
         viewModel.text = insertion.text
         selectedMentions = insertion.selectedMentions
-        editorSelectedRange = insertion.selectedRange
+        requestEditorSelection(insertion.selectedRange)
         isEditorFocused = true
         toastCenter.show("Draft text inserted", style: .info)
     }
@@ -1288,8 +1294,14 @@ struct ComposeNoteSheet: View {
         isLoadingMentionSuggestions = false
         viewModel.feedbackMessage = nil
         viewModel.feedbackIsError = false
-        editorSelectedRange = NSRange(location: (viewModel.text as NSString).length, length: 0)
+        requestEditorSelection(
+            NSRange(location: (viewModel.text as NSString).length, length: 0)
+        )
         isEditorFocused = true
+    }
+
+    private func requestEditorSelection(_ range: NSRange) {
+        editorSelectionRequest = ComposeTextSelectionRequest(range: range)
     }
 
     private var configuredPublishSourceCount: Int {

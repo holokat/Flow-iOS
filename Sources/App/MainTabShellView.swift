@@ -167,6 +167,9 @@ struct MainTabShellView: View {
         .onChange(of: isActivityRootVisible) { _, _ in
             syncActivityTabActiveState()
         }
+        .onChange(of: shouldKeepHomeFeedActive, initial: true) { _, isActive in
+            homeViewModel.setBackgroundUpdatesPaused(!isActive)
+        }
         .onChange(of: scenePhase) { _, _ in
             if scenePhase == .active, selectedTab == .home, isHomeRootVisible {
                 homeScrollChromeStore.showChromeAtRest()
@@ -471,6 +474,13 @@ struct MainTabShellView: View {
         }
 
         composeSheetCoordinator.presentNewNote()
+    }
+
+    private var shouldKeepHomeFeedActive: Bool {
+        scenePhase == .active &&
+            selectedTab == .home &&
+            isHomeRootVisible &&
+            composeSheetCoordinator.draft == nil
     }
 
     private func handleTabSelection(_ tab: Tab) {
