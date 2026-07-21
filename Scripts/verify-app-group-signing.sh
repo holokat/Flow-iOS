@@ -26,13 +26,13 @@ verify_bundle() {
     local provision_entitlements="${scratch_directory}/${bundle_label}-provision.plist"
     local embedded_profile="${bundle_path}/embedded.mobileprovision"
 
-    if ! /usr/bin/codesign --display --entitlements - "${bundle_path}" >"${signed_entitlements}" 2>/dev/null; then
+    if ! /usr/bin/codesign --display --entitlements :- "${bundle_path}" >"${signed_entitlements}" 2>/dev/null; then
         print -u2 "Unable to read signed entitlements from ${bundle_label}."
         return 1
     fi
 
     if ! /usr/libexec/PlistBuddy -c "Print :com.apple.security.application-groups" \
-        "${signed_entitlements}" 2>/dev/null | /usr/bin/grep -Fqx "${expected_group}"; then
+        "${signed_entitlements}" 2>/dev/null | /usr/bin/grep -Fq "${expected_group}"; then
         print -u2 "${bundle_label} signature is missing App Group ${expected_group}."
         return 1
     fi
@@ -48,7 +48,7 @@ verify_bundle() {
     fi
 
     if ! /usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.security.application-groups" \
-        "${provision_entitlements}" 2>/dev/null | /usr/bin/grep -Fqx "${expected_group}"; then
+        "${provision_entitlements}" 2>/dev/null | /usr/bin/grep -Fq "${expected_group}"; then
         print -u2 "${bundle_label} provisioning profile does not authorize App Group ${expected_group}."
         return 1
     fi
