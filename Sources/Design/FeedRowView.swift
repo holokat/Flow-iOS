@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Combine
 #if canImport(Translation)
 import Translation
 #endif
@@ -177,6 +178,11 @@ private struct FeedRowCardChromeModifier: ViewModifier {
     }
 }
 
+enum FeedRowEngagementMode: Equatable {
+    case liveCounts
+    case actionsOnly
+}
+
 struct FeedRowView: View {
     private struct PublicationFailurePresentation: Identifiable {
         let id: String
@@ -205,6 +211,7 @@ struct FeedRowView: View {
     var commentCount: Int = 0
     var repostCount: Int = 0
     var showReactions: Bool = true
+    var engagementMode: FeedRowEngagementMode = .liveCounts
     var onAvatarTap: (() -> Void)? = nil
     var avatarMenuActions: AvatarMenuActions? = nil
     var onHashtagTap: ((String) -> Void)? = nil
@@ -239,6 +246,7 @@ struct FeedRowView: View {
         commentCount: Int = 0,
         repostCount: Int = 0,
         showReactions: Bool = true,
+        engagementMode: FeedRowEngagementMode = .liveCounts,
         onAvatarTap: (() -> Void)? = nil,
         avatarMenuActions: AvatarMenuActions? = nil,
         onHashtagTap: ((String) -> Void)? = nil,
@@ -258,6 +266,7 @@ struct FeedRowView: View {
         self.commentCount = commentCount
         self.repostCount = repostCount
         self.showReactions = showReactions
+        self.engagementMode = engagementMode
         self.onAvatarTap = onAvatarTap
         self.avatarMenuActions = avatarMenuActions
         self.onHashtagTap = onHashtagTap
@@ -302,8 +311,14 @@ struct FeedRowView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
-        .onReceive(reactionStats.publisher(for: item.displayEventID)) { snapshot in
+        .onReceive(engagementUpdatesPublisher) { snapshot in
             reactionSnapshot = snapshot
+        }
+        .onAppear {
+            refreshActionsOnlyReactionSnapshot(for: item.displayEventID)
+        }
+        .onChange(of: item.displayEventID) { _, eventID in
+            refreshActionsOnlyReactionSnapshot(for: eventID)
         }
         .sheet(isPresented: $isShowingReshareSheet) {
             ReshareActionSheetView(
@@ -500,8 +515,8 @@ struct FeedRowView: View {
         VStack(alignment: .leading, spacing: 6) {
             NoteContentView(
                 event: item.displayEvent,
-                reactionCount: showReactions ? visibleReactionCount : 0,
-                commentCount: showReactions ? visibleReplyCount : 0,
+                reactionCount: showsEngagementCounts ? visibleReactionCount : 0,
+                commentCount: showsEngagementCounts ? visibleReplyCount : 0,
                 articleAuthor: LongFormArticleAuthorSummary(item: item),
                 onHashtagTap: onHashtagTap,
                 onProfileTap: onProfileTap,
@@ -535,7 +550,7 @@ struct FeedRowView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "bubble.right")
-                    if visibleReplyCount > 0 {
+                    if showsEngagementCounts, visibleReplyCount > 0 {
                         Text("\(visibleReplyCount)")
                             .font(appSettings.appFont(.footnote))
                     }
@@ -551,7 +566,7 @@ struct FeedRowView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.2.squarepath")
-                    if visibleRepostCount > 0 {
+                    if showsEngagementCounts, visibleRepostCount > 0 {
                         Text("\(visibleRepostCount)")
                             .font(appSettings.appFont(.footnote))
                     }
@@ -565,7 +580,7 @@ struct FeedRowView: View {
             ReactionButton(
                 isLiked: resolvedIsLikedByCurrentUser,
                 isBonusReaction: isBonusReactionByCurrentUser,
-                count: visibleReactionCount,
+                count: showsEngagementCounts ? visibleReactionCount : 0,
                 bonusActiveColor: appSettings.primaryColor,
                 inactiveColor: mutedChromeColor
             ) { bonusCount in
@@ -592,6 +607,17 @@ struct FeedRowView: View {
                 currentPubkey: auth.currentAccount?.pubkey
             )
         return currentReaction?.bonusCount ?? 0 > 0
+    }
+
+    private var showsEngagementCounts: Bool {
+        engagementMode == .liveCounts && showReactions
+    }
+
+    private var engagementUpdatesPublisher: AnyPublisher<NoteReactionEventSnapshot, Never> {
+        guard engagementMode == .liveCounts else {
+            return Empty(completeImmediately: false).eraseToAnyPublisher()
+        }
+        return reactionStats.publisher(for: item.displayEventID).eraseToAnyPublisher()
     }
 
     private var mutedChromeColor: Color {
@@ -862,6 +888,7 @@ struct FeedRowView: View {
             currentPubkey: auth.currentAccount?.pubkey,
             bonusCount: bonusCount
         )
+        refreshActionsOnlyReactionSnapshot(for: eventID)
         defer {
             reactionStats.endPublishingReaction(for: eventID)
         }
@@ -888,10 +915,19 @@ struct FeedRowView: View {
                     targetEventID: eventID
                 )
             }
+            refreshActionsOnlyReactionSnapshot(for: eventID)
         } catch {
             reactionStats.rollbackOptimisticToggle(for: eventID, snapshot: optimisticToggle)
+            refreshActionsOnlyReactionSnapshot(for: eventID)
             return
         }
+    }
+
+    private func refreshActionsOnlyReactionSnapshot(for eventID: String) {
+        guard engagementMode == .actionsOnly else { return }
+        let latestSnapshot = reactionStats.currentSnapshot(for: eventID)
+        guard reactionSnapshot != latestSnapshot else { return }
+        reactionSnapshot = latestSnapshot
     }
 
     private func handleAuthorTap() {

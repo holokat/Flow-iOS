@@ -5,10 +5,15 @@ final class HomeFeedViewModel: ObservableObject {
     @Published private(set) var items: [FeedItem] = [] {
         didSet {
             itemsRevision &+= 1
-            clearVisibleItemsCache()
+            clearMainVisibleItemsCache()
         }
     }
-    @Published private(set) var bufferedNewItems: [FeedItem] = []
+    @Published private(set) var bufferedNewItems: [FeedItem] = [] {
+        didSet {
+            bufferedItemsRevision &+= 1
+            clearBufferedVisibleItemsCache()
+        }
+    }
     @Published var mode: HomeFeedMode = .posts {
         didSet {
             clearVisibleItemsCache()
@@ -43,7 +48,6 @@ final class HomeFeedViewModel: ObservableObject {
     private let liveSubscriber: NostrLiveFeedSubscriber
     private let filterStore: HomeFeedFilterStore
 
-    private let assetPrefetchItemCount = 24
     private let feedSourceStorage = UserDefaults.standard
     private let feedSourceStoragePrefix = "homeFeedSourcePreference"
     private let mutedConversationStoragePrefix = "homeFeedMutedConversations"
@@ -54,6 +58,7 @@ final class HomeFeedViewModel: ObservableObject {
     private var needsRefreshAfterCurrentRequest = false
     private var knownEventIDs = Set<String>()
     private var followingPubkeys: [String] = []
+    private var followingAuthorsRevision = 0
     private var currentUserPubkey: String?
     private var mutedConversationIDs = Set<String>() {
         didSet {
@@ -62,9 +67,13 @@ final class HomeFeedViewModel: ObservableObject {
         }
     }
     private var itemsRevision = 0
+    private var bufferedItemsRevision = 0
     private var mutedConversationRevision = 0
     private var visibleItemsCacheKey: VisibleItemsCacheKey?
     private var visibleItemsCache: [FeedItem] = []
+    private var bufferedVisibleItemsCacheKey: VisibleItemsCacheKey?
+    private var bufferedVisibleItemsCache: [FeedItem] = []
+    private var bufferedRetainedItemsCache: [FeedItem] = []
 
     private var liveSubscriptionKinds: [Int] = []
     private var liveSubscriptionSource: HomePrimaryFeedSource?
@@ -77,7 +86,6 @@ final class HomeFeedViewModel: ObservableObject {
     private var profileUpdatesTask: Task<Void, Never>?
     private var profileApplyTask: Task<Void, Never>?
     private var connectionRecoveryTask: Task<Void, Never>?
-    private var assetPrefetchTask: Task<Void, Never>?
     private var pendingResolvedProfiles: [String: NostrProfile] = [:]
     private var backgroundUpdatesPaused = false
     private var isPrefetchingMore = false
@@ -122,7 +130,6 @@ final class HomeFeedViewModel: ObservableObject {
         profileUpdatesTask?.cancel()
         profileApplyTask?.cancel()
         connectionRecoveryTask?.cancel()
-        assetPrefetchTask?.cancel()
     }
 
     private func startObservingConnectionRecovery() {
@@ -184,6 +191,8 @@ final class HomeFeedViewModel: ObservableObject {
     private func applyResolvedProfiles(_ resolved: [String: NostrProfile]) {
         guard !resolved.isEmpty else { return }
 
+        let cachedVisibleItems = currentCachedVisibleItems()
+        let cachedBufferedPartition = currentCachedBufferedPartition()
         var itemsChanged = false
         let patchedItems = items.map { item -> FeedItem in
             guard let updated = item.applyingResolvedProfiles(resolved) else { return item }
@@ -192,6 +201,12 @@ final class HomeFeedViewModel: ObservableObject {
         }
         if itemsChanged {
             items = patchedItems
+            if let cachedVisibleItems {
+                let patchedVisibleItems = cachedVisibleItems.map { item in
+                    item.applyingResolvedProfiles(resolved) ?? item
+                }
+                primeVisibleItemsCache(with: patchedVisibleItems)
+            }
         }
 
         var bufferedChanged = false
@@ -202,6 +217,16 @@ final class HomeFeedViewModel: ObservableObject {
         }
         if bufferedChanged {
             bufferedNewItems = patchedBuffered
+            if let cachedBufferedPartition {
+                primeBufferedItemsCache(
+                    retained: cachedBufferedPartition.retained.map { item in
+                        item.applyingResolvedProfiles(resolved) ?? item
+                    },
+                    visible: cachedBufferedPartition.visible.map { item in
+                        item.applyingResolvedProfiles(resolved) ?? item
+                    }
+                )
+            }
         }
     }
 
@@ -231,11 +256,11 @@ final class HomeFeedViewModel: ObservableObject {
     }
 
     var visibleBufferedNewItemsCount: Int {
-        filterVisibleItems(bufferedNewItems).count
+        filteredBufferedItems().count
     }
 
     var visibleBufferedNewItems: [FeedItem] {
-        filterVisibleItems(bufferedNewItems)
+        filteredBufferedItems()
     }
 
     var isUsingCustomFilters: Bool {
@@ -452,8 +477,6 @@ final class HomeFeedViewModel: ObservableObject {
         if isPaused {
             profileApplyTask?.cancel()
             profileApplyTask = nil
-            assetPrefetchTask?.cancel()
-            assetPrefetchTask = nil
             liveUpdatesTask?.cancel()
             liveUpdatesTask = nil
             liveCatchUpTask?.cancel()
@@ -597,7 +620,7 @@ final class HomeFeedViewModel: ObservableObject {
 
             switch requestSource {
             case .network, .relay:
-                followingPubkeys = []
+                updateFollowingPubkeys([])
                 let networkPage = try await pageFetcher.fetchModeAwarePrimaryFeedPage(
                     source: requestSource,
                     relayURLs: requestRelayURLs,
@@ -620,7 +643,7 @@ final class HomeFeedViewModel: ObservableObject {
                 sourcePageResult = networkPage
 
             case .interests:
-                followingPubkeys = []
+                updateFollowingPubkeys([])
                 let interestPage = try await pageFetcher.fetchModeAwarePrimaryFeedPage(
                     source: requestSource,
                     relayURLs: requestRelayURLs,
@@ -643,7 +666,7 @@ final class HomeFeedViewModel: ObservableObject {
                 sourcePageResult = interestPage
 
             case .trending:
-                followingPubkeys = []
+                updateFollowingPubkeys([])
                 let trendingPage = try await pageFetcher.fetchTrendingFeedPage(
                     hydrationRelayURLs: hydrationRelayURLs(for: .trending),
                     limit: pageSize,
@@ -661,7 +684,7 @@ final class HomeFeedViewModel: ObservableObject {
                 }
 
             case .news:
-                followingPubkeys = []
+                updateFollowingPubkeys([])
                 let newsPage = try await pageFetcher.fetchNewsFeedPage(
                     newsRelayURLs: relayURLs(for: .news),
                     hydrationRelayURLs: hydrationRelayURLs(for: .news),
@@ -681,7 +704,7 @@ final class HomeFeedViewModel: ObservableObject {
                 }
 
             case .custom(let feedID):
-                followingPubkeys = []
+                updateFollowingPubkeys([])
                 guard let feed = customFeedDefinition(id: feedID) else {
                     fetched = []
                     hasReachedEnd = true
@@ -702,7 +725,7 @@ final class HomeFeedViewModel: ObservableObject {
                 sourcePageResult = customPage
 
             case .hashtag(let hashtag):
-                followingPubkeys = []
+                updateFollowingPubkeys([])
                 let hashtagPage = try await pageFetcher.fetchModeAwarePrimaryFeedPage(
                     source: .hashtag(hashtag),
                     relayURLs: requestRelayURLs,
@@ -741,7 +764,7 @@ final class HomeFeedViewModel: ObservableObject {
                     return
                 }
 
-                followingPubkeys = followings
+                updateFollowingPubkeys(followings)
                 let followingFeedAuthors = Self.followingAuthorPubkeys(
                     followingPubkeys: followings,
                     currentUserPubkey: requestUserPubkey
@@ -801,7 +824,7 @@ final class HomeFeedViewModel: ObservableObject {
                     return
                 }
 
-                followingPubkeys = followings
+                updateFollowingPubkeys(followings)
                 let articleAuthors = Self.followingAuthorPubkeys(
                     followingPubkeys: followings,
                     currentUserPubkey: requestUserPubkey
@@ -858,7 +881,7 @@ final class HomeFeedViewModel: ObservableObject {
                     return
                 }
 
-                followingPubkeys = followings
+                updateFollowingPubkeys(followings)
                 let pollAuthors = Self.followingAuthorPubkeys(
                     followingPubkeys: followings,
                     currentUserPubkey: requestUserPubkey
@@ -1323,9 +1346,21 @@ final class HomeFeedViewModel: ObservableObject {
     }
 
     func showBufferedNewItems() {
-        guard !bufferedNewItems.isEmpty else { return }
-        mergeKeepingNewest(itemsToMerge: bufferedNewItems)
+        let bufferedItemsToReveal = bufferedNewItems
+        guard !bufferedItemsToReveal.isEmpty else { return }
+
+        _ = visibleBufferedNewItems
+        let acceptedCandidates = bufferedRetainedItemsCache
         bufferedNewItems.removeAll()
+        guard !acceptedCandidates.isEmpty else {
+            knownEventIDs.formUnion(items.map(\.id))
+            return
+        }
+
+        mergeKeepingNewest(
+            itemsToMerge: acceptedCandidates,
+            retentionAlreadyValidated: true
+        )
     }
 
     private func applyCurrentFilters(showKinds: [Int], mediaOnly: Bool) {
@@ -1366,7 +1401,7 @@ final class HomeFeedViewModel: ObservableObject {
         hasReachedEnd = false
         trendingPaginationState = nil
         hasRetriedEmptyTrendingLoad = false
-        followingPubkeys = []
+        updateFollowingPubkeys([])
         errorMessage = nil
 
         trendingEmptyRetryTask?.cancel()
@@ -1557,14 +1592,12 @@ final class HomeFeedViewModel: ObservableObject {
         if requestSource == .articles {
             applyLiveArticleItems(newItems)
         } else {
-            knownEventIDs.formUnion(newItems.map(\.id))
-            bufferedNewItems = mergeItemArrays(
-                primary: newItems,
-                secondary: bufferedNewItems,
+            mergeBufferedItems(
+                itemsToMerge: newItems,
                 feedSource: requestSource
             )
+            knownEventIDs.formUnion(bufferedNewItems.map(\.id))
         }
-        scheduleAssetPrefetch(for: newItems)
     }
 
     private func applyLiveArticleItems(_ newItems: [FeedItem]) {
@@ -1577,54 +1610,93 @@ final class HomeFeedViewModel: ObservableObject {
         }
 
         if !visibleReplacements.isEmpty {
-            items = pruneItemsForSource(
-                pruneMutedItems(
-                    mergeItemArrays(
-                        primary: visibleReplacements,
-                        secondary: items,
-                        feedSource: .articles
-                    )
-                )
-            )
+            mergeKeepingNewest(itemsToMerge: visibleReplacements)
         }
 
         let visibleItemIDs = Set(items.map(\.id))
         let visibleReplacementKeys = Self.articleReplacementKeys(in: items)
-        bufferedNewItems = mergeItemArrays(
-            primary: bufferedCandidates,
-            secondary: bufferedNewItems,
-            feedSource: .articles
-        ).filter {
-            !visibleItemIDs.contains($0.id) &&
-                !Self.containsArticleReplacement(for: $0, in: visibleReplacementKeys)
-        }
-        knownEventIDs = visibleItemIDs
+        mergeBufferedItems(
+            itemsToMerge: bufferedCandidates,
+            feedSource: .articles,
+            excludingItemIDs: visibleItemIDs,
+            excludingArticleReplacementKeys: visibleReplacementKeys
+        )
+        knownEventIDs.formUnion(visibleItemIDs)
         knownEventIDs.formUnion(bufferedNewItems.map(\.id))
+        knownEventIDs.formUnion(newItems.map(\.id))
     }
 
-    private func mergeKeepingNewest(itemsToMerge: [FeedItem]) {
+    private func mergeKeepingNewest(
+        itemsToMerge: [FeedItem],
+        retentionAlreadyValidated: Bool = false
+    ) {
         LocalPublicationStore.shared.mergeFetchedItems(itemsToMerge)
-        items = pruneItemsForSource(
-            pruneMutedItems(
-                mergeItemArrays(
-                    primary: itemsToMerge,
-                    secondary: items,
-                    feedSource: feedSource
-                )
-            )
+        let existingVisibleItems = filteredMainItems()
+        let affectedItemIDs = Set(itemsToMerge.map(\.id))
+        let affectedArticleReplacementKeys = feedSource == .articles
+            ? Self.articleReplacementKeys(in: itemsToMerge)
+            : []
+
+        func isAffected(_ item: FeedItem) -> Bool {
+            affectedItemIDs.contains(item.id) ||
+                (feedSource == .articles &&
+                    Self.containsArticleReplacement(
+                        for: item,
+                        in: affectedArticleReplacementKeys
+                    ))
+        }
+
+        var affectedExistingItems: [FeedItem] = []
+        var unaffectedExistingItems: [FeedItem] = []
+        affectedExistingItems.reserveCapacity(itemsToMerge.count)
+        unaffectedExistingItems.reserveCapacity(items.count)
+        for item in items {
+            if isAffected(item) {
+                affectedExistingItems.append(item)
+            } else {
+                unaffectedExistingItems.append(item)
+            }
+        }
+
+        let canonicalAffectedItems = Self.mergeSortedItemsIncrementally(
+            incomingItems: itemsToMerge,
+            into: affectedExistingItems,
+            feedSource: feedSource
         )
-        scheduleAssetPrefetch(for: items)
+        let acceptedItems = retentionAlreadyValidated
+            ? canonicalAffectedItems
+            : HomeFeedVisibilityFilter.partitionBufferedItems(
+                canonicalAffectedItems,
+                configuration: visibilityConfiguration()
+            ).retained
+        let retainedMergedItems = Self.mergeSortedDisjointItems(
+            unaffectedExistingItems,
+            acceptedItems,
+            feedSource: feedSource
+        )
+
+        if retainedMergedItems != items {
+            items = retainedMergedItems
+            primeVisibleItemsCacheAfterMerging(
+                existingVisibleItems: existingVisibleItems,
+                retainedAffectedItems: acceptedItems,
+                affectedItemIDs: affectedItemIDs,
+                affectedArticleReplacementKeys: affectedArticleReplacementKeys
+            )
+        }
 
         let currentlyVisibleIDs = Set(items.map(\.id))
         let currentArticleReplacementKeys = Self.articleReplacementKeys(in: items)
-        bufferedNewItems.removeAll {
-            currentlyVisibleIDs.contains($0.id) ||
-                (feedSource == .articles &&
-                    Self.containsArticleReplacement(for: $0, in: currentArticleReplacementKeys))
-        }
+        mergeBufferedItems(
+            itemsToMerge: [],
+            feedSource: feedSource,
+            excludingItemIDs: currentlyVisibleIDs,
+            excludingArticleReplacementKeys: currentArticleReplacementKeys
+        )
 
-        knownEventIDs = currentlyVisibleIDs
+        knownEventIDs.formUnion(currentlyVisibleIDs)
         knownEventIDs.formUnion(bufferedNewItems.map(\.id))
+        knownEventIDs.formUnion(itemsToMerge.map(\.id))
     }
 
     private func applyRefreshResults(
@@ -1653,25 +1725,10 @@ final class HomeFeedViewModel: ObservableObject {
             secondary: localPublicationItems(for: requestSource),
             feedSource: requestSource
         )
-        let shouldKeepVisibleRows = !publishFetchedItems
-        let visibleSourceItems = shouldKeepVisibleRows ? items : []
-        let mergedItems = pruneItemsForSource(
-            pruneMutedItems(
-                mergeItemArrays(
-                    primary: shouldKeepVisibleRows ? refreshItemsWithLocalPublications : visibleSourceItems,
-                    secondary: shouldKeepVisibleRows ? visibleSourceItems : refreshItemsWithLocalPublications,
-                    feedSource: requestSource
-                )
-            ),
+        let refreshConfiguration = visibilityConfiguration(
             feedSource: requestSource,
             followingPubkeys: sourceUsesFollowingAuthors(requestSource) ? followingPubkeys : nil
         )
-
-        let existingBufferedItems = bufferedNewItems
-        bufferedNewItems = []
-        let nextOldestCreatedAt = sourcePageResult?.paginationCursor ??
-            mergedItems.last?.event.createdAt ??
-            fetched.last?.event.createdAt
         let nextHasReachedEnd: Bool
         if let sourcePageResult {
             nextHasReachedEnd = !sourcePageResult.hadMoreAvailable
@@ -1680,71 +1737,111 @@ final class HomeFeedViewModel: ObservableObject {
         }
 
         if publishFetchedItems {
-            items = mergedItems
-            knownEventIDs = Set(mergedItems.map(\.id))
-            oldestCreatedAt = nextOldestCreatedAt
+            let acceptedRefreshItems = HomeFeedVisibilityFilter.partitionBufferedItems(
+                refreshItemsWithLocalPublications,
+                configuration: refreshConfiguration
+            ).retained
+            items = acceptedRefreshItems
+            bufferedNewItems = []
+            primeVisibleItemsCache(
+                with: HomeFeedVisibilityFilter.visibleRetainedItems(
+                    acceptedRefreshItems,
+                    configuration: refreshConfiguration
+                )
+            )
+            knownEventIDs = Set(acceptedRefreshItems.map(\.id))
+            oldestCreatedAt = sourcePageResult?.paginationCursor ??
+                acceptedRefreshItems.last?.event.createdAt ??
+                fetched.last?.event.createdAt
             hasReachedEnd = nextHasReachedEnd
-            scheduleAssetPrefetch(for: mergedItems)
         } else {
-            let existingVisibleItems = items
-            let existingVisibleIDs = Set(existingVisibleItems.map(\.id))
-            let existingVisibleArticleReplacementKeys = Self.articleReplacementKeys(in: existingVisibleItems)
-            let refreshedVisibleCandidates = mergedItems.filter { item in
-                existingVisibleIDs.contains(item.id) ||
+            let existingItems = items
+            let existingVisibleSnapshot = filteredMainItems()
+            let existingItemIDs = Set(existingItems.map(\.id))
+            let existingArticleReplacementKeys = Self.articleReplacementKeys(in: existingItems)
+            let affectedItemIDs = Set(refreshItemsWithLocalPublications.map(\.id))
+            let affectedArticleReplacementKeys = requestSource == .articles
+                ? Self.articleReplacementKeys(in: refreshItemsWithLocalPublications)
+                : []
+
+            func isAffected(_ item: FeedItem) -> Bool {
+                affectedItemIDs.contains(item.id) ||
                     (requestSource == .articles &&
                         Self.containsArticleReplacement(
                             for: item,
-                            in: existingVisibleArticleReplacementKeys
+                            in: affectedArticleReplacementKeys
                         ))
             }
-            let refreshedVisibleItems = pruneItemsForSource(
-                pruneMutedItems(
-                    mergeItemArrays(
-                        primary: refreshedVisibleCandidates,
-                        secondary: existingVisibleItems,
-                        feedSource: requestSource
-                    )
-                ),
-                feedSource: requestSource,
-                followingPubkeys: sourceUsesFollowingAuthors(requestSource) ? followingPubkeys : nil
-            )
-            let didUpdateVisibleItems = refreshedVisibleItems != existingVisibleItems
-            if didUpdateVisibleItems {
-                items = refreshedVisibleItems
+
+            var affectedExistingItems: [FeedItem] = []
+            var unaffectedExistingItems: [FeedItem] = []
+            affectedExistingItems.reserveCapacity(refreshItemsWithLocalPublications.count)
+            unaffectedExistingItems.reserveCapacity(existingItems.count)
+            for item in existingItems {
+                if isAffected(item) {
+                    affectedExistingItems.append(item)
+                } else {
+                    unaffectedExistingItems.append(item)
+                }
             }
 
-            let visibleItemIDs = Set(refreshedVisibleItems.map(\.id))
-            let refreshedVisibleArticleReplacementKeys = Self.articleReplacementKeys(
-                in: refreshedVisibleItems
+            let canonicalAffectedItems = Self.mergeSortedItemsIncrementally(
+                incomingItems: refreshItemsWithLocalPublications,
+                into: affectedExistingItems,
+                feedSource: requestSource
             )
-            let unpublishedItems = mergedItems.filter { item in
-                !visibleItemIDs.contains(item.id) &&
+            let acceptedCanonicalItems = HomeFeedVisibilityFilter.partitionBufferedItems(
+                canonicalAffectedItems,
+                configuration: refreshConfiguration
+            ).retained
+            let refreshedItemCandidates = acceptedCanonicalItems.filter { item in
+                existingItemIDs.contains(item.id) ||
+                    (requestSource == .articles &&
+                        Self.containsArticleReplacement(
+                            for: item,
+                            in: existingArticleReplacementKeys
+                        ))
+            }
+            let refreshedItems = Self.mergeSortedDisjointItems(
+                unaffectedExistingItems,
+                refreshedItemCandidates,
+                feedSource: requestSource
+            )
+            if refreshedItems != existingItems {
+                items = refreshedItems
+                primeVisibleItemsCacheAfterMerging(
+                    existingVisibleItems: existingVisibleSnapshot,
+                    retainedAffectedItems: refreshedItemCandidates,
+                    affectedItemIDs: affectedItemIDs,
+                    affectedArticleReplacementKeys: affectedArticleReplacementKeys
+                )
+            }
+
+            let retainedItemIDs = Set(refreshedItems.map(\.id))
+            let retainedArticleReplacementKeys = Self.articleReplacementKeys(
+                in: refreshedItems
+            )
+            let unpublishedItems = acceptedCanonicalItems.filter { item in
+                !retainedItemIDs.contains(item.id) &&
                     !(requestSource == .articles &&
                         Self.containsArticleReplacement(
                             for: item,
-                            in: refreshedVisibleArticleReplacementKeys
+                            in: retainedArticleReplacementKeys
                         ))
             }
-            bufferedNewItems = mergeItemArrays(
-                primary: unpublishedItems,
-                secondary: existingBufferedItems,
-                feedSource: requestSource
-            ).filter {
-                !visibleItemIDs.contains($0.id) &&
-                    !(requestSource == .articles &&
-                        Self.containsArticleReplacement(
-                            for: $0,
-                            in: refreshedVisibleArticleReplacementKeys
-                        ))
-            }
-            knownEventIDs = visibleItemIDs
+            mergeBufferedItems(
+                itemsToMerge: unpublishedItems,
+                feedSource: requestSource,
+                excludingItemIDs: retainedItemIDs,
+                excludingArticleReplacementKeys: retainedArticleReplacementKeys
+            )
+            knownEventIDs.formUnion(retainedItemIDs)
             knownEventIDs.formUnion(bufferedNewItems.map(\.id))
-            oldestCreatedAt = nextOldestCreatedAt
+            knownEventIDs.formUnion(refreshItemsWithLocalPublications.map(\.id))
+            oldestCreatedAt = sourcePageResult?.paginationCursor ??
+                refreshedItems.last?.event.createdAt ??
+                fetched.last?.event.createdAt
             hasReachedEnd = nextHasReachedEnd
-            let prefetchedVisibleItems = didUpdateVisibleItems
-                ? refreshedVisibleItems.filter { existingVisibleIDs.contains($0.id) }
-                : []
-            scheduleAssetPrefetch(for: prefetchedVisibleItems + unpublishedItems)
         }
     }
 
@@ -1788,11 +1885,10 @@ final class HomeFeedViewModel: ObservableObject {
     private func localPublicationItems(for requestSource: HomePrimaryFeedSource) -> [FeedItem] {
         let localPublicationIDs = Set(LocalPublicationStore.shared.records.map(\.id))
         let currentLocalItems = mergeItemArrays(
-            primary: items,
-            secondary: bufferedNewItems,
+            primary: items.filter { localPublicationIDs.contains($0.id) },
+            secondary: bufferedNewItems.filter { localPublicationIDs.contains($0.id) },
             feedSource: requestSource
         )
-            .filter { localPublicationIDs.contains($0.id) }
         return pruneItemsForSource(
             pruneMutedItems(currentLocalItems),
             feedSource: requestSource,
@@ -1905,16 +2001,8 @@ final class HomeFeedViewModel: ObservableObject {
     }
 
     private func filteredMainItems(ignoreMediaOnly: Bool = false) -> [FeedItem] {
-        let key = VisibleItemsCacheKey(
+        let key = makeVisibleItemsCacheKey(
             itemsRevision: itemsRevision,
-            feedSource: feedSource,
-            mode: mode,
-            showKinds: showKinds,
-            mediaOnly: mediaOnly,
-            hideNSFW: AppSettingsStore.shared.hideNSFWContent,
-            filterRevision: MuteStore.shared.filterRevision,
-            spamFilterSignature: AppSettingsStore.shared.spamFilterLabelSignature,
-            mutedConversationRevision: mutedConversationRevision,
             ignoreMediaOnly: ignoreMediaOnly
         )
 
@@ -1928,9 +2016,214 @@ final class HomeFeedViewModel: ObservableObject {
         return filtered
     }
 
+    private func filteredBufferedItems() -> [FeedItem] {
+        let key = makeVisibleItemsCacheKey(
+            itemsRevision: bufferedItemsRevision,
+            ignoreMediaOnly: false
+        )
+
+        if bufferedVisibleItemsCacheKey == key {
+            return bufferedVisibleItemsCache
+        }
+
+        let partition = HomeFeedVisibilityFilter.partitionBufferedItems(
+            bufferedNewItems,
+            configuration: visibilityConfiguration()
+        )
+        bufferedVisibleItemsCacheKey = key
+        bufferedRetainedItemsCache = partition.retained
+        bufferedVisibleItemsCache = partition.visible
+        return partition.visible
+    }
+
+    private func makeVisibleItemsCacheKey(
+        itemsRevision: Int,
+        ignoreMediaOnly: Bool
+    ) -> VisibleItemsCacheKey {
+        VisibleItemsCacheKey(
+            itemsRevision: itemsRevision,
+            feedSource: feedSource,
+            mode: mode,
+            showKinds: showKinds,
+            mediaOnly: mediaOnly,
+            hideNSFW: AppSettingsStore.shared.hideNSFWContent,
+            filterRevision: MuteStore.shared.filterRevision,
+            spamFilterSignature: AppSettingsStore.shared.spamFilterLabelSignature,
+            mutedConversationRevision: mutedConversationRevision,
+            followingAuthorsRevision: sourceUsesFollowingAuthors(feedSource)
+                ? followingAuthorsRevision
+                : 0,
+            ignoreMediaOnly: ignoreMediaOnly
+        )
+    }
+
+    private func currentCachedVisibleItems() -> [FeedItem]? {
+        let key = makeVisibleItemsCacheKey(
+            itemsRevision: itemsRevision,
+            ignoreMediaOnly: false
+        )
+        guard visibleItemsCacheKey == key else { return nil }
+        return visibleItemsCache
+    }
+
+    private func currentCachedBufferedPartition() -> HomeFeedVisibilityFilter.BufferedItemPartition? {
+        let key = makeVisibleItemsCacheKey(
+            itemsRevision: bufferedItemsRevision,
+            ignoreMediaOnly: false
+        )
+        guard bufferedVisibleItemsCacheKey == key else { return nil }
+        return HomeFeedVisibilityFilter.BufferedItemPartition(
+            retained: bufferedRetainedItemsCache,
+            visible: bufferedVisibleItemsCache
+        )
+    }
+
+    private func primeVisibleItemsCache(with visibleItems: [FeedItem]) {
+        visibleItemsCacheKey = makeVisibleItemsCacheKey(
+            itemsRevision: itemsRevision,
+            ignoreMediaOnly: false
+        )
+        visibleItemsCache = visibleItems
+    }
+
+    /// Updates the cached visible slice by replacing only the affected sorted
+    /// identities. The expensive retention checks already ran for
+    /// `retainedAffectedItems`; only current presentation filters are applied.
+    private func primeVisibleItemsCacheAfterMerging(
+        existingVisibleItems: [FeedItem],
+        retainedAffectedItems: [FeedItem],
+        affectedItemIDs: Set<String>,
+        affectedArticleReplacementKeys: Set<String>
+    ) {
+        let unaffectedVisibleItems = existingVisibleItems.filter { item in
+            guard !affectedItemIDs.contains(item.id) else { return false }
+            guard feedSource == .articles else { return true }
+            return !Self.containsArticleReplacement(
+                for: item,
+                in: affectedArticleReplacementKeys
+            )
+        }
+        let visibleAffectedItems = HomeFeedVisibilityFilter.visibleRetainedItems(
+            retainedAffectedItems,
+            configuration: visibilityConfiguration()
+        )
+        primeVisibleItemsCache(
+            with: Self.mergeSortedDisjointItems(
+                unaffectedVisibleItems,
+                visibleAffectedItems,
+                feedSource: feedSource
+            )
+        )
+    }
+
+    /// Merges a live or silent-refresh batch into the new-items buffer while
+    /// moderating only rows affected by that batch. The published buffer stores
+    /// retained rows, while the cached visible slice applies the cheaper current
+    /// presentation filters. This prevents rejected events from consuming the
+    /// cap and avoids whole-buffer sorts for one-at-a-time relay updates.
+    private func mergeBufferedItems(
+        itemsToMerge: [FeedItem],
+        feedSource source: HomePrimaryFeedSource,
+        excludingItemIDs: Set<String> = [],
+        excludingArticleReplacementKeys: Set<String> = []
+    ) {
+        let configuration = visibilityConfiguration(
+            feedSource: source,
+            followingPubkeys: sourceUsesFollowingAuthors(source) ? followingPubkeys : nil
+        )
+        let existingPartition = currentCachedBufferedPartition() ??
+            HomeFeedVisibilityFilter.partitionBufferedItems(
+                bufferedNewItems,
+                configuration: configuration
+            )
+        let affectedItemIDs = Set(itemsToMerge.map(\.id))
+        let affectedArticleReplacementKeys = source == .articles
+            ? Self.articleReplacementKeys(in: itemsToMerge)
+            : []
+
+        func isExcluded(_ item: FeedItem) -> Bool {
+            excludingItemIDs.contains(item.id) ||
+                (source == .articles &&
+                    Self.containsArticleReplacement(
+                        for: item,
+                        in: excludingArticleReplacementKeys
+                    ))
+        }
+
+        func isAffected(_ item: FeedItem) -> Bool {
+            affectedItemIDs.contains(item.id) ||
+                (source == .articles &&
+                    Self.containsArticleReplacement(
+                        for: item,
+                        in: affectedArticleReplacementKeys
+                    ))
+        }
+
+        let bufferedItemLimit = max(pageSize, HomeFeedPaginationDefaults.pageSize)
+        var canonicalItems = Self.mergeSortedItemsIncrementally(
+            incomingItems: itemsToMerge,
+            into: existingPartition.retained,
+            feedSource: source
+        )
+        canonicalItems.removeAll(where: isExcluded)
+        let affectedCanonicalItems = canonicalItems.filter(isAffected)
+        let affectedPartition = HomeFeedVisibilityFilter.partitionBufferedItems(
+            affectedCanonicalItems,
+            configuration: configuration
+        )
+        let retainedUnaffectedItems = canonicalItems.filter { !isAffected($0) }
+        let retainedItems = Self.mergeSortedDisjointItems(
+            retainedUnaffectedItems,
+            affectedPartition.retained,
+            feedSource: source,
+            limit: bufferedItemLimit
+        )
+
+        let unaffectedVisibleItemIDs = Set(
+            existingPartition.visible
+                .filter { !isAffected($0) && !isExcluded($0) }
+                .map(\.id)
+        )
+        let affectedVisibleItemIDs = Set(affectedPartition.visible.map(\.id))
+        let visibleItemIDs = unaffectedVisibleItemIDs.union(affectedVisibleItemIDs)
+        let visibleItems = retainedItems.filter { visibleItemIDs.contains($0.id) }
+
+        if retainedItems != bufferedNewItems {
+            bufferedNewItems = retainedItems
+        }
+        primeBufferedItemsCache(
+            retained: retainedItems,
+            visible: visibleItems
+        )
+        knownEventIDs.formUnion(itemsToMerge.map(\.id))
+    }
+
+    private func primeBufferedItemsCache(
+        retained: [FeedItem],
+        visible: [FeedItem]
+    ) {
+        bufferedVisibleItemsCacheKey = makeVisibleItemsCacheKey(
+            itemsRevision: bufferedItemsRevision,
+            ignoreMediaOnly: false
+        )
+        bufferedRetainedItemsCache = retained
+        bufferedVisibleItemsCache = visible
+    }
+
     private func clearVisibleItemsCache() {
+        clearMainVisibleItemsCache()
+        clearBufferedVisibleItemsCache()
+    }
+
+    private func clearMainVisibleItemsCache() {
         visibleItemsCacheKey = nil
         visibleItemsCache = []
+    }
+
+    private func clearBufferedVisibleItemsCache() {
+        bufferedVisibleItemsCacheKey = nil
+        bufferedVisibleItemsCache = []
+        bufferedRetainedItemsCache = []
     }
 
     private func loadFeedSourcePreference(pubkey: String?) -> HomePrimaryFeedSource {
@@ -1979,6 +2272,65 @@ final class HomeFeedViewModel: ObservableObject {
             .map(normalizePubkey)
             .filter { !$0.isEmpty }
             .sorted()
+    }
+
+    private func updateFollowingPubkeys(_ pubkeys: [String]) {
+        let normalized = Array(
+            Set(
+                pubkeys
+                    .map(normalizePubkey)
+                    .filter { !$0.isEmpty }
+            )
+        ).sorted()
+        guard normalized != followingPubkeys else { return }
+
+        let cachedVisibleItems = currentCachedVisibleItems()
+        let cachedBufferedPartition = currentCachedBufferedPartition()
+        followingPubkeys = normalized
+        followingAuthorsRevision &+= 1
+
+        guard sourceUsesFollowingAuthors(feedSource) else { return }
+
+        let configuration = visibilityConfiguration()
+        let sourceAllowedItems = HomeFeedVisibilityFilter.retainedItemsAllowedForCurrentSource(
+            items,
+            configuration: configuration
+        )
+        let sourceAllowedBufferedItems = HomeFeedVisibilityFilter.retainedItemsAllowedForCurrentSource(
+            bufferedNewItems,
+            configuration: configuration
+        )
+
+        if sourceAllowedItems != items {
+            items = sourceAllowedItems
+        }
+        if let cachedVisibleItems {
+            primeVisibleItemsCache(
+                with: HomeFeedVisibilityFilter.retainedItemsAllowedForCurrentSource(
+                    cachedVisibleItems,
+                    configuration: configuration
+                )
+            )
+        }
+
+        if sourceAllowedBufferedItems != bufferedNewItems {
+            bufferedNewItems = sourceAllowedBufferedItems
+        }
+        if let cachedBufferedPartition {
+            primeBufferedItemsCache(
+                retained: HomeFeedVisibilityFilter.retainedItemsAllowedForCurrentSource(
+                    cachedBufferedPartition.retained,
+                    configuration: configuration
+                ),
+                visible: HomeFeedVisibilityFilter.retainedItemsAllowedForCurrentSource(
+                    cachedBufferedPartition.visible,
+                    configuration: configuration
+                )
+            )
+        }
+
+        knownEventIDs = Set(items.map(\.id))
+        knownEventIDs.formUnion(bufferedNewItems.map(\.id))
     }
 
     private func resolveFollowingPubkeys(
@@ -2096,22 +2448,4 @@ final class HomeFeedViewModel: ObservableObject {
         )
     }
 
-    private func scheduleAssetPrefetch(for sourceItems: [FeedItem]) {
-        guard !backgroundUpdatesPaused else { return }
-        let prefetchItems = Array(sourceItems.prefix(assetPrefetchItemCount))
-        guard !prefetchItems.isEmpty else { return }
-
-        assetPrefetchTask?.cancel()
-        assetPrefetchTask = Task(priority: .utility) {
-            let urls = Array(
-                prefetchItems.flatMap(\.prefetchImageURLs)
-            )
-            let mediaEvents = prefetchItems.map(\.displayEvent)
-            guard !urls.isEmpty || !mediaEvents.isEmpty else { return }
-
-            async let imagePrefetch: Void = FlowImageCache.shared.prefetch(urls: urls)
-            async let geometryPrefetch: Void = NoteMediaGeometryPrefetcher.shared.prefetch(events: mediaEvents)
-            _ = await (imagePrefetch, geometryPrefetch)
-        }
-    }
 }

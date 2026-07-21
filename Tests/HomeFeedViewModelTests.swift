@@ -51,6 +51,111 @@ final class HomeFeedViewModelTests: XCTestCase {
         )
     }
 
+    func testIncrementalSortedMergeUpgradesRowsWithoutDuplicatingOrResortingTheSlice() {
+        let newestEvent = makeEvent(
+            id: hex("9"),
+            pubkey: hex("a"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Newest",
+            createdAt: 1_700_000_300
+        )
+        let repostEvent = makeEvent(
+            id: hex("7"),
+            pubkey: hex("b"),
+            kind: FeedKindFilters.repost,
+            tags: [["e", hex("6")]],
+            content: "",
+            createdAt: 1_700_000_200
+        )
+        let repostTarget = makeEvent(
+            id: hex("6"),
+            pubkey: hex("c"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Resolved repost target",
+            createdAt: 1_700_000_150
+        )
+        let oldestEvent = makeEvent(
+            id: hex("1"),
+            pubkey: hex("d"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Oldest",
+            createdAt: 1_700_000_100
+        )
+        let insertedEvent = makeEvent(
+            id: hex("5"),
+            pubkey: hex("e"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Inserted",
+            createdAt: 1_700_000_175
+        )
+        let existingItems = [newestEvent, repostEvent, oldestEvent].map {
+            FeedItem(event: $0, profile: nil)
+        }
+        let hydratedRepost = FeedItem(
+            event: repostEvent,
+            profile: nil,
+            displayEventOverride: repostTarget
+        )
+
+        let mergedItems = HomeFeedViewModel.mergeSortedItemsIncrementally(
+            incomingItems: [hydratedRepost, FeedItem(event: insertedEvent, profile: nil)],
+            into: existingItems,
+            feedSource: .following
+        )
+
+        XCTAssertEqual(
+            mergedItems.map(\.id),
+            [newestEvent.id, repostEvent.id, insertedEvent.id, oldestEvent.id]
+        )
+        XCTAssertEqual(mergedItems.filter { $0.id == repostEvent.id }.count, 1)
+        XCTAssertEqual(
+            mergedItems.first { $0.id == repostEvent.id }?.displayEventID,
+            repostTarget.id
+        )
+    }
+
+    func testDisjointSortedMergeKeepsOrderAndHonorsLimit() {
+        let firstItems = [600, 300, 100].enumerated().map { index, createdAt in
+            FeedItem(
+                event: makeEvent(
+                    id: makeHexID(index + 10),
+                    pubkey: hex("a"),
+                    kind: FeedKindFilters.shortTextNote,
+                    tags: [],
+                    content: "First \(createdAt)",
+                    createdAt: createdAt
+                ),
+                profile: nil
+            )
+        }
+        let secondItems = [500, 400, 200].enumerated().map { index, createdAt in
+            FeedItem(
+                event: makeEvent(
+                    id: makeHexID(index + 20),
+                    pubkey: hex("b"),
+                    kind: FeedKindFilters.shortTextNote,
+                    tags: [],
+                    content: "Second \(createdAt)",
+                    createdAt: createdAt
+                ),
+                profile: nil
+            )
+        }
+
+        let mergedItems = HomeFeedViewModel.mergeSortedDisjointItems(
+            firstItems,
+            secondItems,
+            feedSource: .following,
+            limit: 5
+        )
+
+        XCTAssertEqual(mergedItems.map(\.event.createdAt), [600, 500, 400, 300, 200])
+    }
+
     @MainActor
     func testInterestHashtagsRestorePreferredInterestsFeedAfterAccountLoads() {
         let currentUserPubkey = hex("c")
@@ -904,6 +1009,96 @@ final class HomeFeedViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testFollowingHydrationRemovesRepostWhoseResolvedAuthorIsNotFollowed() async throws {
+        let harness = try HomeFeedViewModelHarness()
+        let currentUserPubkey = hex("1")
+        let followedReposterPubkey = hex("2")
+        let unfollowedTargetAuthorPubkey = hex("3")
+        let targetEvent = makeEvent(
+            id: hex("4"),
+            pubkey: unfollowedTargetAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Target from an unfollowed author",
+            createdAt: 1_700_000_600
+        )
+        let repostEvent = makeEvent(
+            id: hex("5"),
+            pubkey: followedReposterPubkey,
+            kind: FeedKindFilters.repost,
+            tags: [
+                ["e", targetEvent.id],
+                ["p", unfollowedTargetAuthorPubkey]
+            ],
+            content: "",
+            createdAt: 1_700_000_610
+        )
+        let relayFollowList = makeEvent(
+            id: hex("6"),
+            pubkey: currentUserPubkey,
+            kind: 3,
+            tags: [["p", followedReposterPubkey]],
+            content: "",
+            createdAt: 1_700_000_620
+        )
+
+        await harness.setRemoteEvents([relayFollowList, repostEvent, targetEvent])
+        harness.selectFollowingFeed(for: currentUserPubkey)
+
+        try await harness.waitUntilIdle(timeout: 4)
+
+        XCTAssertTrue(harness.viewModel.items.isEmpty)
+        XCTAssertTrue(harness.viewModel.visibleItems.isEmpty)
+    }
+
+    @MainActor
+    func testSilentHydrationRemovesExistingRepostWhoseResolvedAuthorIsNotFollowed() async throws {
+        let harness = try HomeFeedViewModelHarness()
+        let currentUserPubkey = hex("7")
+        let followedReposterPubkey = hex("8")
+        let unfollowedTargetAuthorPubkey = hex("9")
+        let targetEvent = makeEvent(
+            id: hex("a"),
+            pubkey: unfollowedTargetAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Resolved later from an unfollowed author",
+            createdAt: 1_700_000_700
+        )
+        let repostEvent = makeEvent(
+            id: hex("b"),
+            pubkey: followedReposterPubkey,
+            kind: FeedKindFilters.repost,
+            tags: [
+                ["e", targetEvent.id],
+                ["p", unfollowedTargetAuthorPubkey]
+            ],
+            content: "",
+            createdAt: 1_700_000_710
+        )
+        let relayFollowList = makeEvent(
+            id: hex("c"),
+            pubkey: currentUserPubkey,
+            kind: 3,
+            tags: [["p", followedReposterPubkey]],
+            content: "",
+            createdAt: 1_700_000_720
+        )
+
+        await harness.setRemoteEvents([relayFollowList, repostEvent])
+        harness.selectFollowingFeed(for: currentUserPubkey)
+        try await harness.waitUntilIdle(timeout: 4)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [repostEvent.id])
+        XCTAssertNil(harness.viewModel.visibleItems.first?.displayEventOverride)
+
+        await harness.setRemoteEvents([relayFollowList, repostEvent, targetEvent])
+        await harness.viewModel.refresh(silent: true, publishFetchedItems: false)
+
+        XCTAssertTrue(harness.viewModel.items.isEmpty)
+        XCTAssertTrue(harness.viewModel.visibleItems.isEmpty)
+    }
+
+    @MainActor
     func testFollowingFeedUsesConfiguredReadRelaysDirectlyInsteadOfOutboxRecovery() async throws {
         let harness = try HomeFeedViewModelHarness()
         let currentUserPubkey = hex("9")
@@ -1433,6 +1628,208 @@ final class HomeFeedLoadingRegressionTests: XCTestCase {
         XCTAssertEqual(
             harness.viewModel.visibleItems.map(\.id),
             [newestBufferedNote.id, earliestBufferedNote.id, initialNote.id]
+        )
+    }
+
+    @MainActor
+    func testSilentArticleRefreshReplacesVisibleEditEvenWhenReplacementIsHidden() async throws {
+        let currentUserPubkey = hex("a")
+        let followedAuthorPubkey = hex("b")
+        let relayFollowList = makeEvent(
+            id: hex("c"),
+            pubkey: currentUserPubkey,
+            kind: 3,
+            tags: [["p", followedAuthorPubkey]],
+            content: "",
+            createdAt: 1_700_000_500
+        )
+        let originalArticle = makeEvent(
+            id: hex("d"),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.longFormArticle,
+            tags: [
+                ["d", "replaceable-article"],
+                ["title", "Original article"]
+            ],
+            content: "Original body",
+            createdAt: 1_700_000_400
+        )
+        let hiddenEdit = makeEvent(
+            id: hex("e"),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.longFormArticle,
+            tags: [
+                ["d", "replaceable-article"],
+                ["title", "Hidden edit"],
+                ["t", "nsfw"]
+            ],
+            content: "Edited body",
+            createdAt: 1_700_000_600
+        )
+        let previousHideNSFW = AppSettingsStore.shared.hideNSFWContent
+        defer {
+            AppSettingsStore.shared.hideNSFWContent = previousHideNSFW
+        }
+        AppSettingsStore.shared.hideNSFWContent = true
+
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                defaultHomeRelayURL: [relayFollowList, originalArticle]
+            ]
+        )
+        harness.selectFeedSource(.articles, for: currentUserPubkey)
+        try await harness.waitUntilIdle(timeout: 4)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [originalArticle.id])
+
+        await harness.setRemoteEvents([relayFollowList, hiddenEdit])
+        await harness.viewModel.refresh(silent: true, publishFetchedItems: false)
+
+        XCTAssertEqual(harness.viewModel.items.map(\.id), [hiddenEdit.id])
+        XCTAssertTrue(harness.viewModel.visibleItems.isEmpty)
+        XCTAssertTrue(harness.viewModel.visibleBufferedNewItems.isEmpty)
+    }
+
+    @MainActor
+    func testSilentFollowingRefreshDropsUnfollowedRowsAndBuffersNewFollowings() async throws {
+        let currentUserPubkey = hex("1")
+        let originalAuthorPubkey = hex("2")
+        let newlyFollowedAuthorPubkey = hex("3")
+        let originalFollowList = makeEvent(
+            id: hex("4"),
+            pubkey: currentUserPubkey,
+            kind: 3,
+            tags: [["p", originalAuthorPubkey]],
+            content: "",
+            createdAt: 1_700_000_100
+        )
+        let updatedFollowList = makeEvent(
+            id: hex("5"),
+            pubkey: currentUserPubkey,
+            kind: 3,
+            tags: [["p", newlyFollowedAuthorPubkey]],
+            content: "",
+            createdAt: 1_700_000_400
+        )
+        let originalNote = makeEvent(
+            id: hex("6"),
+            pubkey: originalAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "No longer followed",
+            createdAt: 1_700_000_200
+        )
+        let newlyFollowedNote = makeEvent(
+            id: hex("7"),
+            pubkey: newlyFollowedAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "New following",
+            createdAt: 1_700_000_300
+        )
+        let harness = try HomeFeedViewModelHarness(
+            initialRelayEvents: [
+                defaultHomeRelayURL: [originalFollowList, originalNote, newlyFollowedNote]
+            ]
+        )
+        harness.selectFollowingFeed(for: currentUserPubkey)
+        try await harness.waitUntilIdle(timeout: 4)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [originalNote.id])
+
+        await harness.setRemoteEvents([updatedFollowList, originalNote, newlyFollowedNote])
+        await harness.viewModel.refresh(silent: true, publishFetchedItems: false)
+
+        XCTAssertTrue(harness.viewModel.visibleItems.isEmpty)
+        XCTAssertEqual(
+            harness.viewModel.visibleBufferedNewItems.map(\.id),
+            [newlyFollowedNote.id]
+        )
+
+        harness.viewModel.showBufferedNewItems()
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [newlyFollowedNote.id])
+    }
+
+    func testBufferedPartitionRetainsAlternateModeRowsWithoutRepeatingModeration() {
+        let currentUserPubkey = hex("a")
+        let followedAuthorPubkey = hex("b")
+        let mutedAuthorPubkey = hex("c")
+        let spamAuthorPubkey = hex("d")
+        let rootID = hex("f")
+        let visibleNote = makeEvent(
+            id: hex("1"),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Visible top-level note",
+            createdAt: 1_700_000_500
+        )
+        let alternateModeReply = makeEvent(
+            id: hex("2"),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [["e", rootID, "", "reply"]],
+            content: "Reply retained for Replies mode",
+            createdAt: 1_700_000_400
+        )
+        let nsfwNote = makeEvent(
+            id: hex("3"),
+            pubkey: followedAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [["t", "nsfw"]],
+            content: "Hidden by current presentation settings",
+            createdAt: 1_700_000_300
+        )
+        let mutedNote = makeEvent(
+            id: hex("4"),
+            pubkey: mutedAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Muted author",
+            createdAt: 1_700_000_200
+        )
+        let manualSpamNote = makeEvent(
+            id: hex("5"),
+            pubkey: spamAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Manual spam author",
+            createdAt: 1_700_000_100
+        )
+        let configuration = HomeFeedVisibilityFilter.Configuration(
+            feedSource: .following,
+            mode: .posts,
+            showKinds: FeedKindFilters.allOptionKinds,
+            mediaOnly: false,
+            ignoreMediaOnly: false,
+            followingPubkeys: [followedAuthorPubkey, mutedAuthorPubkey, spamAuthorPubkey],
+            currentUserPubkey: currentUserPubkey,
+            mutedConversationIDs: [],
+            muteSnapshot: MuteFilterSnapshot(
+                mutedPubkeys: [mutedAuthorPubkey],
+                exactMutedWords: [],
+                phraseMutedWords: [],
+                hidesEncodedSpam: true
+            ),
+            hideNSFW: true,
+            spamMarkedPubkeys: [spamAuthorPubkey],
+            spamSafelistedPubkeys: []
+        )
+        let partition = HomeFeedVisibilityFilter.partitionBufferedItems(
+            [visibleNote, alternateModeReply, nsfwNote, mutedNote, manualSpamNote]
+                .map { FeedItem(event: $0, profile: nil) },
+            configuration: configuration
+        )
+
+        XCTAssertEqual(
+            partition.retained.map(\.id),
+            [visibleNote.id, alternateModeReply.id, nsfwNote.id]
+        )
+        XCTAssertEqual(partition.visible.map(\.id), [visibleNote.id])
+        XCTAssertEqual(
+            HomeFeedVisibilityFilter.visibleRetainedItems(
+                partition.retained,
+                configuration: configuration
+            ).map(\.id),
+            partition.visible.map(\.id)
         )
     }
 }

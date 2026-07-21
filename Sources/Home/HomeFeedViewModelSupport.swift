@@ -26,6 +26,7 @@ extension HomeFeedViewModel {
         let filterRevision: Int
         let spamFilterSignature: String
         let mutedConversationRevision: Int
+        let followingAuthorsRevision: Int
         let ignoreMediaOnly: Bool
     }
 
@@ -283,6 +284,106 @@ extension HomeFeedViewModel {
         return (Array(keyedArticles.values) + unkeyedItems).sorted(by: comesBeforeInArticlesFeed)
     }
 
+    /// Updates an already-sorted feed slice without rebuilding and sorting the
+    /// entire collection. Live relay subscriptions commonly deliver one event
+    /// at a time, so insertion keeps that path linear in the small bounded
+    /// buffer instead of repeatedly paying for whole-buffer sorts.
+    nonisolated static func mergeSortedItemsIncrementally(
+        incomingItems: [FeedItem],
+        into existingItems: [FeedItem],
+        feedSource: HomePrimaryFeedSource
+    ) -> [FeedItem] {
+        guard !incomingItems.isEmpty else { return existingItems }
+
+        var mergedItems = existingItems
+        for incomingItem in incomingItems {
+            var canonicalItem = incomingItem
+
+            if let matchingIDIndex = mergedItems.firstIndex(where: { $0.id == incomingItem.id }) {
+                canonicalItem = mergedItems[matchingIDIndex].merged(with: incomingItem)
+                mergedItems.remove(at: matchingIDIndex)
+            }
+
+            if feedSource == .articles,
+               let replacementKey = articleReplacementKey(for: canonicalItem),
+               let replacementIndex = mergedItems.firstIndex(where: {
+                   articleReplacementKey(for: $0) == replacementKey
+               }) {
+                canonicalItem = preferredArticleReplacement(
+                    existing: mergedItems[replacementIndex],
+                    incoming: canonicalItem
+                )
+                mergedItems.remove(at: replacementIndex)
+            }
+
+            mergedItems.insert(
+                canonicalItem,
+                at: sortedInsertionIndex(
+                    for: canonicalItem,
+                    in: mergedItems,
+                    feedSource: feedSource
+                )
+            )
+        }
+
+        return mergedItems
+    }
+
+    /// Linearly combines two sorted slices whose event IDs (and article
+    /// replacement coordinates) are already disjoint. Callers split affected
+    /// identities before using this helper, avoiding a growing dictionary and
+    /// whole-feed sort at pagination boundaries.
+    nonisolated static func mergeSortedDisjointItems(
+        _ firstItems: [FeedItem],
+        _ secondItems: [FeedItem],
+        feedSource: HomePrimaryFeedSource,
+        limit: Int? = nil
+    ) -> [FeedItem] {
+        let maximumCount = min(
+            max(limit ?? (firstItems.count + secondItems.count), 0),
+            firstItems.count + secondItems.count
+        )
+        guard maximumCount > 0 else { return [] }
+
+        var mergedItems: [FeedItem] = []
+        mergedItems.reserveCapacity(maximumCount)
+        var firstIndex = 0
+        var secondIndex = 0
+
+        while mergedItems.count < maximumCount,
+              firstIndex < firstItems.count,
+              secondIndex < secondItems.count {
+            if itemComesBefore(
+                firstItems[firstIndex],
+                secondItems[secondIndex],
+                feedSource: feedSource
+            ) {
+                mergedItems.append(firstItems[firstIndex])
+                firstIndex += 1
+            } else {
+                mergedItems.append(secondItems[secondIndex])
+                secondIndex += 1
+            }
+        }
+
+        if mergedItems.count < maximumCount, firstIndex < firstItems.count {
+            let remainingCount = min(
+                maximumCount - mergedItems.count,
+                firstItems.count - firstIndex
+            )
+            mergedItems.append(contentsOf: firstItems[firstIndex..<(firstIndex + remainingCount)])
+        }
+        if mergedItems.count < maximumCount, secondIndex < secondItems.count {
+            let remainingCount = min(
+                maximumCount - mergedItems.count,
+                secondItems.count - secondIndex
+            )
+            mergedItems.append(contentsOf: secondItems[secondIndex..<(secondIndex + remainingCount)])
+        }
+
+        return mergedItems
+    }
+
     nonisolated static func containsArticleReplacement(
         for item: FeedItem,
         in replacementKeys: Set<String>
@@ -359,6 +460,41 @@ extension HomeFeedViewModel {
         }
 
         return lhsPublishedAt > rhsPublishedAt
+    }
+
+    private nonisolated static func sortedInsertionIndex(
+        for item: FeedItem,
+        in sortedItems: [FeedItem],
+        feedSource: HomePrimaryFeedSource
+    ) -> Int {
+        var lowerBound = 0
+        var upperBound = sortedItems.count
+
+        while lowerBound < upperBound {
+            let midpoint = lowerBound + (upperBound - lowerBound) / 2
+            if itemComesBefore(sortedItems[midpoint], item, feedSource: feedSource) {
+                lowerBound = midpoint + 1
+            } else {
+                upperBound = midpoint
+            }
+        }
+
+        return lowerBound
+    }
+
+    private nonisolated static func itemComesBefore(
+        _ lhs: FeedItem,
+        _ rhs: FeedItem,
+        feedSource: HomePrimaryFeedSource
+    ) -> Bool {
+        if feedSource == .articles {
+            return comesBeforeInArticlesFeed(lhs, rhs)
+        }
+
+        if lhs.event.createdAt == rhs.event.createdAt {
+            return lhs.id > rhs.id
+        }
+        return lhs.event.createdAt > rhs.event.createdAt
     }
 
     private nonisolated static func articlePublishedAt(for item: FeedItem) -> Int {

@@ -882,6 +882,107 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(topNavChromeSource.contains(".allowsHitTesting(chromeOpacity > 0.05)"))
     }
 
+    func testHomeFeedScrollChromeDoesNotRebuildBufferedFeedContent() throws {
+        let viewSource = try Self.sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let modelSource = try Self.sourceText(at: "Sources/Home/HomeFeedViewModel.swift")
+        let overlayStart = try XCTUnwrap(
+            viewSource.range(of: "private struct HomeFeedNewNotesChromeOverlay")
+        )
+        let overlayEnd = try XCTUnwrap(
+            viewSource.range(
+                of: "private struct HomeFeedLifecycleHandlers",
+                range: overlayStart.upperBound..<viewSource.endIndex
+            )
+        )
+        let overlaySource = viewSource[overlayStart.lowerBound..<overlayEnd.lowerBound]
+        let bufferedMergeStart = try XCTUnwrap(
+            modelSource.range(of: "private func mergeBufferedItems(")
+        )
+        let bufferedMergeEnd = try XCTUnwrap(
+            modelSource.range(
+                of: "private func primeBufferedItemsCache(",
+                range: bufferedMergeStart.upperBound..<modelSource.endIndex
+            )
+        )
+        let bufferedMergeSource = modelSource[
+            bufferedMergeStart.lowerBound..<bufferedMergeEnd.lowerBound
+        ]
+        let mainMergeStart = try XCTUnwrap(
+            modelSource.range(of: "private func mergeKeepingNewest(")
+        )
+        let mainMergeEnd = try XCTUnwrap(
+            modelSource.range(
+                of: "private func applyRefreshResults(",
+                range: mainMergeStart.upperBound..<modelSource.endIndex
+            )
+        )
+        let mainMergeSource = modelSource[mainMergeStart.lowerBound..<mainMergeEnd.lowerBound]
+        let visibleCacheMergeStart = try XCTUnwrap(
+            modelSource.range(of: "private func primeVisibleItemsCacheAfterMerging(")
+        )
+        let visibleCacheMergeEnd = try XCTUnwrap(
+            modelSource.range(
+                of: "private func mergeBufferedItems(",
+                range: visibleCacheMergeStart.upperBound..<modelSource.endIndex
+            )
+        )
+        let visibleCacheMergeSource = modelSource[
+            visibleCacheMergeStart.lowerBound..<visibleCacheMergeEnd.lowerBound
+        ]
+
+        XCTAssertTrue(overlaySource.contains("let content: Content"))
+        XCTAssertFalse(overlaySource.contains("let content: () -> Content"))
+        XCTAssertTrue(overlaySource.contains("self.content = content()"))
+        XCTAssertTrue(modelSource.contains("private var bufferedVisibleItemsCacheKey: VisibleItemsCacheKey?"))
+        XCTAssertTrue(modelSource.contains("if bufferedVisibleItemsCacheKey == key"))
+        XCTAssertTrue(modelSource.contains("return bufferedVisibleItemsCache"))
+        XCTAssertTrue(viewSource.contains("guard !isFeedScrolling else { return }"))
+        XCTAssertTrue(viewSource.contains(".onScrollPhaseChange"))
+        XCTAssertTrue(viewSource.contains("handleLegacyScrollActivity()"))
+        XCTAssertTrue(viewSource.contains("@StateObject private var legacyScrollCoordinator"))
+        XCTAssertTrue(viewSource.contains("legacyScrollCoordinator.idleTask = Task { @MainActor in"))
+        XCTAssertFalse(viewSource.contains("@State private var legacyScrollIdleTask"))
+        XCTAssertTrue(modelSource.contains("primeVisibleItemsCacheAfterMerging"))
+        XCTAssertTrue(mainMergeSource.contains("Self.mergeSortedDisjointItems("))
+        XCTAssertFalse(mainMergeSource.contains("mergeItemArrays("))
+        XCTAssertTrue(visibleCacheMergeSource.contains("unaffectedVisibleItems"))
+        XCTAssertTrue(visibleCacheMergeSource.contains("Self.mergeSortedDisjointItems("))
+        XCTAssertFalse(visibleCacheMergeSource.contains("mergeItemArrays("))
+        XCTAssertTrue(modelSource.contains("private func mergeBufferedItems("))
+        XCTAssertTrue(bufferedMergeSource.contains("into: existingPartition.retained"))
+        XCTAssertTrue(bufferedMergeSource.contains("let affectedCanonicalItems = canonicalItems.filter(isAffected)"))
+        XCTAssertFalse(bufferedMergeSource.contains("mergeItemArrays("))
+        XCTAssertTrue(modelSource.contains("Self.mergeSortedItemsIncrementally("))
+        XCTAssertTrue(bufferedMergeSource.contains("limit: bufferedItemLimit"))
+        XCTAssertTrue(modelSource.contains("followingAuthorsRevision:"))
+    }
+
+    func testHomeFeedUsesActionsOnlyEngagementWithoutRemoteHydration() throws {
+        let homeSource = try Self.sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let rowSource = try Self.sourceText(at: "Sources/Design/FeedRowView.swift")
+
+        XCTAssertTrue(homeSource.contains("engagementMode: .actionsOnly"))
+        XCTAssertFalse(homeSource.contains("FeedEngagementViewportCoordinator"))
+        XCTAssertFalse(homeSource.contains("engagementViewport.noteVisible"))
+        XCTAssertFalse(homeSource.contains("ReplyCountEstimator.counts"))
+        XCTAssertTrue(rowSource.contains("case actionsOnly"))
+        XCTAssertTrue(rowSource.contains("guard engagementMode == .liveCounts else"))
+        XCTAssertTrue(rowSource.contains("count: showsEngagementCounts ? visibleReactionCount : 0"))
+        XCTAssertTrue(rowSource.contains("refreshActionsOnlyReactionSnapshot(for: item.displayEventID)"))
+        XCTAssertTrue(rowSource.contains(".onChange(of: item.displayEventID)"))
+    }
+
+    func testHomeFeedReliesOnVisibleRowsInsteadOfEagerMediaPrefetch() throws {
+        let source = try Self.sourceText(at: "Sources/Home/HomeFeedViewModel.swift")
+
+        XCTAssertFalse(source.contains("scheduleAssetPrefetch"))
+        XCTAssertFalse(source.contains("assetPrefetchTask"))
+        XCTAssertFalse(source.contains("assetPrefetchItemCount"))
+        XCTAssertTrue(source.contains("let bufferedItemsToReveal = bufferedNewItems"))
+        XCTAssertTrue(source.contains("retentionAlreadyValidated: true"))
+        XCTAssertTrue(source.contains("Self.mergeSortedDisjointItems("))
+    }
+
     func testProfileAvatarFullscreenViewerUsesThemeAwareBackdropAndToolbarChrome() throws {
         let source = try Self.sourceText(at: "Sources/Profile/ProfileMediaSupport.swift")
         let viewerStart = try XCTUnwrap(source.range(of: "struct ProfileAvatarFullscreenViewer: View {"))
@@ -1086,7 +1187,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
 
     func testHomeFeedFullWidthNoteRowsRemoveSeparatorLeadingInset() throws {
         let source = try Self.sourceText(at: "Sources/Home/HomeFeedView.swift")
-        let feedRowRange = try XCTUnwrap(source.range(of: "private func feedRow(_ item: FeedItem, visibleReplyCounts: [String: Int]) -> some View {"))
+        let feedRowRange = try XCTUnwrap(source.range(of: "private func feedRow(_ item: FeedItem) -> some View {"))
         let animateRange = try XCTUnwrap(source.range(of: "private func animateFeedInsertion", range: feedRowRange.upperBound..<source.endIndex))
         let feedRowSource = source[feedRowRange.lowerBound..<animateRange.lowerBound]
 

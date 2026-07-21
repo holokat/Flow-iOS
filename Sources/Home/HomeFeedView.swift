@@ -1,6 +1,14 @@
 import SwiftUI
 import UIKit
 
+private final class HomeFeedLegacyScrollCoordinator: ObservableObject {
+    var idleTask: Task<Void, Never>?
+
+    deinit {
+        idleTask?.cancel()
+    }
+}
+
 struct HomeFeedView: View {
     private static let feedTopAnchorID = "home-feed-top-anchor"
     private static let feedScrollCoordinateSpace = "home-feed-scroll"
@@ -18,7 +26,6 @@ struct HomeFeedView: View {
     let scrollChromeStore: ScrollChromeStore
     let bottomTabBarHeight: CGFloat
     private let reactionStats = NoteReactionStatsService.shared
-    @StateObject private var engagementViewport = FeedEngagementViewportCoordinator()
     @ObservedObject private var followStore = FollowStore.shared
     @ObservedObject private var muteStore = MuteStore.shared
     @ObservedObject private var interestFeedStore = InterestFeedStore.shared
@@ -41,8 +48,10 @@ struct HomeFeedView: View {
     @State private var topNavAvatarImage: UIImage?
     @State private var shouldAutoFocusReplyInThread = false
     @State private var isNearFeedTop = true
+    @State private var isFeedScrolling = false
     @State private var isRevealingBufferedItems = false
     @State private var scrollChromeTracker = ScrollChromeTracker()
+    @StateObject private var legacyScrollCoordinator = HomeFeedLegacyScrollCoordinator()
 
     var body: some View {
         let _ = muteStore.filterRevision
@@ -265,13 +274,11 @@ struct HomeFeedView: View {
         safeAreaBottom: CGFloat
     ) -> some View {
         let visibleItems = viewModel.visibleItems
-        let visibleReplyCounts = ReplyCountEstimator.counts(for: visibleItems)
 
         return ScrollViewReader { scrollProxy in
             feedList(
                 scrollProxy: scrollProxy,
                 visibleItems: visibleItems,
-                visibleReplyCounts: visibleReplyCounts,
                 bottomContentPadding: bottomContentPadding,
                 topBarHeight: topBarHeight,
                 safeAreaBottom: safeAreaBottom
@@ -283,7 +290,6 @@ struct HomeFeedView: View {
     private func feedList(
         scrollProxy: ScrollViewProxy,
         visibleItems: [FeedItem],
-        visibleReplyCounts: [String: Int],
         bottomContentPadding: CGFloat,
         topBarHeight: CGFloat,
         safeAreaBottom: CGFloat
@@ -298,7 +304,6 @@ struct HomeFeedView: View {
 
             feedRows(
                 visibleItems,
-                visibleReplyCounts: visibleReplyCounts,
                 tracksFirstRowTop: !showsFeedModeHeader
             )
 
@@ -329,6 +334,10 @@ struct HomeFeedView: View {
         .task {
             await configureFeedDependenciesAndLoad()
         }
+        .onDisappear {
+            legacyScrollCoordinator.idleTask?.cancel()
+            legacyScrollCoordinator.idleTask = nil
+        }
 
         if #available(iOS 18.0, *) {
             list
@@ -338,10 +347,18 @@ struct HomeFeedView: View {
                     handleScroll(currentScrollY: scrollY, topBarHeight: topBarHeight, safeAreaBottom: safeAreaBottom)
                     handleNearTopChange(currentScrollY: scrollY)
                 }
+                .onScrollPhaseChange { _, newPhase in
+                    let wasScrolling = isFeedScrolling
+                    isFeedScrolling = newPhase.isScrolling
+                    if wasScrolling, !newPhase.isScrolling {
+                        autoShowBufferedItemsIfNeeded()
+                    }
+                }
         } else {
             list
                 .onPreferenceChange(HomeFeedTopOffsetPreferenceKey.self) { newValue in
                     let currentScrollY = max(0, -newValue)
+                    handleLegacyScrollActivity()
                     handleScroll(currentScrollY: currentScrollY, topBarHeight: topBarHeight, safeAreaBottom: safeAreaBottom)
                     handleNearTopChange(currentScrollY: currentScrollY)
                 }
@@ -402,7 +419,6 @@ struct HomeFeedView: View {
     @ViewBuilder
     private func feedRows(
         _ visibleItems: [FeedItem],
-        visibleReplyCounts: [String: Int],
         tracksFirstRowTop: Bool
     ) -> some View {
         if viewModel.isShowingLoadingPlaceholder {
@@ -423,7 +439,7 @@ struct HomeFeedView: View {
         } else {
             ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
                 topTrackedRow(
-                    feedRow(item, visibleReplyCounts: visibleReplyCounts)
+                    feedRow(item)
                         .transition(FlowTransitionMotion.feedItemInsertionTransition(reduceMotion: accessibilityReduceMotion))
                         .id(item.id)
                         .homeFeedListRow(),
@@ -512,6 +528,20 @@ struct HomeFeedView: View {
         }
     }
 
+    private func handleLegacyScrollActivity() {
+        legacyScrollCoordinator.idleTask?.cancel()
+        if !isFeedScrolling {
+            isFeedScrolling = true
+        }
+        legacyScrollCoordinator.idleTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled else { return }
+            legacyScrollCoordinator.idleTask = nil
+            isFeedScrolling = false
+            autoShowBufferedItemsIfNeeded()
+        }
+    }
+
     private func refreshFeed() async {
         // Force so a pull always fetches, even when a background silent
         // refresh is in flight (previously the pull was queued and looked
@@ -526,13 +556,7 @@ struct HomeFeedView: View {
         isRevealingBufferedItems = true
 
         Task { @MainActor in
-            if let animation = FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion) {
-                withAnimation(animation) {
-                    viewModel.showBufferedNewItems()
-                }
-            } else {
-                viewModel.showBufferedNewItems()
-            }
+            viewModel.showBufferedNewItems()
 
             await Task.yield()
 
@@ -543,6 +567,19 @@ struct HomeFeedView: View {
             } else {
                 scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)
             }
+
+            // List can preserve its old visual position while reconciling a
+            // newly inserted batch. Re-assert the stable top anchor after that
+            // transaction settles so the new-notes control always reaches top.
+            let settleNanoseconds = UInt64(
+                (FlowTransitionMotion.duration(
+                    .feedRevealScroll,
+                    reduceMotion: accessibilityReduceMotion
+                ) + 0.06) * 1_000_000_000
+            )
+            try? await Task.sleep(nanoseconds: settleNanoseconds)
+            guard !Task.isCancelled else { return }
+            scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)
             isRevealingBufferedItems = false
         }
     }
@@ -950,12 +987,12 @@ struct HomeFeedView: View {
         .redacted(reason: .placeholder)
     }
 
-    private func feedRow(_ item: FeedItem, visibleReplyCounts: [String: Int]) -> some View {
+    private func feedRow(_ item: FeedItem) -> some View {
         FeedRowView(
             item: item,
             initialEngagementSnapshot: reactionStats.currentSnapshot(for: item.displayEventID),
-            commentCount: visibleReplyCounts[item.displayEventID.lowercased()] ?? 0,
             showReactions: appSettings.reactionsVisibleInFeeds,
+            engagementMode: .actionsOnly,
             avatarMenuActions: .init(
                 followLabel: followStore.isFollowing(item.displayAuthorPubkey) ? "Unfollow" : "Follow",
                 onFollowToggle: {
@@ -1004,12 +1041,6 @@ struct HomeFeedView: View {
             }
         }
         .onAppear {
-            if appSettings.reactionsVisibleInFeeds {
-                engagementViewport.noteVisible(
-                    event: item.displayEvent,
-                    relayURLs: effectiveReadRelayURLs
-                )
-            }
             Task(priority: .utility) {
                 await viewModel.loadMoreIfNeeded(currentItem: item)
             }
@@ -1312,14 +1343,10 @@ struct HomeFeedView: View {
 
     private func autoShowBufferedItemsIfNeeded() {
         guard isNearFeedTop else { return }
+        guard !isFeedScrolling else { return }
+        guard !isRevealingBufferedItems else { return }
         guard viewModel.visibleBufferedNewItemsCount > 0 else { return }
-        if let animation = FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion) {
-            withAnimation(animation) {
-                viewModel.showBufferedNewItems()
-            }
-        } else {
-            viewModel.showBufferedNewItems()
-        }
+        viewModel.showBufferedNewItems()
     }
 
     private var feedSourcePickerSheet: some View {
@@ -1575,11 +1602,23 @@ private struct HomeFeedNewNotesChromeOverlay<Content: View>: View {
 
     let isVisible: Bool
     let topBarHeight: CGFloat
-    let content: () -> Content
+    let content: Content
+
+    init(
+        scrollChromeStore: ScrollChromeStore,
+        isVisible: Bool,
+        topBarHeight: CGFloat,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.scrollChromeStore = scrollChromeStore
+        self.isVisible = isVisible
+        self.topBarHeight = topBarHeight
+        self.content = content()
+    }
 
     var body: some View {
         if isVisible {
-            content()
+            content
                 .padding(
                     .top,
                     ScrollChromeLayout.newNotesIslandTopPadding(

@@ -1,6 +1,11 @@
 import Foundation
 
 struct HomeFeedVisibilityFilter {
+    struct BufferedItemPartition {
+        let retained: [FeedItem]
+        let visible: [FeedItem]
+    }
+
     struct Configuration {
         let feedSource: HomePrimaryFeedSource
         let mode: HomeFeedMode
@@ -22,13 +27,16 @@ struct HomeFeedVisibilityFilter {
     ) -> [FeedItem] {
         let allowedKinds = allowedKinds(for: configuration.feedSource, showKinds: configuration.showKinds)
         let supportsModeFiltering = HomeFeedViewModel.supportsModeTabs(for: configuration.feedSource)
+        let allowedAuthors = sourceUsesFollowingAuthors(configuration.feedSource)
+            ? allowedFollowingAuthors(configuration: configuration)
+            : nil
 
         return source.filter { item in
-            if !isAllowedForCurrentSource(item, configuration: configuration) {
-                return false
-            }
-
-            if configuration.mutedConversationIDs.contains(item.displayEvent.conversationID) {
+            if !isAllowedForCurrentSource(
+                item,
+                configuration: configuration,
+                allowedAuthors: allowedAuthors
+            ) {
                 return false
             }
 
@@ -40,27 +48,97 @@ struct HomeFeedVisibilityFilter {
                 return false
             }
 
-            if configuration.hideNSFW && item.moderationEvents.contains(where: { $0.containsNSFWHashtag }) {
-                return false
+            return isVisibleAfterRetention(
+                item,
+                configuration: configuration,
+                allowedKinds: allowedKinds,
+                supportsModeFiltering: supportsModeFiltering
+            )
+        }
+    }
+
+    /// Produces the rows retained by Home and the rows visible under the current
+    /// presentation filters in one pass. In particular, the expensive mute and
+    /// encoded-spam checks run only once per buffered item before a reveal.
+    static func partitionBufferedItems(
+        _ source: [FeedItem],
+        configuration: Configuration
+    ) -> BufferedItemPartition {
+        let allowedKinds = allowedKinds(for: configuration.feedSource, showKinds: configuration.showKinds)
+        let supportsModeFiltering = HomeFeedViewModel.supportsModeTabs(for: configuration.feedSource)
+        let allowedAuthors = sourceUsesFollowingAuthors(configuration.feedSource)
+            ? allowedFollowingAuthors(configuration: configuration)
+            : nil
+        var retained: [FeedItem] = []
+        var visible: [FeedItem] = []
+        retained.reserveCapacity(source.count)
+        visible.reserveCapacity(source.count)
+
+        for item in source {
+            guard isAllowedForCurrentSource(
+                item,
+                configuration: configuration,
+                allowedAuthors: allowedAuthors
+            ) else {
+                continue
+            }
+            guard !configuration.muteSnapshot.shouldHideAny(in: item.moderationEvents) else {
+                continue
+            }
+            guard !isHiddenByManualSpam(item, configuration: configuration) else {
+                continue
             }
 
-            if !allowedKinds.contains(item.event.kind) {
-                return false
+            retained.append(item)
+            if isVisibleAfterRetention(
+                item,
+                configuration: configuration,
+                allowedKinds: allowedKinds,
+                supportsModeFiltering: supportsModeFiltering
+            ) {
+                visible.append(item)
             }
+        }
 
-            if supportsModeFiltering && !configuration.mode.includes(item) {
-                return false
-            }
+        return BufferedItemPartition(retained: retained, visible: visible)
+    }
 
-            if configuration.feedSource != .polls &&
-                configuration.feedSource != .articles &&
-                !configuration.ignoreMediaOnly &&
-                configuration.mediaOnly &&
-                !item.displayEvent.hasMedia {
-                return false
-            }
+    /// Applies only presentation filters to items that have already passed
+    /// source, mute, and manual-spam retention checks.
+    static func visibleRetainedItems(
+        _ source: [FeedItem],
+        configuration: Configuration
+    ) -> [FeedItem] {
+        let allowedKinds = allowedKinds(for: configuration.feedSource, showKinds: configuration.showKinds)
+        let supportsModeFiltering = HomeFeedViewModel.supportsModeTabs(for: configuration.feedSource)
 
-            return true
+        return source.filter { item in
+            isVisibleAfterRetention(
+                item,
+                configuration: configuration,
+                allowedKinds: allowedKinds,
+                supportsModeFiltering: supportsModeFiltering
+            )
+        }
+    }
+
+    /// Re-applies only source membership to rows that already passed mute and
+    /// spam retention. This is used when a refreshed follow list changes so we
+    /// can drop unfollowed authors without repeating expensive moderation work.
+    static func retainedItemsAllowedForCurrentSource(
+        _ source: [FeedItem],
+        configuration: Configuration
+    ) -> [FeedItem] {
+        let allowedAuthors = sourceUsesFollowingAuthors(configuration.feedSource)
+            ? allowedFollowingAuthors(configuration: configuration)
+            : nil
+
+        return source.filter { item in
+            isAllowedForCurrentSource(
+                item,
+                configuration: configuration,
+                allowedAuthors: allowedAuthors
+            )
         }
     }
 
@@ -108,27 +186,72 @@ struct HomeFeedVisibilityFilter {
         _ item: FeedItem,
         configuration: Configuration
     ) -> Bool {
+        let allowedAuthors = sourceUsesFollowingAuthors(configuration.feedSource)
+            ? allowedFollowingAuthors(configuration: configuration)
+            : nil
+        return isAllowedForCurrentSource(
+            item,
+            configuration: configuration,
+            allowedAuthors: allowedAuthors
+        )
+    }
+
+    private static func isAllowedForCurrentSource(
+        _ item: FeedItem,
+        configuration: Configuration,
+        allowedAuthors: Set<String>?
+    ) -> Bool {
         switch configuration.feedSource {
         case .following:
-            let allowedAuthors = allowedFollowingAuthors(configuration: configuration)
-            guard !allowedAuthors.isEmpty else { return false }
+            guard let allowedAuthors, !allowedAuthors.isEmpty else { return false }
             return allowedAuthors.contains(normalizePubkey(item.displayAuthorPubkey))
 
         case .articles:
-            let allowedAuthors = allowedFollowingAuthors(configuration: configuration)
-            guard !allowedAuthors.isEmpty else { return false }
+            guard let allowedAuthors, !allowedAuthors.isEmpty else { return false }
             guard allowedAuthors.contains(normalizePubkey(item.displayAuthorPubkey)) else { return false }
             return HomeFeedViewModel.isVisibleArticle(item)
 
         case .polls:
-            let allowedAuthors = allowedFollowingAuthors(configuration: configuration)
-            guard !allowedAuthors.isEmpty else { return false }
+            guard let allowedAuthors, !allowedAuthors.isEmpty else { return false }
             guard allowedAuthors.contains(normalizePubkey(item.displayAuthorPubkey)) else { return false }
             return item.displayEvent.pollMetadata != nil
 
         default:
             return true
         }
+    }
+
+    private static func isVisibleAfterRetention(
+        _ item: FeedItem,
+        configuration: Configuration,
+        allowedKinds: Set<Int>,
+        supportsModeFiltering: Bool
+    ) -> Bool {
+        if configuration.mutedConversationIDs.contains(item.displayEvent.conversationID) {
+            return false
+        }
+
+        if configuration.hideNSFW && item.moderationEvents.contains(where: { $0.containsNSFWHashtag }) {
+            return false
+        }
+
+        if !allowedKinds.contains(item.event.kind) {
+            return false
+        }
+
+        if supportsModeFiltering && !configuration.mode.includes(item) {
+            return false
+        }
+
+        if configuration.feedSource != .polls &&
+            configuration.feedSource != .articles &&
+            !configuration.ignoreMediaOnly &&
+            configuration.mediaOnly &&
+            !item.displayEvent.hasMedia {
+            return false
+        }
+
+        return true
     }
 
     static func sourceUsesFollowingAuthors(_ source: HomePrimaryFeedSource) -> Bool {
