@@ -1,7 +1,24 @@
 import Foundation
+import OSLog
+
+protocol ActivityLiveEventSubscribing: Sendable {
+    func run(
+        relayURL: URL,
+        filter: NostrFilter,
+        onNewEvent: @escaping @Sendable (NostrEvent) async -> Void,
+        onStatus: @escaping @Sendable (String) async -> Void
+    ) async
+}
+
+extension NostrLiveFeedSubscriber: ActivityLiveEventSubscribing {}
 
 @MainActor
 final class ActivityViewModel: ObservableObject {
+    nonisolated private static let logger = Logger(
+        subsystem: "com.karnagebitcoin.Flow",
+        category: "PulseLoading"
+    )
+
     @Published private(set) var items: [ActivityRow] = []
     @Published var selectedFilter: ActivityFilter = .all
     @Published private(set) var unreadCount = 0
@@ -10,18 +27,23 @@ final class ActivityViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
 
     private let service: NostrFeedService
-    private let liveSubscriber: NostrLiveFeedSubscriber
+    private let liveSubscriber: any ActivityLiveEventSubscribing
     private let defaults: UserDefaults
     private let mutedThreadStore: MutedThreadStore
     private let activityEventCache: any ActivityEventCaching
+    private let notificationCenter: NotificationCenter
 
     private var hasLoadedInitialState = false
+    private var configurationGeneration = 0
     private var currentUserPubkey: String?
     private var readRelayURLs: [URL]
     private var requestCounter = 0
     private var liveUpdatesTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
+    private var connectionRecoveryTask: Task<Void, Never>?
     private var liveSubscriptionSignature: String?
+    private var activeLoadingRequestIDs = Set<Int>()
+    private var activeRefreshingRequestIDs = Set<Int>()
     private var knownEventIDs = Set<String>()
     private var pendingLiveEventIDs = Set<String>()
     private var isActivityTabActive = false
@@ -33,29 +55,34 @@ final class ActivityViewModel: ObservableObject {
     private var spamScoreAttemptedPubkeys = Set<String>()
 
     private static let fastActivityFetchTimeout: TimeInterval = 3
-    private static let fastActivityRelayFetchMode: RelayFetchMode = .firstNonEmptyRelay
+    private static let activityRelayFetchMode: RelayFetchMode = .allRelays
+    private static let fastProfileRelayFetchMode: RelayFetchMode = .firstNonEmptyRelay
     private static let activityKinds = [1, 6, 7, 16, 1111, 1244]
     private static let lastReadStoragePrefix = "flow.activity.lastRead"
     private static let spamThreshold: Float = 0.5
 
     init(
         service: NostrFeedService = NostrFeedService(),
-        liveSubscriber: NostrLiveFeedSubscriber = NostrLiveFeedSubscriber(),
+        liveSubscriber: any ActivityLiveEventSubscribing = NostrLiveFeedSubscriber(),
         defaults: UserDefaults = .standard,
         mutedThreadStore: MutedThreadStore? = nil,
-        activityEventCache: any ActivityEventCaching = ActivityEventCache.shared
+        activityEventCache: any ActivityEventCaching = ActivityEventCache.shared,
+        notificationCenter: NotificationCenter = .default
     ) {
         self.service = service
         self.liveSubscriber = liveSubscriber
         self.defaults = defaults
         self.mutedThreadStore = mutedThreadStore ?? MutedThreadStore.shared
         self.activityEventCache = activityEventCache
+        self.notificationCenter = notificationCenter
         self.readRelayURLs = RelaySettingsStore.defaultReadRelayURLs.compactMap(URL.init(string:))
+        startObservingConnectionRecovery()
     }
 
     deinit {
         liveUpdatesTask?.cancel()
         refreshTask?.cancel()
+        connectionRecoveryTask?.cancel()
         spamScoreTasks.values.forEach { $0.cancel() }
     }
 
@@ -94,8 +121,20 @@ final class ActivityViewModel: ObservableObject {
 
         let relaysChanged = normalizedRelays.map { $0.absoluteString.lowercased() } != self.readRelayURLs.map { $0.absoluteString.lowercased() }
         let userChanged = normalizedUser != self.currentUserPubkey
+        let configurationChanged = relaysChanged || userChanged
+        let hadLoadedInitialState = hasLoadedInitialState
+
+        if configurationChanged {
+            configurationGeneration += 1
+            requestCounter += 1
+            hasLoadedInitialState = false
+            refreshTask?.cancel()
+            refreshTask = nil
+            stopLiveUpdates()
+        }
 
         if userChanged {
+            clearActivityContent()
             self.currentUserPubkey = normalizedUser
             lastReadCreatedAt = normalizedUser.map(loadLastReadCreatedAt(for:)) ?? 0
             resetSpamScores()
@@ -112,13 +151,20 @@ final class ActivityViewModel: ObservableObject {
 
         recomputeUnreadCount()
 
-        guard hasLoadedInitialState else { return }
-        guard relaysChanged || userChanged else { return }
+        guard configurationChanged else { return }
+        guard hadLoadedInitialState || isSceneActive else { return }
 
-        refreshTask?.cancel()
+        let generation = configurationGeneration
         refreshTask = Task { [weak self] in
             guard let self else { return }
-            let loadedCachedRows = await self.loadCachedActivityRowsIfAvailable()
+            let loadedCachedRows = await self.loadCachedActivityRowsIfAvailable(
+                expectedGeneration: generation
+            )
+            guard generation == self.configurationGeneration, !Task.isCancelled else { return }
+            if loadedCachedRows {
+                self.hasLoadedInitialState = true
+                self.startLiveUpdatesIfNeeded()
+            }
             await self.refreshForCurrentConfiguration(
                 showFullScreenLoading: !loadedCachedRows && self.items.isEmpty
             )
@@ -130,9 +176,18 @@ final class ActivityViewModel: ObservableObject {
             startLiveUpdatesIfNeeded()
             return
         }
-        hasLoadedInitialState = true
-        let loadedCachedRows = await loadCachedActivityRowsIfAvailable()
+        let generation = configurationGeneration
+        let loadedCachedRows = await loadCachedActivityRowsIfAvailable(
+            expectedGeneration: generation
+        )
+        guard !Task.isCancelled else {
+            Self.logger.debug("Initial Pulse load cancelled during cache hydration")
+            return
+        }
         if loadedCachedRows {
+            hasLoadedInitialState = true
+            Self.logger.debug("Pulse cache hydrated rows=\(self.items.count, privacy: .public)")
+            startLiveUpdatesIfNeeded()
             refreshTask?.cancel()
             refreshTask = Task { [weak self] in
                 await self?.refreshForCurrentConfiguration(showFullScreenLoading: false)
@@ -176,6 +231,9 @@ final class ActivityViewModel: ObservableObject {
 
     func setActivityTabActive(_ isActive: Bool) {
         isActivityTabActive = isActive
+        Self.logger.debug(
+            "Pulse tab active=\(isActive, privacy: .public) loaded=\(self.hasLoadedInitialState, privacy: .public) rows=\(self.items.count, privacy: .public)"
+        )
         if isActive {
             markAllAsRead()
         }
@@ -188,23 +246,31 @@ final class ActivityViewModel: ObservableObject {
     }
 
     private func refreshForCurrentConfiguration(showFullScreenLoading: Bool) async {
+        requestCounter += 1
+        let requestID = requestCounter
+
         if showFullScreenLoading {
-            guard !isLoading else { return }
+            activeLoadingRequestIDs.insert(requestID)
             isLoading = true
         } else {
-            guard !isRefreshing else { return }
+            activeRefreshingRequestIDs.insert(requestID)
             isRefreshing = true
         }
 
         errorMessage = nil
-        requestCounter += 1
-        let requestID = requestCounter
         let relays = readRelayURLs
         let user = currentUserPubkey
+        let startedAt = Date()
+
+        Self.logger.debug(
+            "Pulse history request start id=\(requestID, privacy: .public) relays=\(relays.count, privacy: .public) fullScreen=\(showFullScreenLoading, privacy: .public)"
+        )
 
         defer {
-            isLoading = false
-            isRefreshing = false
+            activeLoadingRequestIDs.remove(requestID)
+            activeRefreshingRequestIDs.remove(requestID)
+            isLoading = !activeLoadingRequestIDs.isEmpty
+            isRefreshing = !activeRefreshingRequestIDs.isEmpty
         }
 
         guard let user, !user.isEmpty else {
@@ -220,11 +286,20 @@ final class ActivityViewModel: ObservableObject {
                 filter: .all,
                 limit: 120,
                 fetchTimeout: Self.fastActivityFetchTimeout,
-                relayFetchMode: Self.fastActivityRelayFetchMode,
+                relayFetchMode: Self.activityRelayFetchMode,
                 profileFetchTimeout: Self.fastActivityFetchTimeout,
-                profileRelayFetchMode: Self.fastActivityRelayFetchMode
+                profileRelayFetchMode: Self.fastProfileRelayFetchMode
             )
-            guard requestID == requestCounter else { return }
+            guard requestID == requestCounter else {
+                Self.logger.debug("Pulse history request ignored as stale id=\(requestID, privacy: .public)")
+                return
+            }
+
+            hasLoadedInitialState = true
+            let durationMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
+            Self.logger.debug(
+                "Pulse history request succeeded id=\(requestID, privacy: .public) rows=\(fetched.count, privacy: .public) durationMs=\(durationMilliseconds, privacy: .public)"
+            )
 
             guard !fetched.isEmpty || items.isEmpty else {
                 startLiveUpdatesIfNeeded()
@@ -243,12 +318,29 @@ final class ActivityViewModel: ObservableObject {
             }
             startLiveUpdatesIfNeeded()
         } catch {
-            guard requestID == requestCounter else { return }
+            guard requestID == requestCounter else {
+                Self.logger.debug("Pulse history failure ignored as stale id=\(requestID, privacy: .public)")
+                return
+            }
+            let wasCancelled = Task.isCancelled
+                || error is CancellationError
+                || (error as? URLError)?.code == .cancelled
+            if wasCancelled {
+                Self.logger.debug("Pulse history request cancelled id=\(requestID, privacy: .public)")
+                return
+            }
+            if items.isEmpty {
+                hasLoadedInitialState = false
+            }
             if items.isEmpty {
                 errorMessage = "Couldn't load activity right now."
             } else {
                 errorMessage = "Couldn't refresh activity."
             }
+            let durationMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
+            Self.logger.error(
+                "Pulse history request failed id=\(requestID, privacy: .public) durationMs=\(durationMilliseconds, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
+            )
             startLiveUpdatesIfNeeded()
         }
     }
@@ -303,6 +395,11 @@ final class ActivityViewModel: ObservableObject {
                             onNewEvent: { [weak self] event in
                                 guard let self else { return }
                                 await self.handleLiveEvent(event)
+                            },
+                            onStatus: { status in
+                                Self.logger.debug(
+                                    "Pulse live status relay=\(relayURL.host ?? "unknown", privacy: .public) status=\(status, privacy: .private)"
+                                )
                             }
                         )
                     }
@@ -341,9 +438,9 @@ final class ActivityViewModel: ObservableObject {
             currentUserPubkey: user,
             events: [event],
             fetchTimeout: Self.fastActivityFetchTimeout,
-            relayFetchMode: Self.fastActivityRelayFetchMode,
+            relayFetchMode: Self.fastProfileRelayFetchMode,
             profileFetchTimeout: Self.fastActivityFetchTimeout,
-            profileRelayFetchMode: Self.fastActivityRelayFetchMode
+            profileRelayFetchMode: Self.fastProfileRelayFetchMode
         )
         pendingLiveEventIDs.remove(normalizedEventID)
         guard !newRows.isEmpty else { return }
@@ -401,13 +498,43 @@ final class ActivityViewModel: ObservableObject {
     }
 
     private func resetStateForSignedOutUser() {
+        hasLoadedInitialState = false
         stopLiveUpdates()
+        clearActivityContent()
+    }
+
+    private func clearActivityContent() {
         items = []
         knownEventIDs = []
         pendingLiveEventIDs = []
         unreadCount = 0
         errorMessage = nil
         resetSpamScores()
+    }
+
+    private func startObservingConnectionRecovery() {
+        connectionRecoveryTask = Task { [weak self, notificationCenter = notificationCenter] in
+            let notifications = notificationCenter.notifications(named: .relayConnectionsDidReset)
+            for await _ in notifications {
+                guard let self else { return }
+                await self.recoverAfterRelayConnectionReset()
+            }
+        }
+    }
+
+    private func recoverAfterRelayConnectionReset() async {
+        Self.logger.notice(
+            "Pulse observed relay reset sceneActive=\(self.isSceneActive, privacy: .public) rows=\(self.items.count, privacy: .public)"
+        )
+        requestCounter += 1
+        refreshTask?.cancel()
+        refreshTask = nil
+        stopLiveUpdates()
+        if items.isEmpty {
+            hasLoadedInitialState = false
+        }
+        guard isSceneActive else { return }
+        await refreshForCurrentConfiguration(showFullScreenLoading: items.isEmpty)
     }
 
     private func sortAndDeduplicate(items: [ActivityRow]) -> [ActivityRow] {
@@ -436,12 +563,16 @@ final class ActivityViewModel: ObservableObject {
         "\(Self.lastReadStoragePrefix).\(user)"
     }
 
-    private func loadCachedActivityRowsIfAvailable() async -> Bool {
+    private func loadCachedActivityRowsIfAvailable(expectedGeneration: Int) async -> Bool {
         guard let user = currentUserPubkey, !user.isEmpty else { return false }
         let relays = readRelayURLs
         let cacheKey = Self.activityCacheKey(currentUserPubkey: user, readRelayURLs: relays)
         guard let cachedEvents = await activityEventCache.events(for: cacheKey),
               !cachedEvents.isEmpty else {
+            return false
+        }
+        guard expectedGeneration == configurationGeneration else {
+            Self.logger.debug("Pulse cache ignored after configuration changed")
             return false
         }
 
@@ -450,11 +581,17 @@ final class ActivityViewModel: ObservableObject {
             currentUserPubkey: user,
             events: cachedEvents,
             fetchTimeout: Self.fastActivityFetchTimeout,
-            relayFetchMode: Self.fastActivityRelayFetchMode,
+            relayFetchMode: Self.fastProfileRelayFetchMode,
             profileFetchTimeout: Self.fastActivityFetchTimeout,
-            profileRelayFetchMode: Self.fastActivityRelayFetchMode,
+            profileRelayFetchMode: Self.fastProfileRelayFetchMode,
             resolveRemoteReferences: false
         )
+        guard expectedGeneration == configurationGeneration,
+              user == currentUserPubkey,
+              relays.map(\.absoluteString) == readRelayURLs.map(\.absoluteString) else {
+            Self.logger.debug("Pulse cache rows ignored after configuration changed")
+            return false
+        }
         guard !cachedRows.isEmpty else { return false }
 
         items = sortAndDeduplicate(items: cachedRows)
@@ -466,7 +603,6 @@ final class ActivityViewModel: ObservableObject {
         } else {
             recomputeUnreadCount()
         }
-        startLiveUpdatesIfNeeded()
         return true
     }
 

@@ -224,14 +224,16 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(cardSource.contains(".frame(maxWidth: .infinity"))
     }
 
-    func testMainTabShellOverlaysCustomBottomNavigationForEdgeToEdgeContent() throws {
+    func testMainTabShellInsetsCustomNavigationOutsideEdgeToEdgeHome() throws {
         let source = try Self.sourceText(at: "Sources/App/MainTabShellView.swift")
         let start = try XCTUnwrap(source.range(of: "var body: some View")?.lowerBound)
         let end = try XCTUnwrap(source.range(of: "@ViewBuilder\n    private var nativeTabView")?.lowerBound)
         let bodySource = String(source[start..<end])
 
-        XCTAssertFalse(bodySource.contains(".safeAreaInset(edge: .bottom, spacing: 0)"))
+        XCTAssertTrue(bodySource.contains(".safeAreaInset(edge: .bottom, spacing: 0)"))
         XCTAssertTrue(bodySource.contains(".overlay(alignment: .bottom)"))
+        XCTAssertTrue(bodySource.contains("if reservesBottomTabBarInsetSpace"))
+        XCTAssertTrue(bodySource.contains("if usesOverlayBottomTabBar"))
     }
 
     func testProfileHeaderWidthUsesFiniteProposal() {

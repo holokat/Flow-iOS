@@ -164,6 +164,176 @@ final class ActivityViewModelLoadingTests: XCTestCase {
         XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [cachedMentionEvent.id])
         XCTAssertEqual(harness.viewModel.visibleItems.first?.previewDisplay, .text("Cached Pulse mention"))
     }
+
+    @MainActor
+    func testLoadIfNeededRetriesAfterInitialRelayFailure() async throws {
+        let currentUserPubkey = hex("a")
+        let mentionEvent = makeEvent(
+            id: hex("8"),
+            pubkey: hex("b"),
+            kind: 1,
+            tags: [["p", currentUserPubkey]],
+            content: "Recovered Pulse mention",
+            createdAt: 1_700_000_300
+        )
+        let harness = try ActivityViewModelHarness(
+            initialRelayEvents: [defaultActivityRelayURL: [mentionEvent]],
+            relayFailuresBeforeSuccess: [defaultActivityRelayURL: 1]
+        )
+
+        harness.viewModel.configure(
+            currentUserPubkey: currentUserPubkey,
+            readRelayURLs: [defaultActivityRelayURL]
+        )
+        await harness.viewModel.loadIfNeeded()
+        XCTAssertEqual(harness.viewModel.errorMessage, "Couldn't load activity right now.")
+        XCTAssertTrue(harness.viewModel.visibleItems.isEmpty)
+
+        await harness.viewModel.loadIfNeeded()
+
+        XCTAssertNil(harness.viewModel.errorMessage)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [mentionEvent.id])
+    }
+
+    @MainActor
+    func testCancelledInitialLoadRetriesWhenPulseOpensAgain() async throws {
+        let currentUserPubkey = hex("a")
+        let mentionEvent = makeEvent(
+            id: hex("9"),
+            pubkey: hex("b"),
+            kind: 1,
+            tags: [["p", currentUserPubkey]],
+            content: "Mention after cancellation",
+            createdAt: 1_700_000_400
+        )
+        let harness = try ActivityViewModelHarness(
+            initialRelayEvents: [defaultActivityRelayURL: [mentionEvent]],
+            relayDelayNanoseconds: 300_000_000
+        )
+
+        harness.viewModel.configure(
+            currentUserPubkey: currentUserPubkey,
+            readRelayURLs: [defaultActivityRelayURL]
+        )
+        let cancelledLoad = Task { await harness.viewModel.loadIfNeeded() }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        cancelledLoad.cancel()
+        await cancelledLoad.value
+
+        await harness.viewModel.loadIfNeeded()
+
+        XCTAssertNil(harness.viewModel.errorMessage)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [mentionEvent.id])
+    }
+
+    @MainActor
+    func testLoadIfNeededIncludesMentionFromSlowerRelayAfterFastRelayIsEmpty() async throws {
+        let currentUserPubkey = hex("a")
+        let fastEmptyRelay = URL(string: "wss://fast-empty.example.com")!
+        let slowerMentionRelay = URL(string: "wss://slower-mention.example.com")!
+        let mentionEvent = makeEvent(
+            id: hex("c"),
+            pubkey: hex("b"),
+            kind: 1,
+            tags: [["p", currentUserPubkey]],
+            content: "Mention stored on a slower read relay",
+            createdAt: 1_700_000_500
+        )
+        let harness = try ActivityViewModelHarness(
+            initialRelayEvents: [
+                fastEmptyRelay: [],
+                slowerMentionRelay: [mentionEvent]
+            ],
+            relayDelayNanosecondsByRelay: [slowerMentionRelay: 500_000_000]
+        )
+
+        harness.viewModel.configure(
+            currentUserPubkey: currentUserPubkey,
+            readRelayURLs: [fastEmptyRelay, slowerMentionRelay]
+        )
+        await harness.viewModel.loadIfNeeded()
+
+        XCTAssertNil(harness.viewModel.errorMessage)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [mentionEvent.id])
+    }
+
+    @MainActor
+    func testRelayResetRetriesFailedPulseHistoryLoad() async throws {
+        let currentUserPubkey = hex("a")
+        let mentionEvent = makeEvent(
+            id: hex("d"),
+            pubkey: hex("b"),
+            kind: 1,
+            tags: [["p", currentUserPubkey]],
+            content: "Mention after relay reconnect",
+            createdAt: 1_700_000_600
+        )
+        let harness = try ActivityViewModelHarness(
+            initialRelayEvents: [defaultActivityRelayURL: [mentionEvent]],
+            relayFailuresBeforeSuccess: [defaultActivityRelayURL: 1]
+        )
+
+        harness.viewModel.configure(
+            currentUserPubkey: currentUserPubkey,
+            readRelayURLs: [defaultActivityRelayURL]
+        )
+        await harness.viewModel.sceneDidChange(isActive: true)
+        XCTAssertEqual(harness.viewModel.errorMessage, "Couldn't load activity right now.")
+
+        await Task.yield()
+        harness.notificationCenter.post(name: .relayConnectionsDidReset, object: nil)
+        try await harness.waitUntilVisibleItemIDsEqual([mentionEvent.id], timeout: 3)
+
+        XCTAssertNil(harness.viewModel.errorMessage)
+    }
+
+    @MainActor
+    func testConfigurationChangeCannotPublishStalePulseHistory() async throws {
+        let firstUserPubkey = hex("a")
+        let secondUserPubkey = hex("c")
+        let firstRelay = URL(string: "wss://first-account.example.com")!
+        let secondRelay = URL(string: "wss://second-account.example.com")!
+        let staleMention = makeEvent(
+            id: hex("e"),
+            pubkey: hex("b"),
+            kind: 1,
+            tags: [["p", firstUserPubkey]],
+            content: "Stale mention from the previous configuration",
+            createdAt: 1_700_000_700
+        )
+        let currentMention = makeEvent(
+            id: hex("f"),
+            pubkey: hex("d"),
+            kind: 1,
+            tags: [["p", secondUserPubkey]],
+            content: "Mention for the current configuration",
+            createdAt: 1_700_000_800
+        )
+        let harness = try ActivityViewModelHarness(
+            initialRelayEvents: [
+                firstRelay: [staleMention],
+                secondRelay: [currentMention]
+            ],
+            relayDelayNanosecondsByRelay: [firstRelay: 300_000_000]
+        )
+
+        harness.viewModel.configure(
+            currentUserPubkey: firstUserPubkey,
+            readRelayURLs: [firstRelay]
+        )
+        let staleLoad = Task { await harness.viewModel.loadIfNeeded() }
+        try await Task.sleep(nanoseconds: 30_000_000)
+
+        harness.viewModel.configure(
+            currentUserPubkey: secondUserPubkey,
+            readRelayURLs: [secondRelay]
+        )
+        await harness.viewModel.loadIfNeeded()
+        await staleLoad.value
+
+        XCTAssertNil(harness.viewModel.errorMessage)
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [currentMention.id])
+    }
 }
 
 private let defaultActivityRelayURL = URL(string: "wss://activity-relay.example.com")!
@@ -171,10 +341,14 @@ private let defaultActivityRelayURL = URL(string: "wss://activity-relay.example.
 private actor ActivityTestRelayClient: NostrRelayEventFetching {
     private var eventsByRelay: [String: [NostrEvent]]
     private let delayNanoseconds: UInt64
+    private let delayNanosecondsByRelay: [String: UInt64]
+    private var failuresBeforeSuccessByRelay: [String: Int]
 
     init(
         eventsByRelay: [URL: [NostrEvent]],
-        delayNanoseconds: UInt64 = 0
+        delayNanoseconds: UInt64 = 0,
+        delayNanosecondsByRelay: [URL: UInt64] = [:],
+        failuresBeforeSuccessByRelay: [URL: Int] = [:]
     ) {
         var normalized: [String: [NostrEvent]] = [:]
         for (relayURL, events) in eventsByRelay {
@@ -182,6 +356,16 @@ private actor ActivityTestRelayClient: NostrRelayEventFetching {
         }
         self.eventsByRelay = normalized
         self.delayNanoseconds = delayNanoseconds
+        self.delayNanosecondsByRelay = Dictionary(
+            uniqueKeysWithValues: delayNanosecondsByRelay.map {
+                (canonicalRelayString($0.key), $0.value)
+            }
+        )
+        self.failuresBeforeSuccessByRelay = Dictionary(
+            uniqueKeysWithValues: failuresBeforeSuccessByRelay.map {
+                (canonicalRelayString($0.key), $0.value)
+            }
+        )
     }
 
     func fetchEvents(
@@ -189,8 +373,14 @@ private actor ActivityTestRelayClient: NostrRelayEventFetching {
         filter: NostrFilter,
         timeout: TimeInterval
     ) async throws -> [NostrEvent] {
-        if delayNanoseconds > 0 {
-            try await Task.sleep(nanoseconds: delayNanoseconds)
+        let relayKey = canonicalRelayString(relayURL)
+        let relayDelayNanoseconds = delayNanosecondsByRelay[relayKey] ?? delayNanoseconds
+        if relayDelayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: relayDelayNanoseconds)
+        }
+        if let remainingFailures = failuresBeforeSuccessByRelay[relayKey], remainingFailures > 0 {
+            failuresBeforeSuccessByRelay[relayKey] = remainingFailures - 1
+            throw ActivityTestRelayError.forcedFailure
         }
 
         let authors = Set((filter.authors ?? []).map { $0.lowercased() })
@@ -202,7 +392,7 @@ private actor ActivityTestRelayClient: NostrRelayEventFetching {
         let tagFilters = filter.tagFilters ?? [:]
 
         return Array(
-            (eventsByRelay[canonicalRelayString(relayURL)] ?? [])
+            (eventsByRelay[relayKey] ?? [])
                 .filter { event in
                     if !authors.isEmpty && !authors.contains(event.pubkey.lowercased()) {
                         return false
@@ -250,11 +440,14 @@ private actor ActivityTestRelayClient: NostrRelayEventFetching {
 private final class ActivityViewModelHarness {
     let rootURL: URL
     let viewModel: ActivityViewModel
+    let notificationCenter: NotificationCenter
 
     init(
         relayURL: URL = defaultActivityRelayURL,
         initialRelayEvents: [URL: [NostrEvent]],
         relayDelayNanoseconds: UInt64 = 0,
+        relayDelayNanosecondsByRelay: [URL: UInt64] = [:],
+        relayFailuresBeforeSuccess: [URL: Int] = [:],
         activityEventCache: (any ActivityEventCaching)? = nil
     ) throws {
         rootURL = FileManager.default.temporaryDirectory
@@ -263,9 +456,12 @@ private final class ActivityViewModelHarness {
 
         let fileManager = ActivityTestFileManager(rootURL: rootURL)
         let defaults = UserDefaults(suiteName: "ActivityViewModelTests-\(UUID().uuidString)")!
+        notificationCenter = NotificationCenter()
         let relayClient = ActivityTestRelayClient(
             eventsByRelay: initialRelayEvents,
-            delayNanoseconds: relayDelayNanoseconds
+            delayNanoseconds: relayDelayNanoseconds,
+            delayNanosecondsByRelay: relayDelayNanosecondsByRelay,
+            failuresBeforeSuccessByRelay: relayFailuresBeforeSuccess
         )
         let profileSnapshotStore = ProfileSnapshotStore(fileManager: fileManager)
         let profileCache = ProfileCache(snapshotStore: profileSnapshotStore)
@@ -283,15 +479,11 @@ private final class ActivityViewModelHarness {
 
         viewModel = ActivityViewModel(
             service: service,
-            liveSubscriber: NostrLiveFeedSubscriber(
-                session: .shared,
-                liveEventFallbackDelayNanoseconds: 1,
-                receiveIdleTimeoutNanoseconds: 1_000_000,
-                pingTimeoutNanoseconds: 1_000_000
-            ),
+            liveSubscriber: ActivityTestLiveSubscriber(),
             defaults: defaults,
             mutedThreadStore: MutedThreadStore(defaults: defaults),
-            activityEventCache: activityEventCache ?? ActivityTestEventCache()
+            activityEventCache: activityEventCache ?? ActivityTestEventCache(),
+            notificationCenter: notificationCenter
         )
 
         _ = relayURL
@@ -308,6 +500,31 @@ private final class ActivityViewModelHarness {
 
         XCTFail("Timed out waiting for activity view model to become idle")
     }
+
+    func waitUntilVisibleItemIDsEqual(_ expectedIDs: [String], timeout: TimeInterval) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if viewModel.visibleItems.map(\.id) == expectedIDs {
+                return
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        XCTFail("Timed out waiting for Pulse items \(expectedIDs)")
+    }
+}
+
+private enum ActivityTestRelayError: Error {
+    case forcedFailure
+}
+
+private struct ActivityTestLiveSubscriber: ActivityLiveEventSubscribing {
+    func run(
+        relayURL: URL,
+        filter: NostrFilter,
+        onNewEvent: @escaping @Sendable (NostrEvent) async -> Void,
+        onStatus: @escaping @Sendable (String) async -> Void
+    ) async {}
 }
 
 private actor ActivityTestEventCache: ActivityEventCaching {

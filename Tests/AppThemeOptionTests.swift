@@ -686,9 +686,7 @@ final class AppThemeOptionTests: XCTestCase {
     func testBottomTabBarStaysVisibleOnHomeRoot() {
         XCTAssertTrue(
             ScrollChromeLayout.isBottomTabBarVisible(
-                isHomeSideMenuPresented: false,
-                selectedTabIsDirectMessages: false,
-                isDirectMessagesRootVisible: true
+                isHomeSideMenuPresented: false
             )
         )
     }
@@ -696,19 +694,15 @@ final class AppThemeOptionTests: XCTestCase {
     func testBottomTabBarStillHidesBehindHomeSideMenu() {
         XCTAssertFalse(
             ScrollChromeLayout.isBottomTabBarVisible(
-                isHomeSideMenuPresented: true,
-                selectedTabIsDirectMessages: false,
-                isDirectMessagesRootVisible: true
+                isHomeSideMenuPresented: true
             )
         )
     }
 
-    func testBottomTabBarStillHidesOnNestedDirectMessagesScreen() {
-        XCTAssertFalse(
+    func testBottomTabBarStaysVisibleOnNestedDirectMessagesScreen() {
+        XCTAssertTrue(
             ScrollChromeLayout.isBottomTabBarVisible(
-                isHomeSideMenuPresented: false,
-                selectedTabIsDirectMessages: true,
-                isDirectMessagesRootVisible: false
+                isHomeSideMenuPresented: false
             )
         )
     }
@@ -1326,7 +1320,10 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("private var activityTabShowsUnreadBadge: Bool"))
         XCTAssertTrue(source.contains("activityViewModel.hasUnread && !isActivityListVisible"))
         XCTAssertTrue(source.contains("if tab == .activity, activityTabShowsUnreadBadge"))
-        XCTAssertTrue(source.contains("if isBottomTabBarVisible {\n                customBottomNavBar\n            }"))
+        XCTAssertTrue(source.contains("if reservesBottomTabBarInsetSpace {\n                customBottomNavBar\n            }"))
+        XCTAssertTrue(source.contains("if usesOverlayBottomTabBar {\n                customBottomNavBar\n            }"))
+        XCTAssertTrue(source.contains("ForEach(Tab.allCases, id: \\.self)"))
+        XCTAssertTrue(source.contains("Button {\n            handleTabSelection(tab)"))
         XCTAssertTrue(source.contains("func flowNativeTabBarHidden() -> some View"))
         XCTAssertEqual(source.components(separatedBy: ".flowNativeTabBarHidden()").count - 1, 10)
         XCTAssertTrue(source.contains(".toolbar(.hidden, for: .tabBar)"))
@@ -1365,7 +1362,6 @@ final class AppThemeOptionTests: XCTestCase {
     func testNativeTabBarDoesNotRenderSecondCustomBottomBar() throws {
         let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
 
-        XCTAssertFalse(source.contains(".safeAreaInset(edge: .bottom"))
         XCTAssertFalse(source.contains("private struct BottomTabBarChromeOverlay: View"))
         XCTAssertFalse(source.contains("private struct FloatingComposeButtonChromeOverlay: View"))
         XCTAssertFalse(source.contains("FloatingComposeButtonLayout"))
@@ -1383,17 +1379,18 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("@State private var isHomeRootVisible = true"))
         XCTAssertTrue(shellSource.contains("isRootVisible: $isHomeRootVisible"))
         XCTAssertTrue(homeSource.contains("@Binding var isRootVisible: Bool"))
-        XCTAssertTrue(shellSource.contains("if isBottomTabBarVisible {\n                customBottomNavBar\n            }"))
+        XCTAssertTrue(shellSource.contains("if usesOverlayBottomTabBar {\n                customBottomNavBar\n            }"))
         XCTAssertTrue(shellSource.contains("func flowNativeTabBarHidden() -> some View"))
         XCTAssertFalse(shellSource.contains("private var nativeBottomNavigationVisibility: Visibility"))
         XCTAssertFalse(shellSource.contains("usesNativeBottomNavigationBar ? .visible : .hidden"))
         XCTAssertFalse(shellSource.contains("private func shouldHideNativeTabBarForHomeScroll"))
     }
 
-    func testReservedBottomInsetDoesNotRenderSecondTabBar() throws {
+    func testReservedBottomInsetUsesTheSharedCustomTabBar() throws {
         let source = try sourceText(at: "Sources/App/MainTabShellView.swift")
 
-        XCTAssertFalse(source.contains(".safeAreaInset(edge: .bottom, spacing: 0)"))
+        XCTAssertTrue(source.contains(".safeAreaInset(edge: .bottom, spacing: 0)"))
+        XCTAssertTrue(source.contains("if reservesBottomTabBarInsetSpace {\n                customBottomNavBar\n            }"))
         XCTAssertFalse(source.contains("Color.clear\n                    .frame(height: bottomTabBarHeight)"))
         XCTAssertFalse(source.contains("bottomTabBar(safeAreaBottom: 0)"))
     }
@@ -1565,6 +1562,20 @@ final class AppThemeOptionTests: XCTestCase {
         )
 
         XCTAssertFalse(effects.resetsActivityRoot)
+    }
+
+    func testSelectingActivityUsesSameRootFromEveryOtherTab() {
+        for origin in [MainTabShellView.Tab.home, .search, .dms] {
+            let effects = MainTabSelectionPolicy.effects(
+                previousTab: origin,
+                selectedTab: .activity,
+                wasActivityRootVisible: true
+            )
+
+            XCTAssertFalse(effects.resetsHomeRoot, "Origin: \(origin)")
+            XCTAssertFalse(effects.resetsSearchRoot, "Origin: \(origin)")
+            XCTAssertFalse(effects.resetsActivityRoot, "Origin: \(origin)")
+        }
     }
 
     @MainActor

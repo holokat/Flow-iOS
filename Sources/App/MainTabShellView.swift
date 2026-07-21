@@ -1,6 +1,12 @@
+import OSLog
 import SwiftUI
 
 struct MainTabShellView: View {
+    private static let navigationLogger = Logger(
+        subsystem: "com.karnagebitcoin.Flow",
+        category: "MainNavigation"
+    )
+
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.scenePhase) private var scenePhase
     enum Tab: String, CaseIterable, Hashable {
@@ -84,7 +90,12 @@ struct MainTabShellView: View {
             .allowsHitTesting(false)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if isBottomTabBarVisible {
+            if reservesBottomTabBarInsetSpace {
+                customBottomNavBar
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if usesOverlayBottomTabBar {
                 customBottomNavBar
             }
         }
@@ -392,9 +403,21 @@ struct MainTabShellView: View {
 
     private var isBottomTabBarVisible: Bool {
         ScrollChromeLayout.isBottomTabBarVisible(
-            isHomeSideMenuPresented: isHomeSideMenuPresented,
-            selectedTabIsDirectMessages: selectedTab == .dms,
-            isDirectMessagesRootVisible: isDMRootVisible
+            isHomeSideMenuPresented: isHomeSideMenuPresented
+        )
+    }
+
+    private var usesOverlayBottomTabBar: Bool {
+        isBottomTabBarVisible && ScrollChromeLayout.usesOverlayBottomTabBar(
+            selectedTabIsHome: selectedTab == .home,
+            isHomeSideMenuPresented: isHomeSideMenuPresented
+        )
+    }
+
+    private var reservesBottomTabBarInsetSpace: Bool {
+        ScrollChromeLayout.reservesBottomTabBarInsetSpace(
+            isBottomTabBarVisible: isBottomTabBarVisible,
+            usesOverlayBottomTabBar: usesOverlayBottomTabBar
         )
     }
 
@@ -494,6 +517,10 @@ struct MainTabShellView: View {
             previousTab: previousTab,
             selectedTab: tab,
             wasActivityRootVisible: isActivityRootVisible
+        )
+
+        Self.navigationLogger.debug(
+            "Bottom tab selected previous=\(previousTab.rawValue, privacy: .public) target=\(tab.rawValue, privacy: .public) activityRoot=\(self.isActivityRootVisible, privacy: .public) dmRoot=\(self.isDMRootVisible, privacy: .public)"
         )
 
         if tab != .home {
@@ -604,9 +631,9 @@ private extension View {
         self.toolbar(.hidden, for: .tabBar)
     }
 
-    // The custom bottom navigation is opaque, so the iOS 26 automatic scroll edge
-    // effect would render a soft shadow/fade above it. Hide the bottom scroll edge
-    // effect across every tab's scroll views so the bar reads as flat.
+    // Home uses edge-to-edge overlay chrome; the other tabs reserve a safe-area
+    // inset for the same custom navigation. Hide the automatic edge fade so the
+    // Home feed remains visible beneath its transparent chrome.
     @ViewBuilder
     func flowHiddenBottomScrollEdgeEffect() -> some View {
         if #available(iOS 26.0, *) {
@@ -737,11 +764,9 @@ struct ScrollChromeLayout {
     static let dimmedChromeOpacity: Double = 0
 
     static func isBottomTabBarVisible(
-        isHomeSideMenuPresented: Bool,
-        selectedTabIsDirectMessages: Bool,
-        isDirectMessagesRootVisible: Bool
+        isHomeSideMenuPresented: Bool
     ) -> Bool {
-        !isHomeSideMenuPresented && (!selectedTabIsDirectMessages || isDirectMessagesRootVisible)
+        !isHomeSideMenuPresented
     }
 
     static func usesOverlayBottomTabBar(
