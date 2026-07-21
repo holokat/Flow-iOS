@@ -460,6 +460,378 @@ private enum EmbeddedReferencedNoteResolver {
 
 }
 
+struct NostrZapReceiptMetadata: Equatable {
+    enum Target: Equatable {
+        case podcastEpisode
+        case podcast
+        case external
+    }
+
+    private struct ZapRequest: Decodable {
+        let kind: Int
+        let content: String
+        let tags: [[String]]
+    }
+
+    static let receiptKind = 9_735
+    private static let requestKind = 9_734
+
+    let amountMillisats: UInt64?
+    let comment: String?
+    let target: Target
+    let destinationURL: URL?
+    let providerName: String?
+
+    init?(event: NostrEvent) {
+        guard event.kind == Self.receiptKind else { return nil }
+
+        let request = Self.zapRequest(from: event.tags)
+        let requestedAmount = Self.tagValue(named: "amount", in: request?.tags ?? event.tags)
+            .flatMap(UInt64.init)
+        let invoiceAmount = Self.tagValue(named: "bolt11", in: event.tags)
+            .flatMap(Self.millisatsFromBolt11)
+
+        if let requestedAmount {
+            amountMillisats = requestedAmount == invoiceAmount ? requestedAmount : nil
+        } else {
+            amountMillisats = invoiceAmount
+        }
+
+        let trimmedComment = request?.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        comment = trimmedComment.flatMap { $0.isEmpty ? nil : $0 }
+
+        let referenceTags = event.tags + (request?.tags ?? [])
+        let externalReference = Self.preferredExternalReference(in: referenceTags)
+        target = Self.target(for: externalReference?.identifier)
+        destinationURL = externalReference?.urlHint.flatMap(NoteContentParser.webURL(from:))
+        providerName = Self.providerName(for: destinationURL)
+    }
+
+    var amountText: String {
+        guard let amountMillisats else { return "Lightning zap" }
+        guard amountMillisats >= 1_000 else {
+            return "\(amountMillisats.formatted()) msats"
+        }
+
+        if amountMillisats.isMultiple(of: 1_000) {
+            return "\((amountMillisats / 1_000).formatted()) sats"
+        }
+
+        let sats = Double(amountMillisats) / 1_000
+        return "\(sats.formatted(.number.precision(.fractionLength(0...3)))) sats"
+    }
+
+    var subtitle: String {
+        switch target {
+        case .podcastEpisode:
+            return "Podcast episode zap"
+        case .podcast:
+            return "Podcast zap"
+        case .external:
+            return "Lightning zap receipt"
+        }
+    }
+
+    var targetLabel: String {
+        switch target {
+        case .podcastEpisode:
+            return "Podcast episode"
+        case .podcast:
+            return "Podcast"
+        case .external:
+            return "External content"
+        }
+    }
+
+    var actionTitle: String {
+        let destination: String
+        switch target {
+        case .podcastEpisode:
+            destination = "episode"
+        case .podcast:
+            destination = "podcast"
+        case .external:
+            destination = "source"
+        }
+
+        if let providerName {
+            return "Open \(destination) on \(providerName)"
+        }
+        return "Open \(destination)"
+    }
+
+    private static func zapRequest(from tags: [[String]]) -> ZapRequest? {
+        guard let description = tagValue(named: "description", in: tags),
+              let data = description.data(using: .utf8),
+              let request = try? JSONDecoder().decode(ZapRequest.self, from: data),
+              request.kind == requestKind else {
+            return nil
+        }
+        return request
+    }
+
+    private static func tagValue(named name: String, in tags: [[String]]) -> String? {
+        tags.first { tag in
+            tag.count > 1 && tag[0].caseInsensitiveCompare(name) == .orderedSame
+        }?[1]
+    }
+
+    private static func preferredExternalReference(
+        in tags: [[String]]
+    ) -> (identifier: String, urlHint: String?)? {
+        let references = tags.compactMap { tag -> (identifier: String, urlHint: String?)? in
+            guard tag.count > 1, tag[0].lowercased() == "i" else { return nil }
+            return (tag[1], tag.count > 2 ? tag[2] : nil)
+        }
+
+        return references.first { $0.identifier.lowercased().hasPrefix("podcast:item:guid:") }
+            ?? references.first { $0.identifier.lowercased().hasPrefix("podcast:guid:") }
+            ?? references.first
+    }
+
+    private static func target(for identifier: String?) -> Target {
+        let normalized = identifier?.lowercased() ?? ""
+        if normalized.hasPrefix("podcast:item:guid:") {
+            return .podcastEpisode
+        }
+        if normalized.hasPrefix("podcast:guid:") {
+            return .podcast
+        }
+        return .external
+    }
+
+    private static func providerName(for url: URL?) -> String? {
+        guard let host = url?.host?.lowercased() else { return nil }
+        if host == "fountain.fm" || host.hasSuffix(".fountain.fm") {
+            return "Fountain"
+        }
+
+        let components = host.split(separator: ".")
+        let candidate = components.dropLast().last ?? components.first
+        guard let candidate, !candidate.isEmpty else { return nil }
+        return candidate.replacingOccurrences(of: "-", with: " ").capitalized
+    }
+
+    private static func millisatsFromBolt11(_ invoice: String) -> UInt64? {
+        let normalized = invoice.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalized.hasPrefix("ln"),
+              let separator = normalized.lastIndex(of: "1") else {
+            return nil
+        }
+
+        let humanReadablePart = normalized[..<separator]
+        guard let amountStart = humanReadablePart.firstIndex(where: \Character.isNumber) else {
+            return nil
+        }
+
+        let amountToken = humanReadablePart[amountStart...]
+        let multiplier = amountToken.last.flatMap { "munp".contains($0) ? $0 : nil }
+        let digits = multiplier == nil ? amountToken : amountToken.dropLast()
+        guard !digits.isEmpty, let value = UInt64(digits) else { return nil }
+
+        switch multiplier {
+        case "m":
+            return multiplied(value, by: 100_000_000)
+        case "u":
+            return multiplied(value, by: 100_000)
+        case "n":
+            return multiplied(value, by: 100)
+        case "p":
+            guard value.isMultiple(of: 10) else { return nil }
+            return value / 10
+        case nil:
+            return multiplied(value, by: 100_000_000_000)
+        default:
+            return nil
+        }
+    }
+
+    private static func multiplied(_ value: UInt64, by multiplier: UInt64) -> UInt64? {
+        let result = value.multipliedReportingOverflow(by: multiplier)
+        return result.overflow ? nil : result.partialValue
+    }
+}
+
+struct NostrZapReceiptCardView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appSettings: AppSettingsStore
+
+    let metadata: NostrZapReceiptMetadata
+
+    private static let cardCornerRadius: CGFloat = 20
+    private static let actionCornerRadius: CGFloat = 8
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 11) {
+                ZStack {
+                    Circle()
+                        .fill(appSettings.primaryColor.opacity(0.13))
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(appSettings.primaryColor)
+                }
+                .frame(width: 38, height: 38)
+                .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(metadata.amountText)
+                        .font(appSettings.appFont(.title3, weight: .bold))
+                        .foregroundStyle(appSettings.themePalette.foreground)
+                    Text(metadata.subtitle)
+                        .font(appSettings.appFont(.caption1, weight: .medium))
+                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                }
+
+                Spacer(minLength: 8)
+
+                Text("Receipt")
+                    .font(appSettings.appFont(.caption2, weight: .semibold))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(appSettings.themePalette.tertiaryFill, in: Capsule())
+            }
+
+            if let comment = metadata.comment {
+                Text(comment)
+                    .font(appSettings.appFont(.body))
+                    .foregroundStyle(appSettings.themePalette.foreground)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let destinationURL = metadata.destinationURL {
+                Link(destination: destinationURL) {
+                    HStack(spacing: 8) {
+                        Image(systemName: metadata.target == .external ? "link" : "play.fill")
+                            .font(.caption.weight(.bold))
+                        Text(metadata.actionTitle)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .font(appSettings.appFont(.caption1, weight: .semibold))
+                    .foregroundStyle(appSettings.primaryColor)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .background(
+                        appSettings.primaryColor.opacity(0.09),
+                        in: RoundedRectangle(cornerRadius: Self.actionCornerRadius, style: .continuous)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else if metadata.target != .external {
+                Label(metadata.targetLabel, systemImage: "waveform")
+                    .font(appSettings.appFont(.caption1, weight: .medium))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+            }
+        }
+        .padding(12)
+        .background(appSettings.themePalette.linkPreviewBackground, in: cardShape)
+        .overlay(cardShape.stroke(appSettings.themePalette.linkPreviewBorder, lineWidth: 0.7))
+        .shadow(
+            color: colorScheme == .dark ? .clear : Color.black.opacity(0.04),
+            radius: 4,
+            x: 0,
+            y: 2
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var cardShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous)
+    }
+}
+
+struct NostrUnsupportedEventMetadata: Equatable {
+    private static let genericallyRenderedKinds: Set<Int> = [
+        1,      // Short text note
+        20,     // Picture
+        21,     // Video
+        22,     // Short video
+        1_063,  // File metadata
+        1_068,  // Poll
+        1_111,  // Comment
+        1_222,  // Voice post
+        1_244,  // Voice comment
+        9_802,  // Highlight
+        31_987, // Relay review
+        36_787  // Music track
+    ]
+    private static let speciallyRenderedKinds: Set<Int> = [
+        NostrZapReceiptMetadata.receiptKind,
+        NostrLongFormArticleKind.article
+    ]
+
+    let kind: Int
+
+    init?(event: NostrEvent) {
+        guard !Self.genericallyRenderedKinds.contains(event.kind),
+              !Self.speciallyRenderedKinds.contains(event.kind) else {
+            return nil
+        }
+        kind = event.kind
+    }
+
+    var title: String { "Unsupported Nostr event" }
+    var message: String { "Halo doesn’t recognize this kind of Nostr event yet." }
+    var kindLabel: String { "Kind \(kind)" }
+}
+
+struct NostrUnsupportedEventCardView: View {
+    @EnvironmentObject private var appSettings: AppSettingsStore
+
+    let metadata: NostrUnsupportedEventMetadata
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "doc.questionmark")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                .frame(width: 36, height: 36)
+                .background(appSettings.themePalette.tertiaryFill, in: Circle())
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(metadata.title)
+                    .font(appSettings.appFont(.headline, weight: .semibold))
+                    .foregroundStyle(appSettings.themePalette.foreground)
+
+                Text(metadata.message)
+                    .font(appSettings.appFont(.subheadline))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(metadata.kindLabel)
+                    .font(appSettings.appFont(.caption1, weight: .semibold))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(appSettings.themePalette.tertiaryFill, in: Capsule())
+                    .padding(.top, 2)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            appSettings.themePalette.linkPreviewBackground,
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(appSettings.themePalette.linkPreviewBorder, lineWidth: 0.7)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Unsupported Nostr event. Halo doesn’t recognize kind \(metadata.kind) yet.")
+    }
+}
+
 struct NostrEventReferenceFallbackView: View {
     let nostrURI: String
     var onOpenThread: ((FeedItem) -> Void)? = nil
@@ -617,7 +989,9 @@ struct NostrEventReferenceCardView: View {
 
     @ViewBuilder
     private func embeddedCard(for item: FeedItem) -> some View {
-        if let onOpenThread {
+        if let zapReceipt = NostrZapReceiptMetadata(event: item.displayEvent) {
+            NostrZapReceiptCardView(metadata: zapReceipt)
+        } else if let onOpenThread {
             Button {
                 onOpenThread(item.threadNavigationItem)
             } label: {

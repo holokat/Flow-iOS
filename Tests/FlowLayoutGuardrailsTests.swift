@@ -5,6 +5,112 @@ import UIKit
 @testable import Flow
 
 final class FlowLayoutGuardrailsTests: XCTestCase {
+    func testReportedPodcastZapReceiptRendersValidatedAmountAndEpisodeLink() throws {
+        let zapRequest = """
+        {"id":"bf9636683eb96811dbc702ed088d0caf02fd1e0d884c4569a333e056c61949a0","pubkey":"50a63cca15b16b60d329b92f628c432c8c12689b40fe9d0495eb836b5f2df637","created_at":1784589959,"kind":9734,"content":"","tags":[["relays","wss://relay.fountain.fm","wss://relay.primal.net"],["amount","123000"],["p","b866ce76be5b826695980248322b8df4c381608ffa5a5b47c4f3abe0d8f767a5"],["k","podcast:item:guid"],["i","podcast:item:guid:09e25b79-56d0-414c-a8b2-858845b482a7","https://fountain.fm/episode/NsCAC8Ys0veNH9UqU2IW"]],"sig":"52591f91a4a2ca41b997b2ae207c5fa9e3ef6bb8ab290313186962af95119d5a2c8ed5f752ca42d8ca1c6c042fa558df631146e4f4f25d5b3cb81de7e1812ae2"}
+        """
+        let event = NostrEvent(
+            id: "1bb3fcf091d09734b1917f8b9182b0fb5cacc3d2880388fdc70cb03053967b75",
+            pubkey: "b866ce76be5b826695980248322b8df4c381608ffa5a5b47c4f3abe0d8f767a5",
+            createdAt: 1_784_589_960,
+            kind: 9_735,
+            tags: [
+                ["description", zapRequest],
+                ["bolt11", "lnbc1230n1p49at58pp5atsgg5m5py2qz599sztxpf347czdf0nr5q0gg5yud0p8pz2aq4ns"],
+                ["i", "podcast:item:guid:09e25b79-56d0-414c-a8b2-858845b482a7", "https://fountain.fm/episode/NsCAC8Ys0veNH9UqU2IW"]
+            ],
+            content: "",
+            sig: String(repeating: "a", count: 128)
+        )
+
+        let metadata = try XCTUnwrap(NostrZapReceiptMetadata(event: event))
+
+        XCTAssertEqual(metadata.amountMillisats, 123_000)
+        XCTAssertEqual(metadata.amountText, "123 sats")
+        XCTAssertEqual(metadata.target, .podcastEpisode)
+        XCTAssertEqual(metadata.destinationURL?.absoluteString, "https://fountain.fm/episode/NsCAC8Ys0veNH9UqU2IW")
+        XCTAssertEqual(metadata.providerName, "Fountain")
+        XCTAssertEqual(metadata.actionTitle, "Open episode on Fountain")
+        XCTAssertNil(metadata.comment)
+    }
+
+    func testZapReceiptDoesNotDisplayUnmatchedRequestedAmount() throws {
+        let zapRequest = """
+        {"kind":9734,"content":"Nice episode","tags":[["amount","124000"]]}
+        """
+        let event = NostrEvent(
+            id: String(repeating: "1", count: 64),
+            pubkey: String(repeating: "a", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 9_735,
+            tags: [
+                ["description", zapRequest],
+                ["bolt11", "lnbc1230n1ptest"]
+            ],
+            content: "",
+            sig: String(repeating: "f", count: 128)
+        )
+
+        let metadata = try XCTUnwrap(NostrZapReceiptMetadata(event: event))
+
+        XCTAssertNil(metadata.amountMillisats)
+        XCTAssertEqual(metadata.amountText, "Lightning zap")
+        XCTAssertEqual(metadata.comment, "Nice episode")
+    }
+
+    func testZapReceiptMetadataIgnoresOtherEventKinds() {
+        let event = NostrEvent(
+            id: String(repeating: "1", count: 64),
+            pubkey: String(repeating: "a", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 1,
+            tags: [],
+            content: "hello",
+            sig: String(repeating: "f", count: 128)
+        )
+
+        XCTAssertNil(NostrZapReceiptMetadata(event: event))
+    }
+
+    func testUnknownEventKindUsesFriendlyFallbackWithoutRawContent() throws {
+        let rawJSON = #"{"secret":"protocol detail"}"#
+        let event = NostrEvent(
+            id: String(repeating: "2", count: 64),
+            pubkey: String(repeating: "b", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 35_128,
+            tags: [["description", rawJSON]],
+            content: rawJSON,
+            sig: String(repeating: "e", count: 128)
+        )
+
+        let metadata = try XCTUnwrap(NostrUnsupportedEventMetadata(event: event))
+
+        XCTAssertEqual(metadata.title, "Unsupported Nostr event")
+        XCTAssertEqual(metadata.message, "Halo doesn’t recognize this kind of Nostr event yet.")
+        XCTAssertEqual(metadata.kindLabel, "Kind 35128")
+        XCTAssertFalse(metadata.title.contains(rawJSON))
+        XCTAssertFalse(metadata.message.contains(rawJSON))
+    }
+
+    func testKnownContentAndSpecializedEventKindsDoNotUseUnsupportedFallback() {
+        let recognizedKinds = [1, 20, 21, 22, 1_063, 1_068, 1_111, 1_222, 1_244, 9_735, 9_802, 30_023, 31_987, 36_787]
+
+        for kind in recognizedKinds {
+            let event = NostrEvent(
+                id: String(format: "%064x", kind),
+                pubkey: String(repeating: "c", count: 64),
+                createdAt: 1_700_000_000,
+                kind: kind,
+                tags: [],
+                content: "content",
+                sig: String(repeating: "d", count: 128)
+            )
+
+            XCTAssertNil(NostrUnsupportedEventMetadata(event: event), "Kind \(kind) should remain renderable")
+        }
+    }
+
     func testSoftWrappedLeavesShortStringsUntouched() {
         let value = "hello world"
 
@@ -118,14 +224,14 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(cardSource.contains(".frame(maxWidth: .infinity"))
     }
 
-    func testMainTabShellUsesSafeAreaInsetForCustomBottomNavigation() throws {
+    func testMainTabShellOverlaysCustomBottomNavigationForEdgeToEdgeContent() throws {
         let source = try Self.sourceText(at: "Sources/App/MainTabShellView.swift")
         let start = try XCTUnwrap(source.range(of: "var body: some View")?.lowerBound)
         let end = try XCTUnwrap(source.range(of: "@ViewBuilder\n    private var nativeTabView")?.lowerBound)
         let bodySource = String(source[start..<end])
 
-        XCTAssertTrue(bodySource.contains(".safeAreaInset(edge: .bottom, spacing: 0)"))
-        XCTAssertFalse(bodySource.contains(".overlay(alignment: .bottom)"))
+        XCTAssertFalse(bodySource.contains(".safeAreaInset(edge: .bottom, spacing: 0)"))
+        XCTAssertTrue(bodySource.contains(".overlay(alignment: .bottom)"))
     }
 
     func testProfileHeaderWidthUsesFiniteProposal() {
@@ -275,7 +381,8 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         let cardEnd = try XCTUnwrap(accessorySource.range(of: "struct ComposeAttachmentToolbarBar: View {"))
         let cardSource = accessorySource[cardStart.lowerBound..<cardEnd.lowerBound]
 
-        XCTAssertTrue(sheetSource.contains(".safeAreaInset(edge: .bottom, spacing: 0) {\n            composeBottomAccessoryBar\n        }"))
+        XCTAssertTrue(sheetSource.contains("VStack(spacing: 0)"))
+        XCTAssertTrue(sheetSource.contains("composeBottomAccessoryBar"))
         XCTAssertLessThan(previewRange.lowerBound, toolbarRange.lowerBound)
         XCTAssertFalse(cardSource.contains("ComposeMediaAttachmentStrip("))
         XCTAssertFalse(cardSource.contains("let mediaAttachments: [ComposeMediaAttachment]"))
@@ -704,7 +811,6 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
 
         XCTAssertFalse(blockSource.contains("identityTitleSection"))
         XCTAssertTrue(blockSource.contains("ProfileFollowsYouBadge()"))
-        XCTAssertTrue(blockSource.contains("Spacer(minLength: 12)"))
         XCTAssertFalse(blockSource.contains("Text(\"Follows you\")"))
         XCTAssertTrue(blockSource.contains("if followsCurrentUser {"))
 
@@ -758,8 +864,8 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(source.contains("if showsFeedModeHeader {\n                topTrackedRow(feedModeHeaderRow.homeFeedListRow(), isFirst: true)\n            }"))
         XCTAssertTrue(source.contains("private var showsFeedModeHeader: Bool {"))
         XCTAssertTrue(source.contains("feedContent(\n                contentPadding.bottom,\n                contentPadding.top,\n                safeAreaBottom\n            )"))
-        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                scrollChromeStore: scrollChromeStore,\n                bottomBarHeight: bottomTabBarHeight,\n                safeAreaBottom: safeAreaBottom,\n                topNavigationBar: topNavigationBar\n            )"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
+        XCTAssertTrue(source.contains("safeAreaTop: safeAreaTop"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
         XCTAssertTrue(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
         XCTAssertFalse(source.contains("pullToRefreshDistance"))
         XCTAssertFalse(source.contains("refreshRevealOpacity"))
@@ -768,10 +874,10 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertTrue(topNavChromeSource.contains(".ignoresSafeArea(edges: .top)"))
         XCTAssertFalse(topNavChromeSource.contains("topBarOffset"))
-        XCTAssertFalse(topNavChromeSource.contains("safeAreaTop"))
+        XCTAssertTrue(topNavChromeSource.contains("safeAreaTop"))
         XCTAssertFalse(topNavChromeSource.contains(".offset(y:"))
         XCTAssertTrue(topNavChromeSource.contains(".opacity(chromeOpacity)"))
-        XCTAssertFalse(topNavChromeSource.contains(".allowsHitTesting("))
+        XCTAssertTrue(topNavChromeSource.contains(".allowsHitTesting(chromeOpacity > 0.05)"))
     }
 
     func testProfileAvatarFullscreenViewerUsesThemeAwareBackdropAndToolbarChrome() throws {

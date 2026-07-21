@@ -178,6 +178,8 @@ struct NoteContentView: View {
     private let gifLikeVideoURLKeys: Set<String>
     private let sourceEvent: NostrEvent
     private let articleMetadata: NostrLongFormArticleMetadata?
+    private let zapReceiptMetadata: NostrZapReceiptMetadata?
+    private let unsupportedEventMetadata: NostrUnsupportedEventMetadata?
     private let articleAuthor: LongFormArticleAuthorSummary?
     private let pollEvent: NostrEvent
     private let pollMetadata: NostrPollMetadata?
@@ -224,6 +226,8 @@ struct NoteContentView: View {
         sourceEvent = event
         let renderEvent = Self.renderEvent(for: event)
         articleMetadata = renderEvent.longFormArticleMetadata
+        zapReceiptMetadata = NostrZapReceiptMetadata(event: renderEvent)
+        unsupportedEventMetadata = NostrUnsupportedEventMetadata(event: renderEvent)
         self.articleAuthor = articleAuthor
         pollEvent = renderEvent
         pollMetadata = renderEvent.pollMetadata
@@ -260,11 +264,15 @@ struct NoteContentView: View {
 
     var body: some View {
         Group {
-            if let articleMetadata {
+            if let zapReceiptMetadata {
+                NostrZapReceiptCardView(metadata: zapReceiptMetadata)
+            } else if let articleMetadata {
                 LongFormArticlePreviewView(
                     article: articleMetadata,
                     author: articleAuthor ?? .fallback(pubkey: pollEvent.pubkey)
                 )
+            } else if let unsupportedEventMetadata {
+                NostrUnsupportedEventCardView(metadata: unsupportedEventMetadata)
             } else {
                 let pollInsertionOffsets = NoteContentPollPlacement.insertionOffsets(
                     partCount: renderedParts.count,
