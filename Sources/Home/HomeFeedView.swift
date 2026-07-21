@@ -42,7 +42,6 @@ struct HomeFeedView: View {
     @State private var shouldAutoFocusReplyInThread = false
     @State private var isNearFeedTop = true
     @State private var isRevealingBufferedItems = false
-    @State private var feedScrollTarget: String?
     @State private var scrollChromeTracker = ScrollChromeTracker()
 
     var body: some View {
@@ -268,17 +267,21 @@ struct HomeFeedView: View {
         let visibleItems = viewModel.visibleItems
         let visibleReplyCounts = ReplyCountEstimator.counts(for: visibleItems)
 
-        return feedList(
-            visibleItems: visibleItems,
-            visibleReplyCounts: visibleReplyCounts,
-            bottomContentPadding: bottomContentPadding,
-            topBarHeight: topBarHeight,
-            safeAreaBottom: safeAreaBottom
-        )
+        return ScrollViewReader { scrollProxy in
+            feedList(
+                scrollProxy: scrollProxy,
+                visibleItems: visibleItems,
+                visibleReplyCounts: visibleReplyCounts,
+                bottomContentPadding: bottomContentPadding,
+                topBarHeight: topBarHeight,
+                safeAreaBottom: safeAreaBottom
+            )
+        }
     }
 
     @ViewBuilder
     private func feedList(
+        scrollProxy: ScrollViewProxy,
         visibleItems: [FeedItem],
         visibleReplyCounts: [String: Int],
         bottomContentPadding: CGFloat,
@@ -310,10 +313,10 @@ struct HomeFeedView: View {
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .homeFeedNativeTabBarMinimizeBehavior()
-        .scrollPosition(id: $feedScrollTarget, anchor: .top)
         .coordinateSpace(name: Self.feedScrollCoordinateSpace)
         .overlay(alignment: .top) {
             newNotesOverlay(
+                scrollProxy: scrollProxy,
                 topBarHeight: topBarHeight
             )
         }
@@ -466,6 +469,7 @@ struct HomeFeedView: View {
 
     @ViewBuilder
     private func newNotesOverlay(
+        scrollProxy: ScrollViewProxy,
         topBarHeight: CGFloat
     ) -> some View {
         HomeFeedNewNotesChromeOverlay(
@@ -477,7 +481,7 @@ struct HomeFeedView: View {
             topBarHeight: topBarHeight,
             content: {
                 newNotesPill {
-                    self.revealBufferedNewItems()
+                    self.revealBufferedNewItems(scrollProxy: scrollProxy)
                 }
             }
         )
@@ -515,38 +519,29 @@ struct HomeFeedView: View {
         await viewModel.refresh(force: true)
     }
 
-    private func revealBufferedNewItems() {
+    private func revealBufferedNewItems(scrollProxy: ScrollViewProxy) {
         guard viewModel.visibleBufferedNewItemsCount > 0 else { return }
         guard !isRevealingBufferedItems else { return }
 
         isRevealingBufferedItems = true
-        feedScrollTarget = nil
 
         Task { @MainActor in
-            guard viewModel.visibleBufferedNewItemsCount > 0 else {
-                isRevealingBufferedItems = false
-                return
-            }
-
-            var revealTargetID: String?
             if let animation = FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion) {
                 withAnimation(animation) {
-                    revealTargetID = viewModel.showBufferedNewItems()
+                    viewModel.showBufferedNewItems()
                 }
             } else {
-                revealTargetID = viewModel.showBufferedNewItems()
+                viewModel.showBufferedNewItems()
             }
 
             await Task.yield()
 
-            if let revealTargetID {
-                if let animation = FlowTransitionMotion.feedRevealScrollAnimation(reduceMotion: accessibilityReduceMotion) {
-                    withAnimation(animation) {
-                        feedScrollTarget = revealTargetID
-                    }
-                } else {
-                    feedScrollTarget = revealTargetID
+            if let animation = FlowTransitionMotion.feedRevealScrollAnimation(reduceMotion: accessibilityReduceMotion) {
+                withAnimation(animation) {
+                    scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)
                 }
+            } else {
+                scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)
             }
             isRevealingBufferedItems = false
         }
@@ -1320,10 +1315,10 @@ struct HomeFeedView: View {
         guard viewModel.visibleBufferedNewItemsCount > 0 else { return }
         if let animation = FlowTransitionMotion.feedInsertionAnimation(reduceMotion: accessibilityReduceMotion) {
             withAnimation(animation) {
-                _ = viewModel.showBufferedNewItems()
+                viewModel.showBufferedNewItems()
             }
         } else {
-            _ = viewModel.showBufferedNewItems()
+            viewModel.showBufferedNewItems()
         }
     }
 

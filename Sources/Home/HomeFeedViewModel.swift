@@ -238,10 +238,6 @@ final class HomeFeedViewModel: ObservableObject {
         filterVisibleItems(bufferedNewItems)
     }
 
-    var bufferedRevealScrollTargetID: String? {
-        visibleBufferedNewItems.first?.id
-    }
-
     var isUsingCustomFilters: Bool {
         !FeedKindFilters.isSameSelection(showKinds, FeedKindFilters.allOptionKinds) || mediaOnly
     }
@@ -1326,13 +1322,10 @@ final class HomeFeedViewModel: ObservableObject {
         }
     }
 
-    @discardableResult
-    func showBufferedNewItems() -> String? {
-        guard !bufferedNewItems.isEmpty else { return nil }
-        let revealTargetID = bufferedRevealScrollTargetID
+    func showBufferedNewItems() {
+        guard !bufferedNewItems.isEmpty else { return }
         mergeKeepingNewest(itemsToMerge: bufferedNewItems)
         bufferedNewItems.removeAll()
-        return revealTargetID
     }
 
     private func applyCurrentFilters(showKinds: [Int], mediaOnly: Bool) {

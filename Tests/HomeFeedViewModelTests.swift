@@ -1384,7 +1384,7 @@ final class HomeFeedLoadingRegressionTests: XCTestCase {
     }
 
     @MainActor
-    func testBufferedRevealTargetsFirstVisibleBufferedItem() async throws {
+    func testBufferedRevealMergesAllNewItemsWithoutChoosingAScrollTarget() async throws {
         let initialNote = makeEvent(
             id: hex("1"),
             pubkey: hex("a"),
@@ -1426,11 +1426,10 @@ final class HomeFeedLoadingRegressionTests: XCTestCase {
             harness.viewModel.visibleBufferedNewItems.map(\.id),
             [newestBufferedNote.id, earliestBufferedNote.id]
         )
-        XCTAssertEqual(harness.viewModel.bufferedRevealScrollTargetID, newestBufferedNote.id)
 
-        let revealTargetID = harness.viewModel.showBufferedNewItems()
+        harness.viewModel.showBufferedNewItems()
 
-        XCTAssertEqual(revealTargetID, newestBufferedNote.id)
+        XCTAssertTrue(harness.viewModel.visibleBufferedNewItems.isEmpty)
         XCTAssertEqual(
             harness.viewModel.visibleItems.map(\.id),
             [newestBufferedNote.id, earliestBufferedNote.id, initialNote.id]

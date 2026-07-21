@@ -1200,15 +1200,27 @@ final class AppThemeOptionTests: XCTestCase {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
         XCTAssertTrue(source.contains("Text(\"posted\")"))
-        XCTAssertTrue(source.contains("private func revealBufferedNewItems()"))
+        XCTAssertTrue(source.contains("private func revealBufferedNewItems(scrollProxy: ScrollViewProxy)"))
 
-        let revealRange = try XCTUnwrap(source.range(of: "private func revealBufferedNewItems()"))
-        let revealSource = source[revealRange.lowerBound...]
+        let revealRange = try XCTUnwrap(source.range(of: "private func revealBufferedNewItems(scrollProxy: ScrollViewProxy)"))
+        let revealEndRange = try XCTUnwrap(
+            source.range(
+                of: "private func configureFeedDependenciesAndLoad()",
+                range: revealRange.upperBound..<source.endIndex
+            )
+        )
+        let revealSource = source[revealRange.lowerBound..<revealEndRange.lowerBound]
         let showRange = try XCTUnwrap(revealSource.range(of: "viewModel.showBufferedNewItems()"))
-        let scrollRange = try XCTUnwrap(revealSource.range(of: "feedScrollTarget = revealTargetID"))
+        let scrollRange = try XCTUnwrap(
+            revealSource.range(of: "scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)")
+        )
 
         XCTAssertLessThan(showRange.lowerBound, scrollRange.lowerBound)
-        XCTAssertFalse(revealSource.contains("feedScrollTarget = Self.feedTopAnchorID"))
+        XCTAssertFalse(revealSource.contains("revealTargetID"))
+        XCTAssertEqual(
+            revealSource.components(separatedBy: "guard viewModel.visibleBufferedNewItemsCount > 0").count,
+            2
+        )
         XCTAssertTrue(source.contains(".id(item.id)\n                        .homeFeedListRow()"))
     }
 
@@ -1229,15 +1241,16 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains("LazyVStack(alignment: .leading, spacing: 0)"))
     }
 
-    func testHomeFeedListIsDirectScrollContentForCustomBottomChrome() throws {
+    func testHomeFeedUsesExplicitScrollProxyForReliableTopReveal() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
         let feedContentRange = try XCTUnwrap(source.range(of: "private func feedContent("))
         let feedListRange = try XCTUnwrap(source.range(of: "@ViewBuilder\n    private func feedList", range: feedContentRange.upperBound..<source.endIndex))
         let feedContentSource = source[feedContentRange.lowerBound..<feedListRange.lowerBound]
 
-        XCTAssertFalse(feedContentSource.contains("ScrollViewReader"))
-        XCTAssertTrue(source.contains("@State private var feedScrollTarget: String?"))
-        XCTAssertTrue(source.contains(".scrollPosition(id: $feedScrollTarget, anchor: .top)"))
+        XCTAssertTrue(feedContentSource.contains("ScrollViewReader { scrollProxy in"))
+        XCTAssertTrue(source.contains("scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)"))
+        XCTAssertFalse(source.contains("@State private var feedScrollTarget: String?"))
+        XCTAssertFalse(source.contains(".scrollPosition(id: $feedScrollTarget, anchor: .top)"))
         XCTAssertTrue(source.contains(".contentMargins(.top, 0, for: .scrollContent)"))
         XCTAssertFalse(source.contains("let topScrollContentMargin = -max(0, safeAreaTop)"))
         XCTAssertFalse(source.contains(".contentMargins(.top, topScrollContentMargin, for: .scrollContent)"))
