@@ -61,6 +61,14 @@ Use this checklist for every feature, fix, or UX change before shipping.
 xcodebuild -scheme Flow -project /Users/k/code/x21-ios/Flow.xcodeproj -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
 
+- Before installing any physical-device build, verify that both Halo and its Share Extension were signed and provisioned for the shared App Group:
+
+```bash
+./Scripts/verify-app-group-signing.sh /path/to/Flow.app
+```
+
+- Never work around a provisioning failure by clearing `CODE_SIGN_ENTITLEMENTS`; doing so breaks sharing from other apps.
+
 - Test the exact user flow that motivated the change.
 - Test one adjacent flow that could have regressed because of shared code.
 - If the change affects Activity, feeds, media, or composer, test it from at least two entry points.

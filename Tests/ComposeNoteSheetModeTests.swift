@@ -98,6 +98,45 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         XCTAssertFalse(source.contains("sel_registerName"))
     }
 
+    func testContainingAppAndShareExtensionDeclareTheSameAppGroup() throws {
+        let expectedAppGroups = ["group.com.21media.haloapp"]
+
+        for relativePath in [
+            "Sources/App/Flow.entitlements",
+            "Sources/ShareExtension/ShareExtension.entitlements"
+        ] {
+            let entitlements = try Self.propertyList(at: relativePath)
+            let appGroups = try XCTUnwrap(
+                entitlements["com.apple.security.application-groups"] as? [String],
+                "Missing App Groups entitlement in \(relativePath)"
+            )
+
+            XCTAssertEqual(appGroups, expectedAppGroups, relativePath)
+        }
+    }
+
+    func testShareExtensionDeploymentTargetMatchesProjectSpec() throws {
+        let projectSpec = try Self.sourceText(at: "project.yml")
+        let generatedProject = try Self.sourceText(at: "Flow.xcodeproj/project.pbxproj")
+        let extensionStart = try XCTUnwrap(projectSpec.range(of: "  FlowShareExtension:"))
+        let testsStart = try XCTUnwrap(
+            projectSpec.range(of: "  FlowTests:", range: extensionStart.upperBound..<projectSpec.endIndex)
+        )
+        let extensionSpec = projectSpec[extensionStart.lowerBound..<testsStart.lowerBound]
+        let generatedDeploymentTargets = generatedProject
+            .split(separator: "\n")
+            .filter { $0.contains("IPHONEOS_DEPLOYMENT_TARGET =") }
+
+        XCTAssertTrue(extensionSpec.contains("deploymentTarget: \"17.0\""))
+        XCTAssertFalse(generatedDeploymentTargets.isEmpty)
+        XCTAssertTrue(
+            generatedDeploymentTargets.allSatisfy {
+                $0.contains("IPHONEOS_DEPLOYMENT_TARGET = 17.0;")
+            },
+            "The generated project deployment targets must stay aligned with the iOS 17 spec."
+        )
+    }
+
     func testPendingShareBypassesCustomLaunchSplash() throws {
         let source = try Self.sourceText(at: "Sources/App/FlowApp.swift")
 
@@ -619,9 +658,21 @@ private func makeDraftEvent(idSuffix: String) -> NostrEvent {
 
 private extension ComposeNoteSheetModeTests {
     static func sourceText(at relativePath: String) throws -> String {
-        let testFileURL = URL(fileURLWithPath: #filePath)
-        let repositoryRootURL = testFileURL.deletingLastPathComponent().deletingLastPathComponent()
-        let sourceURL = repositoryRootURL.appendingPathComponent(relativePath)
+        let sourceURL = repositoryURL.appendingPathComponent(relativePath)
         return try String(contentsOf: sourceURL, encoding: .utf8)
+    }
+
+    static func propertyList(at relativePath: String) throws -> [String: Any] {
+        let data = try Data(contentsOf: repositoryURL.appendingPathComponent(relativePath))
+        return try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+                as? [String: Any]
+        )
+    }
+
+    static var repositoryURL: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 }
