@@ -53,15 +53,17 @@ struct ThreadDetailRootNoteCard: View {
 
                 HStack(alignment: .center, spacing: 10) {
                     Menu {
-                        Button {
-                            onFollowToggle()
-                        } label: {
-                            Label(
-                                isFollowingAuthor ? "Unfollow" : "Follow",
-                                systemImage: isFollowingAuthor
-                                    ? "person.crop.circle.badge.minus"
-                                    : "plus.circle"
-                            )
+                        if !isAuthoredByCurrentAccount {
+                            Button {
+                                onFollowToggle()
+                            } label: {
+                                Label(
+                                    isFollowingAuthor ? "Unfollow" : "Follow",
+                                    systemImage: isFollowingAuthor
+                                        ? "person.crop.circle.badge.minus"
+                                        : "plus.circle"
+                                )
+                            }
                         }
                         Button {
                             onOpenProfile(item.displayAuthorPubkey)

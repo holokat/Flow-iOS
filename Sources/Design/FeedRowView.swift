@@ -684,10 +684,12 @@ struct FeedRowView: View {
     private var profileAvatar: some View {
         if let avatarMenuActions {
             Menu {
-                Button {
-                    avatarMenuActions.onFollowToggle()
-                } label: {
-                    Label(avatarMenuActions.followLabel, systemImage: followMenuIcon(for: avatarMenuActions.followLabel))
+                if !isAuthoredByCurrentAccount {
+                    Button {
+                        avatarMenuActions.onFollowToggle()
+                    } label: {
+                        Label(avatarMenuActions.followLabel, systemImage: followMenuIcon(for: avatarMenuActions.followLabel))
+                    }
                 }
                 Button {
                     avatarMenuActions.onViewProfile()

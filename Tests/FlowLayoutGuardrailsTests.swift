@@ -946,6 +946,51 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(source.contains("Alert("))
     }
 
+    func testOwnProfileNeverOffersFollowActions() throws {
+        let feedRowSource = try Self.sourceText(at: "Sources/Design/FeedRowView.swift")
+        let profileAvatarStart = try XCTUnwrap(feedRowSource.range(of: "private var profileAvatar: some View {"))
+        let profileAvatarEnd = try XCTUnwrap(
+            feedRowSource.range(
+                of: "private var avatarWithFollowBadge: some View {",
+                range: profileAvatarStart.upperBound..<feedRowSource.endIndex
+            )
+        )
+        let profileAvatarSource = feedRowSource[profileAvatarStart.lowerBound..<profileAvatarEnd.lowerBound]
+
+        XCTAssertTrue(
+            profileAvatarSource.contains(
+                "if !isAuthoredByCurrentAccount {\n                    Button {\n                        avatarMenuActions.onFollowToggle()"
+            )
+        )
+        XCTAssertTrue(profileAvatarSource.contains("avatarMenuActions.onViewProfile()"))
+
+        let threadSource = try Self.sourceText(at: "Sources/Thread/ThreadDetailComponents.swift")
+        let rootCardStart = try XCTUnwrap(threadSource.range(of: "struct ThreadDetailRootNoteCard: View {"))
+        let rootCardEnd = try XCTUnwrap(
+            threadSource.range(
+                of: "struct ThreadDetailInteractionRow: View {",
+                range: rootCardStart.upperBound..<threadSource.endIndex
+            )
+        )
+        let rootCardSource = threadSource[rootCardStart.lowerBound..<rootCardEnd.lowerBound]
+
+        XCTAssertTrue(
+            rootCardSource.contains(
+                "if !isAuthoredByCurrentAccount {\n                            Button {\n                                onFollowToggle()"
+            )
+        )
+        XCTAssertTrue(rootCardSource.contains("onOpenProfile(item.displayAuthorPubkey)"))
+
+        let followingListSource = try Self.sourceText(at: "Sources/Profile/FollowingListView.swift")
+        XCTAssertTrue(followingListSource.contains("if !isCurrentAccount(row.pubkey) {"))
+        XCTAssertTrue(
+            followingListSource.contains(
+                "!isCurrentAccount($0) && !followStore.isFollowing($0)"
+            )
+        )
+        XCTAssertTrue(followingListSource.contains("if isCurrentAccount(row.pubkey) {\n                Text(\"You\")"))
+    }
+
     func testThreadDetailArticleHeroUsesTransparentNavigationChrome() {
         XCTAssertEqual(
             ThreadDetailViewLayout.navigationTitle(hasArticleHero: true),

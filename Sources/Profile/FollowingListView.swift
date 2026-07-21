@@ -45,14 +45,16 @@ struct FollowingListView: View {
                         .listRowSeparator(.visible)
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(followStore.isFollowing(row.pubkey) ? "Unfollow" : "Follow") {
-                                if followStore.isFollowing(row.pubkey) {
-                                    followStore.unfollow(row.pubkey)
-                                } else {
-                                    followStore.follow(row.pubkey)
+                            if !isCurrentAccount(row.pubkey) {
+                                Button(followStore.isFollowing(row.pubkey) ? "Unfollow" : "Follow") {
+                                    if followStore.isFollowing(row.pubkey) {
+                                        followStore.unfollow(row.pubkey)
+                                    } else {
+                                        followStore.follow(row.pubkey)
+                                    }
                                 }
+                                .tint(followStore.isFollowing(row.pubkey) ? .red : .accentColor)
                             }
-                            .tint(followStore.isFollowing(row.pubkey) ? .red : .accentColor)
                         }
                 }
             }
@@ -102,7 +104,9 @@ struct FollowingListView: View {
     }
 
     private var followAllTargets: [String] {
-        viewModel.rows.map(\.pubkey).filter { !followStore.isFollowing($0) }
+        viewModel.rows.map(\.pubkey).filter {
+            !isCurrentAccount($0) && !followStore.isFollowing($0)
+        }
     }
 
     private var emptyState: some View {
@@ -184,8 +188,27 @@ struct FollowingListView: View {
                 selectedProfileRoute = ProfileRoute(pubkey: row.pubkey)
             }
 
-            followToggleButton(for: row)
+            if isCurrentAccount(row.pubkey) {
+                Text("You")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 40)
+                    .accessibilityLabel("This is you")
+            } else {
+                followToggleButton(for: row)
+            }
         }
+    }
+
+    private func isCurrentAccount(_ pubkey: String) -> Bool {
+        guard let currentPubkey = auth.currentAccount?.pubkey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            !currentPubkey.isEmpty else {
+            return false
+        }
+        return pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == currentPubkey
     }
 
     private func followToggleButton(for row: FollowingListViewModel.Row) -> some View {
