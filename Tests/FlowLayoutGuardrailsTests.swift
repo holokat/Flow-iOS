@@ -1114,6 +1114,18 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(navigationRowsSource.contains(".onTapGesture"))
     }
 
+    func testPulseMutedNotificationsUseAccessibleScopedRevealControls() throws {
+        let source = try Self.sourceText(at: "Sources/Activity/ActivityView.swift")
+
+        XCTAssertTrue(source.contains("title: \"Show muted notifications\""))
+        XCTAssertTrue(source.contains(".accessibilityIdentifier(\"pulse-show-muted-notifications\")"))
+        XCTAssertTrue(source.contains("let isMutedNotification = viewModel.isMutedNotification(item)"))
+        XCTAssertTrue(source.contains("revealMutedContent: isMutedNotification"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"Open muted notification\")"))
+        XCTAssertTrue(source.contains(".accessibilityValue("))
+        XCTAssertTrue(source.contains("minHeight: 44"))
+    }
+
     func testAppDoesNotRotateAlternateIconsAutomatically() throws {
         let flowSource = try Self.sourceText(at: "Sources/App/FlowApp.swift")
         let appSources = try Self.sourceTexts(under: "Sources/App")

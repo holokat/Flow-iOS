@@ -25,6 +25,7 @@ final class ActivityViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var showsMutedNotifications = false
 
     private let service: NostrFeedService
     private let liveSubscriber: any ActivityLiveEventSubscribing
@@ -32,6 +33,7 @@ final class ActivityViewModel: ObservableObject {
     private let mutedThreadStore: MutedThreadStore
     private let activityEventCache: any ActivityEventCaching
     private let notificationCenter: NotificationCenter
+    private let muteFilterSnapshotProvider: @MainActor () -> MuteFilterSnapshot
 
     private var hasLoadedInitialState = false
     private var configurationGeneration = 0
@@ -53,12 +55,14 @@ final class ActivityViewModel: ObservableObject {
     private var spamAuthorScores: [String: Float] = [:]
     private var spamScoreTasks: [String: Task<Void, Never>] = [:]
     private var spamScoreAttemptedPubkeys = Set<String>()
+    private var mutedEventDecisionCache: [String: Bool] = [:]
 
     private static let fastActivityFetchTimeout: TimeInterval = 3
     private static let activityRelayFetchMode: RelayFetchMode = .allRelays
     private static let fastProfileRelayFetchMode: RelayFetchMode = .firstNonEmptyRelay
     private static let activityKinds = [1, 6, 7, 16, 1111, 1244]
     private static let lastReadStoragePrefix = "flow.activity.lastRead"
+    private static let showsMutedStoragePrefix = "flow.activity.showsMutedNotifications"
     private static let spamThreshold: Float = 0.5
 
     init(
@@ -67,7 +71,10 @@ final class ActivityViewModel: ObservableObject {
         defaults: UserDefaults = .standard,
         mutedThreadStore: MutedThreadStore? = nil,
         activityEventCache: any ActivityEventCaching = ActivityEventCache.shared,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        muteFilterSnapshotProvider: @escaping @MainActor () -> MuteFilterSnapshot = {
+            MuteStore.shared.filterSnapshot
+        }
     ) {
         self.service = service
         self.liveSubscriber = liveSubscriber
@@ -75,6 +82,7 @@ final class ActivityViewModel: ObservableObject {
         self.mutedThreadStore = mutedThreadStore ?? MutedThreadStore.shared
         self.activityEventCache = activityEventCache
         self.notificationCenter = notificationCenter
+        self.muteFilterSnapshotProvider = muteFilterSnapshotProvider
         self.readRelayURLs = RelaySettingsStore.defaultReadRelayURLs.compactMap(URL.init(string:))
         startObservingConnectionRecovery()
     }
@@ -87,16 +95,26 @@ final class ActivityViewModel: ObservableObject {
     }
 
     var visibleItems: [ActivityRow] {
+        notificationPreferenceVisibleItems.filter { item in
+            showsMutedNotifications || !isMutedNotification(item)
+        }
+    }
+
+    var hasMutedNotificationsHidden: Bool {
+        !showsMutedNotifications
+            && notificationPreferenceVisibleItems.contains(where: isMutedNotification)
+    }
+
+    private var notificationPreferenceVisibleItems: [ActivityRow] {
         itemsMatchingSelectedFilter.filter { item in
             AppSettingsStore.shared.isActivityNotificationEnabled(for: item.action.notificationPreference)
                 && !isHiddenByManualSpam(item)
                 && !isHiddenSpamReply(item)
-                && !mutedThreadStore.isMuted(item.threadMuteIdentifier)
         }
     }
 
     var hasItemsHiddenByNotificationPreferences: Bool {
-        !itemsMatchingSelectedFilter.isEmpty && visibleItems.isEmpty
+        !itemsMatchingSelectedFilter.isEmpty && notificationPreferenceVisibleItems.isEmpty
     }
 
     var hasUnread: Bool {
@@ -137,6 +155,7 @@ final class ActivityViewModel: ObservableObject {
             clearActivityContent()
             self.currentUserPubkey = normalizedUser
             lastReadCreatedAt = normalizedUser.map(loadLastReadCreatedAt(for:)) ?? 0
+            showsMutedNotifications = normalizedUser.map(loadShowsMutedNotifications(for:)) ?? false
             resetSpamScores()
         }
 
@@ -229,6 +248,35 @@ final class ActivityViewModel: ObservableObject {
         // Filtering is local now so the segmented control responds instantly.
     }
 
+    func setShowsMutedNotifications(_ shouldShow: Bool) {
+        guard let user = currentUserPubkey, !user.isEmpty else {
+            showsMutedNotifications = false
+            return
+        }
+        guard showsMutedNotifications != shouldShow else { return }
+
+        showsMutedNotifications = shouldShow
+        defaults.set(shouldShow, forKey: showsMutedStorageKey(for: user))
+    }
+
+    func isMutedNotification(_ item: ActivityRow) -> Bool {
+        isMutedEvent(item.event)
+            || mutedThreadStore.isMuted(item.threadMuteIdentifier)
+    }
+
+    private func isMutedEvent(_ event: NostrEvent) -> Bool {
+        let eventID = event.id.lowercased()
+        if let cachedDecision = mutedEventDecisionCache[eventID] {
+            return cachedDecision
+        }
+
+        var snapshot = muteFilterSnapshotProvider()
+        snapshot.hidesEncodedSpam = false
+        let decision = snapshot.shouldHide(event)
+        mutedEventDecisionCache[eventID] = decision
+        return decision
+    }
+
     func setActivityTabActive(_ isActive: Bool) {
         isActivityTabActive = isActive
         Self.logger.debug(
@@ -240,6 +288,7 @@ final class ActivityViewModel: ObservableObject {
     }
 
     func notificationPreferencesChanged() {
+        mutedEventDecisionCache.removeAll(keepingCapacity: true)
         resetSpamScores()
         scheduleSpamScoring(for: items)
         recomputeUnreadCount()
@@ -420,7 +469,6 @@ final class ActivityViewModel: ObservableObject {
         guard event.activityAction != nil else { return }
         guard event.mentionedPubkeys.contains(where: { $0.lowercased() == user }) else { return }
         guard normalizePubkey(event.pubkey) != user else { return }
-        let isMutedActor = MuteStore.shared.isMuted(event.pubkey)
 
         let normalizedEventID = event.id.lowercased()
         guard !knownEventIDs.contains(normalizedEventID) else { return }
@@ -428,10 +476,6 @@ final class ActivityViewModel: ObservableObject {
         pendingLiveEventIDs.insert(normalizedEventID)
 
         await service.ingestLiveEvents([event])
-
-        if !isMutedActor, let reaction = event.activityAction?.reaction {
-            onLiveReactionDetected?(reaction)
-        }
 
         let newRows = await service.buildActivityRows(
             relayURLs: readRelayURLs,
@@ -444,6 +488,11 @@ final class ActivityViewModel: ObservableObject {
         )
         pendingLiveEventIDs.remove(normalizedEventID)
         guard !newRows.isEmpty else { return }
+
+        if !newRows.contains(where: isMutedNotification),
+           let reaction = event.activityAction?.reaction {
+            onLiveReactionDetected?(reaction)
+        }
 
         items = sortAndDeduplicate(items: newRows + items)
         knownEventIDs = Set(items.map { $0.id.lowercased() })
@@ -491,10 +540,7 @@ final class ActivityViewModel: ObservableObject {
         guard !isHiddenSpamReply(item) else {
             return false
         }
-        guard !mutedThreadStore.isMuted(item.threadMuteIdentifier) else {
-            return false
-        }
-        return !MuteStore.shared.isMuted(item.actorPubkey)
+        return !isMutedNotification(item)
     }
 
     private func resetStateForSignedOutUser() {
@@ -509,6 +555,7 @@ final class ActivityViewModel: ObservableObject {
         pendingLiveEventIDs = []
         unreadCount = 0
         errorMessage = nil
+        mutedEventDecisionCache.removeAll(keepingCapacity: true)
         resetSpamScores()
     }
 
@@ -561,6 +608,14 @@ final class ActivityViewModel: ObservableObject {
 
     private func lastReadStorageKey(for user: String) -> String {
         "\(Self.lastReadStoragePrefix).\(user)"
+    }
+
+    private func loadShowsMutedNotifications(for user: String) -> Bool {
+        defaults.bool(forKey: showsMutedStorageKey(for: user))
+    }
+
+    private func showsMutedStorageKey(for user: String) -> String {
+        "\(Self.showsMutedStoragePrefix).\(user)"
     }
 
     private func loadCachedActivityRowsIfAvailable(expectedGeneration: Int) async -> Bool {

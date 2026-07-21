@@ -98,9 +98,202 @@ final class ActivityRowPreviewDisplayTests: XCTestCase {
 
         XCTAssertEqual(row.threadMuteIdentifier, rootEventID)
     }
+
+    func testExplicitMutedReplyRouteOpensTappedReplyAsRoot() throws {
+        let rootEvent = makeEvent(
+            id: hex("1"),
+            pubkey: hex("a"),
+            kind: 1,
+            tags: [],
+            content: "Thread root"
+        )
+        let replyEvent = makeEvent(
+            id: hex("2"),
+            pubkey: hex("b"),
+            kind: 1,
+            tags: [["e", rootEvent.id, "", "root"]],
+            content: "Muted reply"
+        )
+        let row = ActivityRow(
+            event: replyEvent,
+            actor: ActivityActor(pubkey: replyEvent.pubkey, profile: nil),
+            action: .reply(kind: replyEvent.kind),
+            target: ActivityTargetNote(
+                reference: .eventID(rootEvent.id),
+                event: rootEvent,
+                profile: nil,
+                snippet: rootEvent.content
+            )
+        )
+
+        let route = try XCTUnwrap(
+            ActivityThreadRouting.route(for: row, revealMutedContent: true)
+        )
+
+        XCTAssertEqual(route.initialItem.event.id, replyEvent.id)
+        XCTAssertEqual(route.initialItem.replyTargetEvent?.id, rootEvent.id)
+        XCTAssertNil(route.initialReplyScrollTargetID)
+    }
+
+    func testOrdinaryReplyRouteStillOpensParentAndScrollsToReply() throws {
+        let rootEvent = makeEvent(
+            id: hex("3"),
+            pubkey: hex("c"),
+            kind: 1,
+            tags: [],
+            content: "Thread root"
+        )
+        let replyEvent = makeEvent(
+            id: hex("4"),
+            pubkey: hex("d"),
+            kind: 1,
+            tags: [["e", rootEvent.id, "", "root"]],
+            content: "Visible reply"
+        )
+        let row = ActivityRow(
+            event: replyEvent,
+            actor: ActivityActor(pubkey: replyEvent.pubkey, profile: nil),
+            action: .reply(kind: replyEvent.kind),
+            target: ActivityTargetNote(
+                reference: .eventID(rootEvent.id),
+                event: rootEvent,
+                profile: nil,
+                snippet: rootEvent.content
+            )
+        )
+
+        let route = try XCTUnwrap(
+            ActivityThreadRouting.route(for: row, revealMutedContent: false)
+        )
+
+        XCTAssertEqual(route.initialItem.event.id, rootEvent.id)
+        XCTAssertEqual(route.initialReplyScrollTargetID, replyEvent.id)
+    }
 }
 
 final class ActivityViewModelLoadingTests: XCTestCase {
+    @MainActor
+    func testMutedPulseRowsAreHiddenByDefaultAndShownByToggle() async throws {
+        let currentUserPubkey = hex("a")
+        let visibleActorPubkey = hex("b")
+        let mutedActorPubkey = hex("c")
+        let visibleMention = makeEvent(
+            id: hex("5"),
+            pubkey: visibleActorPubkey,
+            kind: 1,
+            tags: [["p", currentUserPubkey]],
+            content: "Visible mention",
+            createdAt: 1_700_000_100
+        )
+        let mutedMention = makeEvent(
+            id: hex("6"),
+            pubkey: mutedActorPubkey,
+            kind: 1,
+            tags: [["p", currentUserPubkey]],
+            content: "Muted mention",
+            createdAt: 1_700_000_200
+        )
+        let harness = try ActivityViewModelHarness(
+            initialRelayEvents: [
+                defaultActivityRelayURL: [visibleMention, mutedMention]
+            ],
+            muteFilterSnapshot: MuteFilterSnapshot(
+                mutedPubkeys: [mutedActorPubkey],
+                exactMutedWords: [],
+                phraseMutedWords: [],
+                hidesEncodedSpam: false
+            )
+        )
+
+        harness.viewModel.configure(
+            currentUserPubkey: currentUserPubkey,
+            readRelayURLs: [defaultActivityRelayURL]
+        )
+        await harness.viewModel.loadIfNeeded()
+        try await harness.waitUntilIdle(timeout: 4)
+
+        XCTAssertEqual(Set(harness.viewModel.items.map(\.id)), Set([visibleMention.id, mutedMention.id]))
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [visibleMention.id])
+        XCTAssertTrue(harness.viewModel.hasMutedNotificationsHidden)
+        XCTAssertEqual(harness.viewModel.unreadCount, 1)
+
+        harness.viewModel.setShowsMutedNotifications(true)
+
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [mutedMention.id, visibleMention.id])
+        XCTAssertFalse(harness.viewModel.hasMutedNotificationsHidden)
+        XCTAssertEqual(harness.viewModel.unreadCount, 1)
+        XCTAssertTrue(
+            harness.viewModel.visibleItems.contains(where: harness.viewModel.isMutedNotification)
+        )
+    }
+
+    @MainActor
+    func testShowMutedPreferenceIsAccountScopedAndDefaultsOff() throws {
+        let firstUserPubkey = hex("d")
+        let secondUserPubkey = hex("e")
+        let harness = try ActivityViewModelHarness(initialRelayEvents: [:])
+
+        harness.viewModel.configure(
+            currentUserPubkey: firstUserPubkey,
+            readRelayURLs: [defaultActivityRelayURL]
+        )
+        XCTAssertFalse(harness.viewModel.showsMutedNotifications)
+
+        harness.viewModel.setShowsMutedNotifications(true)
+        XCTAssertTrue(harness.viewModel.showsMutedNotifications)
+
+        harness.viewModel.configure(
+            currentUserPubkey: secondUserPubkey,
+            readRelayURLs: [defaultActivityRelayURL]
+        )
+        XCTAssertFalse(harness.viewModel.showsMutedNotifications)
+
+        harness.viewModel.configure(
+            currentUserPubkey: firstUserPubkey,
+            readRelayURLs: [defaultActivityRelayURL]
+        )
+        XCTAssertTrue(harness.viewModel.showsMutedNotifications)
+    }
+
+    @MainActor
+    func testMutedThreadNotificationUsesSameToggleAndStaysOutOfUnreadCount() async throws {
+        let currentUserPubkey = hex("f")
+        let threadRootID = hex("7")
+        let mutedThreadEvent = makeEvent(
+            id: threadRootID,
+            pubkey: hex("9"),
+            kind: 1,
+            tags: [["p", currentUserPubkey]],
+            content: "Mention in a muted thread",
+            createdAt: 1_700_000_300
+        )
+        let harness = try ActivityViewModelHarness(
+            initialRelayEvents: [defaultActivityRelayURL: [mutedThreadEvent]]
+        )
+        harness.mutedThreadStore.configure(accountPubkey: currentUserPubkey)
+        XCTAssertTrue(harness.mutedThreadStore.mute(threadRootID))
+
+        harness.viewModel.configure(
+            currentUserPubkey: currentUserPubkey,
+            readRelayURLs: [defaultActivityRelayURL]
+        )
+        await harness.viewModel.loadIfNeeded()
+        try await harness.waitUntilIdle(timeout: 4)
+
+        XCTAssertEqual(harness.viewModel.items.map(\.id), [mutedThreadEvent.id])
+        XCTAssertTrue(harness.viewModel.visibleItems.isEmpty)
+        XCTAssertTrue(harness.viewModel.hasMutedNotificationsHidden)
+        XCTAssertEqual(harness.viewModel.unreadCount, 0)
+
+        harness.viewModel.setShowsMutedNotifications(true)
+
+        XCTAssertEqual(harness.viewModel.visibleItems.map(\.id), [mutedThreadEvent.id])
+        let visibleItem = try XCTUnwrap(harness.viewModel.visibleItems.first)
+        XCTAssertEqual(visibleItem.threadMuteIdentifier, threadRootID)
+        XCTAssertTrue(harness.viewModel.isMutedNotification(visibleItem))
+        XCTAssertEqual(harness.viewModel.unreadCount, 0)
+    }
+
     @MainActor
     func testLoadIfNeededLoadsPulseMentionRows() async throws {
         let currentUserPubkey = hex("a")
@@ -441,6 +634,7 @@ private final class ActivityViewModelHarness {
     let rootURL: URL
     let viewModel: ActivityViewModel
     let notificationCenter: NotificationCenter
+    let mutedThreadStore: MutedThreadStore
 
     init(
         relayURL: URL = defaultActivityRelayURL,
@@ -448,7 +642,13 @@ private final class ActivityViewModelHarness {
         relayDelayNanoseconds: UInt64 = 0,
         relayDelayNanosecondsByRelay: [URL: UInt64] = [:],
         relayFailuresBeforeSuccess: [URL: Int] = [:],
-        activityEventCache: (any ActivityEventCaching)? = nil
+        activityEventCache: (any ActivityEventCaching)? = nil,
+        muteFilterSnapshot: MuteFilterSnapshot = MuteFilterSnapshot(
+            mutedPubkeys: [],
+            exactMutedWords: [],
+            phraseMutedWords: [],
+            hidesEncodedSpam: false
+        )
     ) throws {
         rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ActivityViewModelTests-\(UUID().uuidString)", isDirectory: true)
@@ -457,6 +657,7 @@ private final class ActivityViewModelHarness {
         let fileManager = ActivityTestFileManager(rootURL: rootURL)
         let defaults = UserDefaults(suiteName: "ActivityViewModelTests-\(UUID().uuidString)")!
         notificationCenter = NotificationCenter()
+        mutedThreadStore = MutedThreadStore(defaults: defaults)
         let relayClient = ActivityTestRelayClient(
             eventsByRelay: initialRelayEvents,
             delayNanoseconds: relayDelayNanoseconds,
@@ -481,9 +682,10 @@ private final class ActivityViewModelHarness {
             service: service,
             liveSubscriber: ActivityTestLiveSubscriber(),
             defaults: defaults,
-            mutedThreadStore: MutedThreadStore(defaults: defaults),
+            mutedThreadStore: mutedThreadStore,
             activityEventCache: activityEventCache ?? ActivityTestEventCache(),
-            notificationCenter: notificationCenter
+            notificationCenter: notificationCenter,
+            muteFilterSnapshotProvider: { muteFilterSnapshot }
         )
 
         _ = relayURL

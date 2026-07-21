@@ -63,6 +63,20 @@ struct ActivityView: View {
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
 
+                            Section {
+                                SettingsToggleRow(
+                                    title: "Show muted notifications",
+                                    isOn: mutedNotificationsVisibilityBinding,
+                                    footer: "Muted activity stays out of your unread count."
+                                )
+                                .accessibilityHint(
+                                    "Shows muted activity as private placeholders. Opening one does not change your mute settings."
+                                )
+                                .accessibilityIdentifier("pulse-show-muted-notifications")
+                            }
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+
                             if viewModel.isLoading && viewModel.items.isEmpty {
                                 ForEach(0..<5, id: \.self) { _ in
                                     loadingRow
@@ -75,11 +89,15 @@ struct ActivityView: View {
                                     .listRowBackground(Color.clear)
                             } else {
                                 ForEach(viewModel.visibleItems) { item in
+                                    let isMutedNotification = viewModel.isMutedNotification(item)
                                     ActivityRowCell(
                                         item: item,
-                                        isMuted: muteStore.isMuted(item.actorPubkey),
+                                        isMuted: isMutedNotification,
                                         onTap: {
-                                            selectedThreadRoute = threadRoute(for: item)
+                                            selectedThreadRoute = ActivityThreadRouting.route(
+                                                for: item,
+                                                revealMutedContent: isMutedNotification
+                                            )
                                         },
                                         onAvatarTap: {
                                             selectedProfileRoute = ProfileRoute(pubkey: item.actorPubkey)
@@ -401,6 +419,15 @@ struct ActivityView: View {
                 Text(errorMessage)
                     .font(.subheadline)
                     .foregroundStyle(appSettings.themePalette.secondaryForeground)
+            } else if viewModel.hasMutedNotificationsHidden {
+                Text("Muted notifications are hidden")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+
+                Text("Turn on Show muted notifications above to review them.")
+                    .font(.footnote)
+                    .foregroundStyle(appSettings.themePalette.mutedForeground)
+                    .multilineTextAlignment(.center)
             } else if viewModel.hasItemsHiddenByNotificationPreferences {
                 Text("No activity matches your current notification settings.")
                     .font(.subheadline)
@@ -413,6 +440,13 @@ struct ActivityView: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 24)
+    }
+
+    private var mutedNotificationsVisibilityBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.showsMutedNotifications },
+            set: { viewModel.setShowsMutedNotifications($0) }
+        )
     }
 
     private var loadingRow: some View {
@@ -555,9 +589,27 @@ struct ActivityView: View {
         }
     }
 
-    private func threadRoute(for item: ActivityRow) -> ActivityThreadRoute? {
+}
+
+enum ActivityThreadRouting {
+    static func route(
+        for item: ActivityRow,
+        revealMutedContent: Bool
+    ) -> ActivityThreadRoute? {
         switch item.action {
         case .mention, .reply, .quoteShare:
+            if revealMutedContent {
+                return ActivityThreadRoute(
+                    initialItem: FeedItem(
+                        event: item.event,
+                        profile: item.actorProfile,
+                        replyTargetEvent: item.target.event,
+                        replyTargetProfile: item.target.profile
+                    ),
+                    initialReplyScrollTargetID: nil
+                )
+            }
+
             if item.event.isReplyNote {
                 let destinationEvent = item.target.event ?? item.event
                 let shouldScrollToReply = destinationEvent.id.lowercased() != item.event.id.lowercased()
@@ -597,7 +649,7 @@ struct ActivityView: View {
         }
     }
 
-    private func profileForThreadDestination(event: NostrEvent, item: ActivityRow) -> NostrProfile? {
+    private static func profileForThreadDestination(event: NostrEvent, item: ActivityRow) -> NostrProfile? {
         if event.id.lowercased() == item.event.id.lowercased() {
             return item.actorProfile
         }
@@ -639,6 +691,25 @@ struct ActivityRowCell: View {
     }
 
     private var mutedRowView: some View {
+        Group {
+            if let onTap {
+                Button(action: onTap) {
+                    mutedRowContent
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open muted notification")
+                .accessibilityValue(
+                    "\(RelativeTimestampFormatter.shortString(from: item.createdAtDate)) ago"
+                )
+                .accessibilityHint("Opens this item once without changing your mute settings.")
+            } else {
+                mutedRowContent
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var mutedRowContent: some View {
         HStack(spacing: 10) {
             Image(systemName: "speaker.slash.fill")
                 .font(.system(size: 12, weight: .semibold))
@@ -646,39 +717,22 @@ struct ActivityRowCell: View {
                 .frame(width: 30, height: 30)
                 .background(appSettings.themePalette.secondaryFill, in: Circle())
 
-            mutedRowBodyView
-        }
-    }
+            HStack(spacing: 8) {
+                Text("Muted item")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                    .lineLimit(1)
 
-    @ViewBuilder
-    private var mutedRowBodyView: some View {
-        if let onTap {
-            Button(action: onTap) {
-                mutedRowContent
+                Spacer(minLength: 8)
+
+                Text(RelativeTimestampFormatter.shortString(from: item.createdAtDate))
+                    .font(.caption2)
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                    .monospacedDigit()
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Muted item")
-        } else {
-            mutedRowContent
         }
-    }
-
-    private var mutedRowContent: some View {
-        HStack(spacing: 8) {
-            Text("Muted item")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
-
-            Text(RelativeTimestampFormatter.shortString(from: item.createdAtDate))
-                .font(.caption2)
-                .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                .monospacedDigit()
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .contentShape(Rectangle())
     }
 
@@ -1096,7 +1150,7 @@ private struct ActivityAvatarView: View {
     }
 }
 
-private struct ActivityThreadRoute: Identifiable, Hashable {
+struct ActivityThreadRoute: Identifiable, Hashable {
     let initialItem: FeedItem
     let initialReplyScrollTargetID: String?
 
