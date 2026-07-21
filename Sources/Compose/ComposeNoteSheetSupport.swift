@@ -1377,10 +1377,21 @@ struct ComposeTextSelectionRequest: Equatable {
     }
 }
 
+struct ComposeTextUpdateRequest: Equatable {
+    let id: UUID
+    let text: String
+
+    init(id: UUID = UUID(), text: String) {
+        self.id = id
+        self.text = text
+    }
+}
+
 struct ComposeMultilineTextView: UIViewRepresentable {
     @EnvironmentObject private var appSettings: AppSettingsStore
     @Binding var text: String
     @Binding var isFocused: Bool
+    let textUpdateRequest: ComposeTextUpdateRequest
     let selectionRequest: ComposeTextSelectionRequest
     @Binding var mentions: [ComposeSelectedMention]
     @Binding var mentionAnchorY: CGFloat
@@ -1393,12 +1404,14 @@ struct ComposeMultilineTextView: UIViewRepresentable {
             isFocused: $isFocused,
             mentions: $mentions,
             mentionAnchorY: $mentionAnchorY,
-            onMentionQueryChange: onMentionQueryChange
+            onMentionQueryChange: onMentionQueryChange,
+            initialTextUpdateRequestID: textUpdateRequest.id
         )
     }
 
     func makeUIView(context: Context) -> UITextView {
         let textView = Self.makeComposerTextView()
+        textView.text = text
         textView.delegate = context.coordinator
         textView.backgroundColor = .clear
         textView.font = appSettings.appUIFont(.body)
@@ -1425,11 +1438,10 @@ struct ComposeMultilineTextView: UIViewRepresentable {
             uiView.tintColor = preferredTextColor
         }
 
-        if uiView.text != text, uiView.markedTextRange == nil {
-            context.coordinator.isApplyingProgrammaticUpdate = true
-            uiView.text = text
-            context.coordinator.isApplyingProgrammaticUpdate = false
-        }
+        context.coordinator.applyExternalTextIfNeeded(
+            to: uiView,
+            request: textUpdateRequest
+        )
 
         context.coordinator.applyExternalSelectionIfNeeded(
             to: uiView,
@@ -1474,6 +1486,7 @@ struct ComposeMultilineTextView: UIViewRepresentable {
         private let onMentionQueryChange: (ComposeMentionQuery?) -> Void
         var isApplyingProgrammaticUpdate = false
         private var lastReportedMentionQuery: ComposeMentionQuery?
+        private var lastAppliedTextUpdateRequestID: UUID?
         private var lastAppliedSelectionRequestID: UUID?
         private var pendingTextReport: String?
         private var isTextReportScheduled = false
@@ -1483,13 +1496,15 @@ struct ComposeMultilineTextView: UIViewRepresentable {
             isFocused: Binding<Bool>,
             mentions: Binding<[ComposeSelectedMention]>,
             mentionAnchorY: Binding<CGFloat>,
-            onMentionQueryChange: @escaping (ComposeMentionQuery?) -> Void
+            onMentionQueryChange: @escaping (ComposeMentionQuery?) -> Void,
+            initialTextUpdateRequestID: UUID? = nil
         ) {
             _text = text
             _isFocused = isFocused
             _mentions = mentions
             _mentionAnchorY = mentionAnchorY
             self.onMentionQueryChange = onMentionQueryChange
+            lastAppliedTextUpdateRequestID = initialTextUpdateRequestID
         }
 
         func textView(
@@ -1545,6 +1560,25 @@ struct ComposeMultilineTextView: UIViewRepresentable {
             if textView.selectedRange != clampedRange {
                 textView.selectedRange = clampedRange
             }
+        }
+
+        func applyExternalTextIfNeeded(
+            to textView: UITextView,
+            request: ComposeTextUpdateRequest
+        ) {
+            guard request.id != lastAppliedTextUpdateRequestID else { return }
+            guard textView.markedTextRange == nil else { return }
+            lastAppliedTextUpdateRequestID = request.id
+
+            // Native UITextView input is authoritative while typing. Only an
+            // explicit, uniquely identified programmatic request may replace it;
+            // ordinary SwiftUI binding echoes can be one or more edits behind.
+            pendingTextReport = nil
+            guard textView.text != request.text else { return }
+
+            isApplyingProgrammaticUpdate = true
+            textView.text = request.text
+            isApplyingProgrammaticUpdate = false
         }
 
         private func scheduleTextReport(_ newValue: String) {

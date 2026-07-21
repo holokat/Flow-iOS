@@ -57,6 +57,7 @@ struct ComposeNoteSheet: View {
     @State private var editorSelectionRequest = ComposeTextSelectionRequest(
         range: NSRange(location: 0, length: 0)
     )
+    @State private var editorTextUpdateRequest = ComposeTextUpdateRequest(text: "")
     @State private var selectedMentions: [ComposeSelectedMention] = []
     @State private var activeMentionQuery: ComposeMentionQuery?
     @State private var mentionSuggestions: [ComposeMentionSuggestion] = []
@@ -346,6 +347,7 @@ struct ComposeNoteSheet: View {
             mode: mode,
             pollDraft: $pollDraft,
             isEditorFocused: $isEditorFocused,
+            editorTextUpdateRequest: editorTextUpdateRequest,
             editorSelectionRequest: editorSelectionRequest,
             selectedMentions: $selectedMentions,
             mentionSuggestionAnchorY: $mentionSuggestionAnchorY,
@@ -437,7 +439,7 @@ struct ComposeNoteSheet: View {
             replacing: query,
             existingMentions: selectedMentions
         )
-        viewModel.text = insertion.text
+        requestEditorTextUpdate(insertion.text)
         selectedMentions = insertion.mentions
         requestEditorSelection(insertion.selectedRange)
         mentionSuggestions = []
@@ -960,7 +962,7 @@ struct ComposeNoteSheet: View {
     private func removeUploadedMediaURLIfPresent(_ url: URL) {
         let updatedText = mediaAttachmentController.textRemovingUploadedMediaURL(url, from: viewModel.text)
         guard updatedText != viewModel.text else { return }
-        viewModel.text = updatedText
+        requestEditorTextUpdate(updatedText)
     }
 
     private func handleSpeechToggle() async {
@@ -981,10 +983,12 @@ struct ComposeNoteSheet: View {
         guard !normalized.isEmpty else { return }
 
         if viewModel.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            viewModel.text = normalized
+            requestEditorTextUpdate(normalized)
         } else {
             let needsSeparator = !(viewModel.text.hasSuffix(" ") || viewModel.text.hasSuffix("\n"))
-            viewModel.text += needsSeparator ? " \(normalized)" : normalized
+            requestEditorTextUpdate(
+                viewModel.text + (needsSeparator ? " \(normalized)" : normalized)
+            )
         }
         isEditorFocused = true
     }
@@ -1115,7 +1119,7 @@ struct ComposeNoteSheet: View {
 
         guard viewModel.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         guard !initialText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        viewModel.text = initialText
+        requestEditorTextUpdate(initialText)
         requestEditorSelection(
             NSRange(location: (initialText as NSString).length, length: 0)
         )
@@ -1245,7 +1249,7 @@ struct ComposeNoteSheet: View {
             selectedMentions: selectedMentions
         ) else { return }
 
-        viewModel.text = insertion.text
+        requestEditorTextUpdate(insertion.text)
         selectedMentions = insertion.selectedMentions
         requestEditorSelection(insertion.selectedRange)
         isEditorFocused = true
@@ -1285,7 +1289,7 @@ struct ComposeNoteSheet: View {
             quotedHandleHint: snapshot.quotedHandleHint,
             quotedAvatarURLHint: snapshot.quotedAvatarURLHint
         )
-        viewModel.text = snapshot.text
+        requestEditorTextUpdate(snapshot.text)
         mediaAttachments = snapshot.uploadedAttachments
         pollDraft = snapshot.pollDraft
         selectedMentions = snapshot.selectedMentions
@@ -1302,6 +1306,11 @@ struct ComposeNoteSheet: View {
 
     private func requestEditorSelection(_ range: NSRange) {
         editorSelectionRequest = ComposeTextSelectionRequest(range: range)
+    }
+
+    private func requestEditorTextUpdate(_ text: String) {
+        viewModel.text = text
+        editorTextUpdateRequest = ComposeTextUpdateRequest(text: text)
     }
 
     private var configuredPublishSourceCount: Int {

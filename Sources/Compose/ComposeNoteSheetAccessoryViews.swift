@@ -91,6 +91,7 @@ struct ComposeComposerCardView: View {
     let mode: ComposeNoteSheetMode
     @Binding var pollDraft: ComposePollDraft?
     @Binding var isEditorFocused: Bool
+    let editorTextUpdateRequest: ComposeTextUpdateRequest
     let editorSelectionRequest: ComposeTextSelectionRequest
     @Binding var selectedMentions: [ComposeSelectedMention]
     @Binding var mentionSuggestionAnchorY: CGFloat
@@ -161,6 +162,7 @@ struct ComposeComposerCardView: View {
         ComposeMultilineTextView(
             text: $viewModel.text,
             isFocused: $isEditorFocused,
+            textUpdateRequest: editorTextUpdateRequest,
             selectionRequest: editorSelectionRequest,
             mentions: $selectedMentions,
             mentionAnchorY: $mentionSuggestionAnchorY,

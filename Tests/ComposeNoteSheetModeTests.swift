@@ -257,6 +257,139 @@ final class ComposeNoteSheetModeTests: XCTestCase {
     }
 
     @MainActor
+    func testComposeTextViewCoordinatorDoesNotReapplyStaleBindingDuringNativeInput() async {
+        var textValue = ""
+        var isFocusedValue = true
+        var mentionsValue: [ComposeSelectedMention] = []
+        var mentionAnchorYValue: CGFloat = 44
+        let textReported = expectation(description: "Latest native text reported")
+        let coordinator = ComposeMultilineTextView.Coordinator(
+            text: Binding(
+                get: { textValue },
+                set: { newValue in
+                    textValue = newValue
+                    if newValue == "rapid input" {
+                        textReported.fulfill()
+                    }
+                }
+            ),
+            isFocused: Binding(
+                get: { isFocusedValue },
+                set: { isFocusedValue = $0 }
+            ),
+            mentions: Binding(
+                get: { mentionsValue },
+                set: { mentionsValue = $0 }
+            ),
+            mentionAnchorY: Binding(
+                get: { mentionAnchorYValue },
+                set: { mentionAnchorYValue = $0 }
+            ),
+            onMentionQueryChange: { _ in }
+        )
+        let textView = UITextView()
+        let initialRequest = ComposeTextUpdateRequest(text: "")
+        coordinator.applyExternalTextIfNeeded(to: textView, request: initialRequest)
+        textView.text = "rapid"
+        textView.selectedRange = NSRange(location: 5, length: 0)
+
+        coordinator.textViewDidChange(textView)
+        coordinator.applyExternalTextIfNeeded(to: textView, request: initialRequest)
+        textView.text = "rapid input"
+        textView.selectedRange = NSRange(location: 11, length: 0)
+        coordinator.textViewDidChange(textView)
+        coordinator.applyExternalTextIfNeeded(to: textView, request: initialRequest)
+
+        XCTAssertEqual(textView.text, "rapid input")
+        XCTAssertEqual(textView.selectedRange, NSRange(location: 11, length: 0))
+
+        await fulfillment(of: [textReported], timeout: 1)
+
+        XCTAssertEqual(textValue, "rapid input")
+        coordinator.applyExternalTextIfNeeded(to: textView, request: initialRequest)
+        XCTAssertEqual(textView.text, "rapid input")
+    }
+
+    @MainActor
+    func testComposeTextViewCoordinatorAppliesProgrammaticTextDuringPendingInput() async {
+        var textValue = ""
+        var isFocusedValue = true
+        var mentionsValue: [ComposeSelectedMention] = []
+        var mentionAnchorYValue: CGFloat = 44
+        let coordinator = ComposeMultilineTextView.Coordinator(
+            text: Binding(
+                get: { textValue },
+                set: { textValue = $0 }
+            ),
+            isFocused: Binding(
+                get: { isFocusedValue },
+                set: { isFocusedValue = $0 }
+            ),
+            mentions: Binding(
+                get: { mentionsValue },
+                set: { mentionsValue = $0 }
+            ),
+            mentionAnchorY: Binding(
+                get: { mentionAnchorYValue },
+                set: { mentionAnchorYValue = $0 }
+            ),
+            onMentionQueryChange: { _ in }
+        )
+        let textView = UITextView()
+        textView.text = "native edit"
+        coordinator.textViewDidChange(textView)
+
+        textValue = "loaded draft"
+        coordinator.applyExternalTextIfNeeded(
+            to: textView,
+            request: ComposeTextUpdateRequest(text: textValue)
+        )
+
+        XCTAssertEqual(textView.text, "loaded draft")
+        let pendingFlushDrained = expectation(description: "Pending native report drained")
+        DispatchQueue.main.async {
+            pendingFlushDrained.fulfill()
+        }
+        await fulfillment(of: [pendingFlushDrained], timeout: 1)
+        XCTAssertEqual(textValue, "loaded draft")
+    }
+
+    @MainActor
+    func testComposeTextViewCoordinatorDoesNotReplayOldRequestAfterRecreation() {
+        var textValue = "typed after draft load"
+        var isFocusedValue = true
+        var mentionsValue: [ComposeSelectedMention] = []
+        var mentionAnchorYValue: CGFloat = 44
+        let oldRequest = ComposeTextUpdateRequest(text: "")
+        let coordinator = ComposeMultilineTextView.Coordinator(
+            text: Binding(
+                get: { textValue },
+                set: { textValue = $0 }
+            ),
+            isFocused: Binding(
+                get: { isFocusedValue },
+                set: { isFocusedValue = $0 }
+            ),
+            mentions: Binding(
+                get: { mentionsValue },
+                set: { mentionsValue = $0 }
+            ),
+            mentionAnchorY: Binding(
+                get: { mentionAnchorYValue },
+                set: { mentionAnchorYValue = $0 }
+            ),
+            onMentionQueryChange: { _ in },
+            initialTextUpdateRequestID: oldRequest.id
+        )
+        let textView = UITextView()
+        textView.text = textValue
+
+        coordinator.applyExternalTextIfNeeded(to: textView, request: oldRequest)
+
+        XCTAssertEqual(textView.text, "typed after draft load")
+    }
+
+    @MainActor
     func testComposeTextViewUsesNativeTextKitAndDefaultInputTraits() {
         let textView = ComposeMultilineTextView.makeComposerTextView()
 
