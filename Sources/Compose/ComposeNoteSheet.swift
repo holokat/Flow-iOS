@@ -234,7 +234,7 @@ struct ComposeNoteSheet: View {
     }
 
     private var publishButtonTitle: String {
-        mode.publishButtonTitle
+        mode.primaryActionTitle(hasSigningAccess: currentNsec != nil)
     }
 
     private var availableSavedDrafts: [SavedComposeDraft] {
@@ -306,7 +306,7 @@ struct ComposeNoteSheet: View {
             isUploadingMedia: isUploadingMedia,
             isRequestingCaptureAccess: isRequestingCaptureAccess,
             canAttachPoll: canAttachPoll,
-            currentNsec: currentNsec,
+            hasSigningAccess: currentNsec != nil,
             writeRelayURLs: writeRelayURLs,
             onCameraTap: handleCameraButtonTap,
             onGIFTap: {

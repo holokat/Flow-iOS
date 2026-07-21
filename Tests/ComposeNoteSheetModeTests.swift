@@ -40,6 +40,44 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         XCTAssertEqual(mode, .quote)
     }
 
+    func testReadOnlyComposerUsesSignInPrimaryAction() {
+        XCTAssertEqual(
+            ComposeNoteSheetMode.newNote.primaryActionTitle(hasSigningAccess: false),
+            "Sign in"
+        )
+        XCTAssertEqual(
+            ComposeNoteSheetMode.reply.primaryActionTitle(hasSigningAccess: false),
+            "Sign in"
+        )
+        XCTAssertEqual(
+            ComposeNoteSheetMode.quote.primaryActionTitle(hasSigningAccess: false),
+            "Sign in"
+        )
+    }
+
+    func testSignedInComposerKeepsModeSpecificPrimaryAction() {
+        XCTAssertEqual(
+            ComposeNoteSheetMode.newNote.primaryActionTitle(hasSigningAccess: true),
+            "Post"
+        )
+        XCTAssertEqual(
+            ComposeNoteSheetMode.reply.primaryActionTitle(hasSigningAccess: true),
+            "Reply"
+        )
+        XCTAssertEqual(
+            ComposeNoteSheetMode.quote.primaryActionTitle(hasSigningAccess: true),
+            "Post"
+        )
+    }
+
+    func testReadOnlyToolbarOmitsRedundantSignInRequiredCopy() throws {
+        let source = try Self.sourceText(
+            at: "Sources/Compose/ComposeNoteSheetAccessoryViews.swift"
+        )
+
+        XCTAssertFalse(source.contains("Sign in required"))
+    }
+
     @MainActor
     func testComposeTextKeepsSoftLimitOverage() {
         let viewModel = ComposeNoteViewModel()

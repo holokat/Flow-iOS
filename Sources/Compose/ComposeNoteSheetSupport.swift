@@ -1344,6 +1344,10 @@ enum ComposeNoteSheetMode: Equatable {
         }
     }
 
+    func primaryActionTitle(hasSigningAccess: Bool) -> String {
+        hasSigningAccess ? publishButtonTitle : "Sign in"
+    }
+
     var placeholderText: String {
         switch self {
         case .newNote:

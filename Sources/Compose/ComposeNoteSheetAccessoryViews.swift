@@ -206,7 +206,7 @@ struct ComposeAttachmentToolbarBar: View {
     let isUploadingMedia: Bool
     let isRequestingCaptureAccess: Bool
     let canAttachPoll: Bool
-    let currentNsec: String?
+    let hasSigningAccess: Bool
     let writeRelayURLs: [URL]
     let onCameraTap: () -> Void
     let onGIFTap: () -> Void
@@ -287,11 +287,7 @@ struct ComposeAttachmentToolbarBar: View {
                     characterLimit: viewModel.characterLimit
                 )
 
-                if currentNsec == nil {
-                    Label("Sign in required", systemImage: "lock.fill")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                } else if writeRelayURLs.isEmpty {
+                if hasSigningAccess && writeRelayURLs.isEmpty {
                     Label("No connected sources", systemImage: "wifi.slash")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(appSettings.themePalette.secondaryForeground)
