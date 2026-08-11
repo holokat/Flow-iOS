@@ -16,6 +16,32 @@ enum ComposeToolbarLayout {
     static let draftButtonBorderOpacity = 0.62
 }
 
+/// Keeps composer chrome visually present even when an action is temporarily unavailable.
+/// Disabled state controls interaction, not the opacity of the surface.
+enum ComposeSurfaceStyle {
+    static let borderWidth: CGFloat = 0.8
+    static let lightBorderOpacity = 0.10
+    static let darkBorderOpacity = 0.16
+    static let controlShadowRadius: CGFloat = 4
+    static let controlShadowY: CGFloat = 2
+
+    static func background(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? .black : .white
+    }
+
+    static func border(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color.white.opacity(darkBorderOpacity)
+            : Color.black.opacity(lightBorderOpacity)
+    }
+
+    static func controlShadow(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark
+            ? Color.black.opacity(0.34)
+            : Color.black.opacity(0.10)
+    }
+}
+
 struct ComposeDraftLibraryToolbarButton: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var appSettings: AppSettingsStore
@@ -196,6 +222,7 @@ struct ComposeComposerCardView: View {
 
 struct ComposeAttachmentToolbarBar: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     @ObservedObject var viewModel: ComposeNoteViewModel
@@ -296,7 +323,7 @@ struct ComposeAttachmentToolbarBar: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
-        .background(appSettings.themePalette.background)
+        .background(ComposeSurfaceStyle.background(for: colorScheme))
     }
 
     private var pollToolbarButton: some View {
@@ -325,10 +352,28 @@ struct ComposeAttachmentToolbarBar: View {
             .foregroundStyle(isActive ? Color.white : appSettings.primaryColor)
             .tint(isActive ? Color.white : appSettings.primaryColor)
             .frame(width: 32, height: 32)
-            .background(
-                isActive ? appSettings.primaryColor : appSettings.themePalette.tertiaryFill,
-                in: Circle()
-            )
+            .background {
+                Circle()
+                    .fill(
+                        isActive
+                            ? AnyShapeStyle(appSettings.primaryColor)
+                            : AnyShapeStyle(ComposeSurfaceStyle.background(for: colorScheme))
+                    )
+                    .shadow(
+                        color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
+                        radius: ComposeSurfaceStyle.controlShadowRadius,
+                        x: 0,
+                        y: ComposeSurfaceStyle.controlShadowY
+                    )
+            }
+            .overlay {
+                Circle()
+                    .stroke(
+                        isActive ? appSettings.primaryColor.opacity(0.24) : ComposeSurfaceStyle.border(for: colorScheme),
+                        lineWidth: ComposeSurfaceStyle.borderWidth
+                    )
+            }
+            .frame(width: 40, height: 40)
     }
 
     private func cameraAttachmentButton(symbolFont: Font) -> some View {
@@ -353,12 +398,17 @@ struct ComposeAttachmentToolbarBar: View {
 }
 
 struct ComposePublishToolbarButton: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     let title: String
     let isPublishing: Bool
     let isEnabled: Bool
     let action: () -> Void
+
+    private var isProminent: Bool {
+        isEnabled || isPublishing
+    }
 
     var body: some View {
         Button(action: action) {
@@ -372,14 +422,35 @@ struct ComposePublishToolbarButton: View {
                 }
             }
             .font(ComposeToolbarLayout.publishButtonFont)
-            .foregroundStyle(appSettings.buttonTextColor)
+            .foregroundStyle(isProminent ? appSettings.buttonTextColor : appSettings.primaryColor)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(appSettings.primaryGradient, in: Capsule())
+            .background {
+                Capsule()
+                    .fill(
+                        isProminent
+                            ? AnyShapeStyle(appSettings.primaryGradient)
+                            : AnyShapeStyle(ComposeSurfaceStyle.background(for: colorScheme))
+                    )
+                    .shadow(
+                        color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
+                        radius: ComposeSurfaceStyle.controlShadowRadius,
+                        x: 0,
+                        y: ComposeSurfaceStyle.controlShadowY
+                    )
+            }
+            .overlay {
+                if !isProminent {
+                    Capsule()
+                        .stroke(
+                            ComposeSurfaceStyle.border(for: colorScheme),
+                            lineWidth: ComposeSurfaceStyle.borderWidth
+                        )
+                }
+            }
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.45)
     }
 }
 
@@ -407,6 +478,7 @@ struct ComposeToolbarAvatarView: View {
 }
 
 struct ComposeCharacterCountRing: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     let characterCount: Int
@@ -453,6 +525,16 @@ struct ComposeCharacterCountRing: View {
                 .minimumScaleFactor(0.72)
         }
         .frame(width: 36, height: 36)
+        .background {
+            Circle()
+                .fill(ComposeSurfaceStyle.background(for: colorScheme))
+                .shadow(
+                    color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
+                    radius: ComposeSurfaceStyle.controlShadowRadius,
+                    x: 0,
+                    y: ComposeSurfaceStyle.controlShadowY
+                )
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(characterCount) of \(characterLimit) characters")
     }

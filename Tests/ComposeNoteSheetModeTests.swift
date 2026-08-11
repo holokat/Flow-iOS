@@ -153,6 +153,16 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         XCTAssertFalse(accessorySource.contains("Swipe a composer down"))
     }
 
+    func testComposerControlsKeepLitSurfacesWhenInactive() throws {
+        let source = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheetAccessoryViews.swift")
+
+        XCTAssertTrue(source.contains("static let lightBorderOpacity = 0.10"))
+        XCTAssertTrue(source.contains("static func controlShadow(for colorScheme: ColorScheme)"))
+        XCTAssertTrue(source.contains("AnyShapeStyle(ComposeSurfaceStyle.background(for: colorScheme))"))
+        XCTAssertTrue(source.contains("isEnabled || isPublishing"))
+        XCTAssertFalse(source.contains(".opacity(isEnabled ? 1 : 0.45)"))
+    }
+
     @MainActor
     func testComposeTextViewCoordinatorAllowsTypingPastSoftLimit() {
         var textValue = String(repeating: "a", count: 238)
