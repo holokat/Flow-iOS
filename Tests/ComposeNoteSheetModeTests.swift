@@ -163,6 +163,28 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         XCTAssertFalse(source.contains(".opacity(isEnabled ? 1 : 0.45)"))
     }
 
+    func testComposerAttachmentActionsStayVisibleInOneRow() throws {
+        let source = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheetAccessoryViews.swift")
+        let toolbarStart = try XCTUnwrap(source.range(of: "struct ComposeAttachmentToolbarBar: View"))
+        let toolbarEnd = try XCTUnwrap(
+            source.range(
+                of: "struct ComposePublishToolbarButton: View",
+                range: toolbarStart.upperBound..<source.endIndex
+            )
+        )
+        let toolbarSource = source[toolbarStart.lowerBound..<toolbarEnd.lowerBound]
+
+        XCTAssertTrue(toolbarSource.contains("HStack(spacing:"))
+        XCTAssertTrue(toolbarSource.contains("PhotosPicker("))
+        XCTAssertTrue(toolbarSource.contains("cameraAttachmentButton"))
+        XCTAssertTrue(toolbarSource.contains("Button(action: onGIFTap)"))
+        XCTAssertTrue(toolbarSource.contains("pollToolbarButton"))
+        XCTAssertTrue(toolbarSource.contains("Button(action: onSpeechToggle)"))
+        XCTAssertFalse(toolbarSource.contains("isShowingAttachmentChoices"))
+        XCTAssertFalse(toolbarSource.contains("Show attachment choices"))
+        XCTAssertFalse(toolbarSource.contains("Hide attachment choices"))
+    }
+
     @MainActor
     func testComposeTextViewCoordinatorAllowsTypingPastSoftLimit() {
         var textValue = String(repeating: "a", count: 238)

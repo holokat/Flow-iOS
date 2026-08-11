@@ -1340,8 +1340,10 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains(".toolbar(nativeBottomNavigationVisibility, for: .tabBar)"))
         XCTAssertTrue(source.contains(".environment(\\.symbolVariants, .none)"))
         XCTAssertFalse(source.contains("private func tabBarLabel"))
-        XCTAssertFalse(source.contains("GlassEffectContainer"))
-        XCTAssertFalse(source.contains(".glassEffect("))
+        XCTAssertTrue(source.contains("GlassEffectContainer(spacing: 8)"))
+        XCTAssertTrue(source.contains(".glassEffect(.regular.interactive(), in: Capsule())"))
+        XCTAssertTrue(source.contains(".background(.ultraThinMaterial, in: Capsule())"))
+        XCTAssertTrue(source.contains("Image(isSelected ? tab.selectedPhosphorIconName : tab.phosphorIconName)"))
     }
 
     func testComposeTabUsesNativeItemAsActionWithoutSelectingPlaceholder() throws {

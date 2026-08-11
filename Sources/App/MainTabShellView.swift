@@ -35,6 +35,26 @@ struct MainTabShellView: View {
             case .activity: return "bell"
             }
         }
+
+        var phosphorIconName: String {
+            switch self {
+            case .home: return "PhosphorHouse"
+            case .search: return "PhosphorMagnifyingGlass"
+            case .compose: return "PhosphorPlus"
+            case .dms: return "PhosphorPaperPlaneTilt"
+            case .activity: return "PhosphorHeart"
+            }
+        }
+
+        var selectedPhosphorIconName: String {
+            switch self {
+            case .home: return "PhosphorHouseFill"
+            case .search: return "PhosphorMagnifyingGlassFill"
+            case .compose: return phosphorIconName
+            case .dms: return "PhosphorPaperPlaneTiltFill"
+            case .activity: return "PhosphorHeartFill"
+            }
+        }
     }
 
     @EnvironmentObject private var auth: AuthManager
@@ -56,8 +76,7 @@ struct MainTabShellView: View {
     @State private var isDMRootVisible = true
     @State private var isHomeSideMenuPresented = false
     private let bottomTabBarHeight: CGFloat = ScrollChromeLayout.defaultBottomTabBarHeight
-    // Custom bottom nav icon size, reduced ~4px from the previous native tab icons.
-    private static let bottomNavIconSize: CGFloat = 22
+    private static let bottomNavIconSize: CGFloat = 26
     @State private var homeScrollChromeStore = ScrollChromeStore()
 
     @StateObject private var homeViewModel = HomeFeedViewModel(
@@ -286,22 +305,49 @@ struct MainTabShellView: View {
             bottomBarHeight: bottomTabBarHeight,
             safeAreaBottom: 0
         ) { chromeOpacity in
-            HStack(spacing: 0) {
-                ForEach(Tab.allCases, id: \.self) { tab in
-                    bottomNavButton(for: tab)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)
-            .background(
-                // Match the page background exactly so the bar reads as flat — no box,
-                // no border, no shadow — across every theme.
-                appSettings.themePalette.background
-                    .ignoresSafeArea(edges: .bottom)
-            )
-            .contentShape(Rectangle())
-            .opacity(chromeOpacity)
+            bottomNavigationCapsule
+                .frame(maxWidth: 520)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+                .opacity(chromeOpacity)
+                .allowsHitTesting(chromeOpacity > 0.05)
+                .accessibilityHidden(chromeOpacity <= 0.05)
         }
+    }
+
+    @ViewBuilder
+    private var bottomNavigationCapsule: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: 8) {
+                bottomNavigationItems
+                    .glassEffect(.regular.interactive(), in: Capsule())
+            }
+        } else {
+            bottomNavigationItems
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(appSettings.themePalette.foreground.opacity(0.12), lineWidth: 0.7)
+                }
+                .shadow(
+                    color: Color.black.opacity(0.12),
+                    radius: 14,
+                    x: 0,
+                    y: 7
+                )
+        }
+    }
+
+    private var bottomNavigationItems: some View {
+        HStack(spacing: 0) {
+            ForEach(Tab.allCases, id: \.self) { tab in
+                bottomNavButton(for: tab)
+            }
+        }
+        .padding(.horizontal, 6)
+        .frame(height: 56)
     }
 
     private func bottomNavButton(for tab: Tab) -> some View {
@@ -310,14 +356,13 @@ struct MainTabShellView: View {
             handleTabSelection(tab)
         } label: {
             ZStack {
-                Image(systemName: tab.symbolName)
-                    .font(.system(size: Self.bottomNavIconSize, weight: .medium))
-                    .environment(\.symbolVariants, .none)
-                    .foregroundStyle(
-                        isSelected
-                            ? appSettings.primaryColor
-                            : appSettings.themePalette.mutedForeground
-                    )
+                Image(isSelected ? tab.selectedPhosphorIconName : tab.phosphorIconName)
+                    .resizable()
+                    .renderingMode(.template)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: Self.bottomNavIconSize, height: Self.bottomNavIconSize)
+                    .foregroundStyle(appSettings.themePalette.foreground.opacity(isSelected ? 1 : 0.9))
+                    .contentTransition(.opacity)
 
                 if tab == .activity, activityTabShowsUnreadBadge {
                     Circle()
@@ -327,11 +372,24 @@ struct MainTabShellView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)
-            .contentShape(Rectangle())
+            .frame(height: 48)
+            .background {
+                if isSelected {
+                    Capsule()
+                        .fill(appSettings.themePalette.foreground.opacity(0.08))
+                        .padding(.horizontal, 2)
+                        .transition(.opacity.combined(with: .scale(scale: 0.94)))
+                }
+            }
+            .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FlowPressScaleButtonStyle())
+        .animation(
+            accessibilityReduceMotion ? nil : .smooth(duration: 0.28),
+            value: isSelected
+        )
         .accessibilityLabel(tab.accessibilityLabel)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var homeTabContent: some View {
@@ -757,8 +815,7 @@ private struct ScrollChromeOpacityReader<Content: View>: View {
 
 struct ScrollChromeLayout {
     static let defaultTopBarHeight: CGFloat = 66
-    // Condensed standard bottom navigation bar used throughout the app.
-    static let defaultBottomTabBarHeight: CGFloat = 50
+    static let defaultBottomTabBarHeight: CGFloat = 66
     static let topOfFeedRestoreThreshold: CGFloat = 8
     static let visualOffsetPublishThreshold: CGFloat = 0.5
     static let dimmedChromeOpacity: Double = 0
