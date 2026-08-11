@@ -46,7 +46,6 @@ enum HomeFeedModePolicy {
 enum FeedMode: String, CaseIterable, Identifiable {
     case posts
     case postsAndReplies
-    case articles
 
     var id: String { rawValue }
 
@@ -56,8 +55,6 @@ enum FeedMode: String, CaseIterable, Identifiable {
             return "Notes"
         case .postsAndReplies:
             return "Replies"
-        case .articles:
-            return "Articles"
         }
     }
 }

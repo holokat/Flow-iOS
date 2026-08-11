@@ -817,8 +817,6 @@ struct ProfileView: View {
             return "No posts yet"
         case .postsAndReplies:
             return "No replies yet"
-        case .articles:
-            return "No articles yet"
         }
     }
 

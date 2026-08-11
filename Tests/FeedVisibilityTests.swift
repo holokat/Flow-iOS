@@ -24,12 +24,11 @@ final class FeedVisibilityTests: XCTestCase {
         XCTAssertFalse(FeedKindFilters.normalizedKinds([FeedKindFilters.poll, FeedKindFilters.legacyZapPoll]).contains(FeedKindFilters.legacyZapPoll))
     }
 
-    func testProfileFeedModesIncludeArticlesAfterReplies() {
-        XCTAssertEqual(FeedMode.allCases, [.posts, .postsAndReplies, .articles])
-        XCTAssertEqual(FeedMode.articles.title, "Articles")
+    func testProfileFeedModesOnlyIncludeNotesAndReplies() {
+        XCTAssertEqual(FeedMode.allCases, [.posts, .postsAndReplies])
     }
 
-    func testProfileArticleModeShowsOnlyDirectLongFormArticles() {
+    func testProfileNotesIncludeDirectLongFormArticles() {
         let author = hex("a")
         let note = makeEvent(id: hex("1"), pubkey: author, kind: FeedKindFilters.shortTextNote, tags: [])
         let reply = makeEvent(
@@ -51,13 +50,12 @@ final class FeedVisibilityTests: XCTestCase {
         )
 
         XCTAssertTrue(ProfileFeedVisibility.isVisible(FeedItem(event: note, profile: nil), in: .posts))
-        XCTAssertFalse(ProfileFeedVisibility.isVisible(FeedItem(event: article, profile: nil), in: .posts))
+        XCTAssertTrue(ProfileFeedVisibility.isVisible(FeedItem(event: article, profile: nil), in: .posts))
         XCTAssertTrue(ProfileFeedVisibility.isVisible(FeedItem(event: reply, profile: nil), in: .postsAndReplies))
-        XCTAssertTrue(ProfileFeedVisibility.isVisible(FeedItem(event: article, profile: nil), in: .articles))
-        XCTAssertFalse(ProfileFeedVisibility.isVisible(articleRepost, in: .articles))
+        XCTAssertTrue(ProfileFeedVisibility.isVisible(articleRepost, in: .posts))
     }
 
-    func testProfileArticleModeFetchesArticlesEvenWhenAuthorHasManyNewerNotes() async throws {
+    func testProfileNotesFetchArticlesAlongsideShortNotes() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FeedVisibilityTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -75,7 +73,7 @@ final class FeedVisibilityTests: XCTestCase {
             content: "Long form article",
             createdAt: 1_700_000_000
         )
-        let newerNotes = (0..<450).map { index in
+        let newerNotes = (0..<25).map { index in
             makeEvent(
                 id: makeHexID(index + 1),
                 pubkey: authorPubkey,
@@ -107,10 +105,10 @@ final class FeedVisibilityTests: XCTestCase {
             seenEventStore: seenEventStore
         )
 
-        viewModel.mode = .articles
         await viewModel.refresh()
 
-        XCTAssertEqual(viewModel.visibleItems.map(\.id), [article.id])
+        XCTAssertTrue(viewModel.visibleItems.contains { $0.id == article.id })
+        XCTAssertEqual(viewModel.visibleItems.count, newerNotes.count + 1)
     }
 
     func testProfilePostsModeUsesConfiguredReadRelaysDirectlyInsteadOfOutboxRecovery() async throws {
@@ -288,130 +286,6 @@ final class FeedVisibilityTests: XCTestCase {
         await refreshTask.value
     }
 
-    func testProfileArticlesModeUsesConfiguredReadRelaysDirectlyInsteadOfOutboxRecovery() async throws {
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("FeedVisibilityProfileOutboxArticles-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        let relayURL = URL(string: "wss://relay.example.com")!
-        let authorReadRelayURL = URL(string: "wss://author-article-read.example")!
-        let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
-        let authorPubkey = hex("c")
-        let relayListEvent = makeEvent(
-            id: hex("3"),
-            pubkey: authorPubkey,
-            kind: 10_002,
-            tags: [["r", authorReadRelayURL.absoluteString, "read"]],
-            content: "",
-            createdAt: 1_700_000_920
-        )
-        let newerNote = makeEvent(
-            id: hex("4"),
-            pubkey: authorPubkey,
-            kind: FeedKindFilters.shortTextNote,
-            tags: [],
-            content: "Newer note",
-            createdAt: 1_700_000_930
-        )
-        let article = makeEvent(
-            id: hex("5"),
-            pubkey: authorPubkey,
-            kind: FeedKindFilters.longFormArticle,
-            tags: [["title", "Recovered article"]],
-            content: "Recovered article",
-            createdAt: 1_700_000_910
-        )
-        let relayClient = ProfileArticleRelayClient(eventsByRelay: [
-            relayURL: [relayListEvent],
-            authorReadRelayURL: [newerNote, article]
-        ])
-        let service = makeProfileFeedService(
-            relayClient: relayClient,
-            fileManager: fileManager,
-            seenEventStore: seenEventStore
-        )
-        let profileEventService = ProfileEventService(
-            relayClient: relayClient,
-            seenEventStore: seenEventStore
-        )
-        let viewModel = ProfileViewModel(
-            pubkey: authorPubkey,
-            relayURL: relayURL,
-            readRelayURLs: [relayURL],
-            writeRelayURLs: [relayURL],
-            pageSize: 20,
-            service: service,
-            profileEventService: profileEventService,
-            relayClient: NoopPublishingRelayClient(),
-            seenEventStore: seenEventStore
-        )
-
-        viewModel.mode = .articles
-        await viewModel.refresh()
-
-        XCTAssertTrue(viewModel.visibleItems.isEmpty)
-    }
-
-    func testProfileArticlesModeRefreshesAfterInitialNotesLoadReachesEnd() async throws {
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("FeedVisibilityProfileArticleModeSwitch-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        let relayURL = URL(string: "wss://relay.example.com")!
-        let fileManager = FeedVisibilityTestFileManager(rootURL: rootURL)
-        let seenEventStore = SeenEventStore(fileManager: fileManager)
-        let authorPubkey = hex("d")
-        let note = makeEvent(
-            id: hex("6"),
-            pubkey: authorPubkey,
-            kind: FeedKindFilters.shortTextNote,
-            tags: [],
-            content: "Newest note",
-            createdAt: 1_700_000_300
-        )
-        let article = makeEvent(
-            id: hex("7"),
-            pubkey: authorPubkey,
-            kind: FeedKindFilters.longFormArticle,
-            tags: [["title", "Older article"]],
-            content: "Older article",
-            createdAt: 1_700_000_200
-        )
-        let relayClient = ProfileArticleRelayClient(eventsByRelay: [
-            relayURL: [note, article]
-        ])
-        let service = makeProfileFeedService(
-            relayClient: relayClient,
-            fileManager: fileManager,
-            seenEventStore: seenEventStore
-        )
-        let profileEventService = ProfileEventService(
-            relayClient: relayClient,
-            seenEventStore: seenEventStore
-        )
-        let viewModel = ProfileViewModel(
-            pubkey: authorPubkey,
-            relayURL: relayURL,
-            readRelayURLs: [relayURL],
-            writeRelayURLs: [relayURL],
-            pageSize: 20,
-            service: service,
-            profileEventService: profileEventService,
-            relayClient: NoopPublishingRelayClient(),
-            seenEventStore: seenEventStore
-        )
-
-        await viewModel.refresh()
-        XCTAssertEqual(viewModel.visibleItems.map(\.id), [note.id])
-
-        viewModel.mode = .articles
-        await viewModel.prepareForSelectedModeIfNeeded()
-
-        XCTAssertEqual(viewModel.visibleItems.map(\.id), [article.id])
-    }
 }
 
 private func hex(_ character: Character) -> String {
