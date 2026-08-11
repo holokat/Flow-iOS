@@ -711,6 +711,8 @@ final class ProfileViewModel: ObservableObject {
             return "Couldn't load more posts."
         case .postsAndReplies:
             return "Couldn't load more replies."
+        case .articles:
+            return "Couldn't load more articles."
         }
     }
 
@@ -885,10 +887,10 @@ final class ProfileViewModel: ObservableObject {
 
     private static func feedKinds(for mode: FeedMode) -> [Int] {
         switch mode {
-        case .posts:
-            return requestedFeedKinds
-        case .postsAndReplies:
+        case .posts, .postsAndReplies:
             return requestedFeedKinds.filter { $0 != FeedKindFilters.longFormArticle }
+        case .articles:
+            return [FeedKindFilters.longFormArticle]
         }
     }
 }
@@ -902,24 +904,24 @@ enum ProfileFeedVisibility {
     static func isVisible(_ event: NostrEvent, in mode: FeedMode) -> Bool {
         switch mode {
         case .posts:
-            if event.kind == FeedKindFilters.longFormArticle {
-                return isVisibleArticleContent(event)
-            }
-            return !event.isReplyNote
+            return event.kind != FeedKindFilters.longFormArticle &&
+                !event.isReplyNote
         case .postsAndReplies:
             return event.isReplyNote
+        case .articles:
+            return isVisibleArticleContent(event)
         }
     }
 
     static func isVisible(_ item: FeedItem, in mode: FeedMode) -> Bool {
         switch mode {
         case .posts:
-            if item.event.kind == FeedKindFilters.longFormArticle {
-                return isVisibleArticleContent(item.event)
-            }
-            return !item.displayEvent.isReplyNote
+            return item.event.kind != FeedKindFilters.longFormArticle &&
+                !item.displayEvent.isReplyNote
         case .postsAndReplies:
             return item.displayEvent.isReplyNote
+        case .articles:
+            return isVisibleArticleContent(item.event)
         }
     }
 }
