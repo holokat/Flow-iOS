@@ -760,13 +760,6 @@ struct HomeFeedView: View {
         }
     }
 
-    private var filterGridColumns: [GridItem] {
-        [
-            GridItem(.flexible(minimum: 120), spacing: 10),
-            GridItem(.flexible(minimum: 120), spacing: 10)
-        ]
-    }
-
     private var filterSheet: some View {
         NavigationStack {
             ScrollView {
@@ -798,18 +791,29 @@ struct HomeFeedView: View {
 
     private var kindsFilterSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: filterGridColumns, spacing: 10) {
-                ForEach(viewModel.kindFilterOptions) { option in
-                    FilterKindTileView(
-                        title: option.title,
-                        iconName: filterIconName(for: option),
-                        isSelected: viewModel.isKindGroupEnabled(option),
-                        action: {
-                            viewModel.toggleKindGroup(option)
-                        }
-                    )
+            VStack(spacing: 0) {
+                ForEach(Array(viewModel.kindFilterOptions.enumerated()), id: \.element.id) { index, option in
+                    Toggle(isOn: kindFilterBinding(for: option)) {
+                        Label(option.title, systemImage: filterIconName(for: option))
+                            .font(appSettings.appFont(.subheadline, weight: .medium))
+                            .foregroundStyle(appSettings.themePalette.foreground)
+                    }
+                    .toggleStyle(.switch)
+                    .tint(appSettings.primaryColor)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 52)
+
+                    if index < viewModel.kindFilterOptions.count - 1 {
+                        Divider()
+                            .padding(.leading, 48)
+                            .foregroundStyle(appSettings.themeSeparator(defaultOpacity: 0.35))
+                    }
                 }
             }
+            .background(
+                appSettings.themePalette.secondaryBackground,
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
 
             Button {
                 viewModel.selectAllKinds()
@@ -828,39 +832,47 @@ struct HomeFeedView: View {
         }
     }
 
+    private func kindFilterBinding(for option: FeedKindFilterOption) -> Binding<Bool> {
+        Binding(
+            get: {
+                viewModel.isKindGroupEnabled(option)
+            },
+            set: { isEnabled in
+                guard isEnabled != viewModel.isKindGroupEnabled(option) else { return }
+                viewModel.toggleKindGroup(option)
+            }
+        )
+    }
+
+    private var mediaOnlyBinding: Binding<Bool> {
+        Binding(
+            get: {
+                viewModel.mediaOnly
+            },
+            set: { isEnabled in
+                viewModel.setMediaOnly(isEnabled)
+            }
+        )
+    }
+
     private var contentFilterSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Content")
                 .font(.headline)
 
-            let mediaOnlyEnabled = viewModel.mediaOnly
-            Button {
-                viewModel.setMediaOnly(!mediaOnlyEnabled)
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: mediaOnlyEnabled ? "photo.on.rectangle.angled" : "rectangle")
-                    Text("Only notes with media")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    if mediaOnlyEnabled {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(appSettings.primaryColor)
-                    }
-                }
-                .foregroundStyle(appSettings.themePalette.foreground)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(
-                            mediaOnlyEnabled
-                                ? appSettings.primaryColor.opacity(0.14)
-                                : appSettings.themePalette.secondaryBackground
-                        )
-                )
+            Toggle(isOn: mediaOnlyBinding) {
+                Text("Only notes with media")
+                    .font(appSettings.appFont(.subheadline, weight: .medium))
+                    .foregroundStyle(appSettings.themePalette.foreground)
             }
-            .buttonStyle(.plain)
+            .toggleStyle(.switch)
+            .tint(appSettings.primaryColor)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 52)
+            .background(
+                appSettings.themePalette.secondaryBackground,
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
         }
     }
 
@@ -1814,57 +1826,5 @@ private struct HomeFeedTopOffsetPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
-    }
-}
-
-private struct FilterKindTileView: View {
-    @EnvironmentObject private var appSettings: AppSettingsStore
-
-    let title: String
-    let iconName: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Image(systemName: iconName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(isSelected ? appSettings.primaryColor : appSettings.themePalette.secondaryForeground)
-                    Spacer()
-                    if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(appSettings.primaryColor)
-                    }
-                }
-
-                Text(title)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(appSettings.themePalette.foreground)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-            .padding(10)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(
-                        isSelected
-                            ? appSettings.primaryColor.opacity(0.14)
-                            : appSettings.themePalette.secondaryBackground
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(
-                        isSelected
-                            ? appSettings.primaryColor.opacity(0.75)
-                            : appSettings.themeSeparator(defaultOpacity: 0.35),
-                        lineWidth: 1
-                    )
-            )
-        }
-        .buttonStyle(.plain)
     }
 }
