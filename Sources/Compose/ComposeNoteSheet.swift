@@ -121,7 +121,8 @@ struct ComposeNoteSheet: View {
             }
         }
         .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
+        .presentationDragIndicator(.hidden)
+        .interactiveDismissDisabled()
         .presentationBackground(composeSheetBackground)
         .task {
             applyInitialContextIfNeeded()

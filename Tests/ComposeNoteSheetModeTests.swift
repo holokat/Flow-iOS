@@ -144,6 +144,15 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         XCTAssertFalse(source.contains("4_000_000_000"))
     }
 
+    func testComposerRequiresAnIntentionalDismissal() throws {
+        let sheetSource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheet.swift")
+        let accessorySource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheetAccessoryViews.swift")
+
+        XCTAssertTrue(sheetSource.contains(".interactiveDismissDisabled()"))
+        XCTAssertTrue(sheetSource.contains(".presentationDragIndicator(.hidden)"))
+        XCTAssertFalse(accessorySource.contains("Swipe a composer down"))
+    }
+
     @MainActor
     func testComposeTextViewCoordinatorAllowsTypingPastSoftLimit() {
         var textValue = String(repeating: "a", count: 238)

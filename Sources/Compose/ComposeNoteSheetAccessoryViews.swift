@@ -638,7 +638,7 @@ struct ComposeDraftLibrarySheet: View {
                 .font(appSettings.appFont(.headline, weight: .semibold))
                 .foregroundStyle(appSettings.themePalette.foreground)
 
-            Text("Swipe a composer down or tap Cancel after writing something, and Halo will keep that draft on this device.")
+            Text("Tap Cancel after writing something, and Halo will keep that draft on this device.")
                 .font(appSettings.appFont(.subheadline))
                 .foregroundStyle(appSettings.themePalette.secondaryForeground)
                 .multilineTextAlignment(.center)
