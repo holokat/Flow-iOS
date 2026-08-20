@@ -282,7 +282,7 @@ final class AppComposeSheetCoordinator: ObservableObject {
     @Published var draft: AppComposeSheetDraft?
 
     func presentNewNote() {
-        draft = AppComposeSheetDraft()
+        draft = AppComposeSheetDraft(viewModel: ComposeNoteViewModel())
     }
 
     func presentRemix(
@@ -290,6 +290,7 @@ final class AppComposeSheetCoordinator: ObservableObject {
         replyTargetEvent: NostrEvent?
     ) {
         draft = AppComposeSheetDraft(
+            viewModel: ComposeNoteViewModel(),
             initialUploadedAttachments: [attachment],
             replyTargetEvent: replyTargetEvent
         )
@@ -297,6 +298,7 @@ final class AppComposeSheetCoordinator: ObservableObject {
 
     func presentMediaAttachment(_ attachment: ComposeMediaAttachment) {
         draft = AppComposeSheetDraft(
+            viewModel: ComposeNoteViewModel(),
             initialUploadedAttachments: [attachment]
         )
     }
@@ -305,29 +307,42 @@ final class AppComposeSheetCoordinator: ObservableObject {
         to event: NostrEvent,
         displayNameHint: String? = nil,
         handleHint: String? = nil,
-        avatarURLHint: URL? = nil
+        avatarURLHint: URL? = nil,
+        onOptimisticPublished: ((FeedItem) -> Void)? = nil,
+        onPublished: (() -> Void)? = nil
     ) {
         draft = AppComposeSheetDraft(
+            viewModel: ComposeNoteViewModel(),
             replyTargetEvent: event,
             replyTargetDisplayNameHint: displayNameHint,
             replyTargetHandleHint: handleHint,
-            replyTargetAvatarURLHint: avatarURLHint
+            replyTargetAvatarURLHint: avatarURLHint,
+            onOptimisticPublished: onOptimisticPublished,
+            onPublished: onPublished
         )
     }
 
-    func presentQuote(_ quoteDraft: ReshareQuoteDraft) {
+    func presentQuote(
+        _ quoteDraft: ReshareQuoteDraft,
+        onOptimisticPublished: ((FeedItem) -> Void)? = nil,
+        onPublished: (() -> Void)? = nil
+    ) {
         draft = AppComposeSheetDraft(
+            viewModel: ComposeNoteViewModel(),
             initialText: quoteDraft.initialText,
             initialAdditionalTags: quoteDraft.additionalTags,
             quotedEvent: quoteDraft.quotedEvent,
             quotedDisplayNameHint: quoteDraft.quotedDisplayNameHint,
             quotedHandleHint: quoteDraft.quotedHandleHint,
-            quotedAvatarURLHint: quoteDraft.quotedAvatarURLHint
+            quotedAvatarURLHint: quoteDraft.quotedAvatarURLHint,
+            onOptimisticPublished: onOptimisticPublished,
+            onPublished: onPublished
         )
     }
 
     func presentSharedMedia(attachments: [SharedComposeAttachment]) {
         draft = AppComposeSheetDraft(
+            viewModel: ComposeNoteViewModel(),
             initialSharedAttachments: attachments
         )
     }
@@ -339,6 +354,7 @@ final class AppComposeSheetCoordinator: ObservableObject {
 
 struct AppComposeSheetDraft: Identifiable {
     let id = UUID()
+    let viewModel: ComposeNoteViewModel
     var initialText: String = ""
     var initialAdditionalTags: [[String]] = []
     var initialUploadedAttachments: [ComposeMediaAttachment] = []
@@ -354,8 +370,11 @@ struct AppComposeSheetDraft: Identifiable {
     var quotedHandleHint: String? = nil
     var quotedAvatarURLHint: URL? = nil
     var savedDraftID: UUID? = nil
+    var onOptimisticPublished: ((FeedItem) -> Void)? = nil
+    var onPublished: (() -> Void)? = nil
 
     init(
+        viewModel: ComposeNoteViewModel,
         initialText: String = "",
         initialAdditionalTags: [[String]] = [],
         initialUploadedAttachments: [ComposeMediaAttachment] = [],
@@ -370,8 +389,11 @@ struct AppComposeSheetDraft: Identifiable {
         quotedDisplayNameHint: String? = nil,
         quotedHandleHint: String? = nil,
         quotedAvatarURLHint: URL? = nil,
-        savedDraftID: UUID? = nil
+        savedDraftID: UUID? = nil,
+        onOptimisticPublished: ((FeedItem) -> Void)? = nil,
+        onPublished: (() -> Void)? = nil
     ) {
+        self.viewModel = viewModel
         self.initialText = initialText
         self.initialAdditionalTags = initialAdditionalTags
         self.initialUploadedAttachments = initialUploadedAttachments
@@ -387,10 +409,14 @@ struct AppComposeSheetDraft: Identifiable {
         self.quotedHandleHint = quotedHandleHint
         self.quotedAvatarURLHint = quotedAvatarURLHint
         self.savedDraftID = savedDraftID
+        self.onOptimisticPublished = onOptimisticPublished
+        self.onPublished = onPublished
     }
 
+    @MainActor
     init(savedDraft: SavedComposeDraft) {
         self.init(
+            viewModel: ComposeNoteViewModel(),
             initialText: savedDraft.snapshot.text,
             initialAdditionalTags: savedDraft.snapshot.additionalTags,
             initialUploadedAttachments: savedDraft.snapshot.uploadedAttachments,

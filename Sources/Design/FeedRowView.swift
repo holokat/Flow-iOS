@@ -194,6 +194,7 @@ struct FeedRowView: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var relaySettings: RelaySettingsStore
     @EnvironmentObject private var toastCenter: AppToastCenter
+    @EnvironmentObject private var composeSheetCoordinator: AppComposeSheetCoordinator
     private let reactionStats = NoteReactionStatsService.shared
     private let muteStore = MuteStore.shared
     private let mutedThreadStore = MutedThreadStore.shared
@@ -227,7 +228,6 @@ struct FeedRowView: View {
 
     @State private var isShowingReshareSheet = false
     @State private var quoteDraft: ReshareQuoteDraft?
-    @State private var isShowingReplyComposer = false
     @State private var isPublishingRepost = false
     @State private var isShowingNoteOptionsSheet = false
     @State private var isShowingReportSheet = false
@@ -320,7 +320,10 @@ struct FeedRowView: View {
         .onChange(of: item.displayEventID) { _, eventID in
             refreshActionsOnlyReactionSnapshot(for: eventID)
         }
-        .sheet(isPresented: $isShowingReshareSheet) {
+        .sheet(
+            isPresented: $isShowingReshareSheet,
+            onDismiss: presentPendingQuoteComposer
+        ) {
             ReshareActionSheetView(
                 isWorking: isPublishingRepost,
                 onRepost: {
@@ -385,32 +388,25 @@ struct FeedRowView: View {
                 try await submitReport(type: type, details: details)
             }
         }
-        .sheet(item: $quoteDraft) { draft in
-            ComposeNoteSheet(
-                currentAccountPubkey: auth.currentAccount?.pubkey,
-                currentNsec: auth.currentNsec,
-                writeRelayURLs: effectiveWriteRelayURLs,
-                initialText: draft.initialText,
-                initialAdditionalTags: draft.additionalTags,
-                quotedEvent: draft.quotedEvent,
-                quotedDisplayNameHint: draft.quotedDisplayNameHint,
-                quotedHandleHint: draft.quotedHandleHint,
-                quotedAvatarURLHint: draft.quotedAvatarURLHint,
-                onOptimisticPublished: onOptimisticPublished
-            )
-        }
-        .sheet(isPresented: $isShowingReplyComposer) {
-            ComposeNoteSheet(
-                currentAccountPubkey: auth.currentAccount?.pubkey,
-                currentNsec: auth.currentNsec,
-                writeRelayURLs: effectiveWriteRelayURLs,
-                replyTargetEvent: item.displayEvent,
-                replyTargetDisplayNameHint: item.displayName,
-                replyTargetHandleHint: item.handle,
-                replyTargetAvatarURLHint: item.avatarURL,
-                onOptimisticPublished: onOptimisticPublished
-            )
-        }
+    }
+
+    private func presentPendingQuoteComposer() {
+        guard let quoteDraft else { return }
+        self.quoteDraft = nil
+        composeSheetCoordinator.presentQuote(
+            quoteDraft,
+            onOptimisticPublished: onOptimisticPublished
+        )
+    }
+
+    private func presentReplyComposer() {
+        composeSheetCoordinator.presentReply(
+            to: item.displayEvent,
+            displayNameHint: item.displayName,
+            handleHint: item.handle,
+            avatarURLHint: item.avatarURL,
+            onOptimisticPublished: onOptimisticPublished
+        )
     }
 
     private var visibleReactionCount: Int {
@@ -550,7 +546,7 @@ struct FeedRowView: View {
                 if let onReplyTap {
                     onReplyTap()
                 } else {
-                    isShowingReplyComposer = true
+                    presentReplyComposer()
                 }
             } label: {
                 HStack(spacing: 4) {

@@ -39,6 +39,7 @@ struct ThreadDetailView: View {
     @EnvironmentObject var appSettings: AppSettingsStore
     @EnvironmentObject var relaySettings: RelaySettingsStore
     @EnvironmentObject private var toastCenter: AppToastCenter
+    @EnvironmentObject private var composeSheetCoordinator: AppComposeSheetCoordinator
     @StateObject var viewModel: ThreadDetailViewModel
     @ObservedObject private var reactionStats = NoteReactionStatsService.shared
     @ObservedObject private var followStore = FollowStore.shared
@@ -46,7 +47,6 @@ struct ThreadDetailView: View {
     @ObservedObject private var mutedThreadStore = MutedThreadStore.shared
 
     @State private var selectedThreadItem: FeedItem?
-    @State private var activeReplyTarget: FeedItem?
     @State private var selectedHashtagRoute: HashtagRoute?
     @State private var selectedProfileRoute: ProfileRoute?
     @State private var selectedRelayRoute: RelayRoute?
@@ -166,7 +166,10 @@ struct ThreadDetailView: View {
         .navigationDestination(item: $selectedRelayRoute) { route in
             RelayFeedView(relayURL: route.relayURL, title: route.displayName)
         }
-        .sheet(isPresented: $isShowingReshareSheet) {
+        .sheet(
+            isPresented: $isShowingReshareSheet,
+            onDismiss: presentPendingQuoteComposer
+        ) {
             ReshareActionSheetView(
                 isWorking: isPublishingRepost,
                 onRepost: {
@@ -180,56 +183,6 @@ struct ThreadDetailView: View {
                         relayHintURL: effectiveReadRelayURLs.first
                     )
                     isShowingReshareSheet = false
-                }
-            )
-        }
-        .sheet(item: $quoteDraft) { draft in
-            ComposeNoteSheet(
-                currentAccountPubkey: auth.currentAccount?.pubkey,
-                currentNsec: auth.currentNsec,
-                writeRelayURLs: effectiveWriteRelayURLs,
-                initialText: draft.initialText,
-                initialAdditionalTags: draft.additionalTags,
-                quotedEvent: draft.quotedEvent,
-                quotedDisplayNameHint: draft.quotedDisplayNameHint,
-                quotedHandleHint: draft.quotedHandleHint,
-                quotedAvatarURLHint: draft.quotedAvatarURLHint,
-                onOptimisticPublished: { item in
-                    if item.displayEvent.referencesConversation(id: viewModel.rootItem.displayEventID) {
-                        animateFeedInsertion {
-                            viewModel.appendLocalReply(item)
-                        }
-                        selectedContentTab = .replies
-                        pendingReplyScrollTargetID = item.id
-                    }
-                },
-                onPublished: {
-                    Task {
-                        await viewModel.refresh()
-                    }
-                }
-            )
-        }
-        .sheet(item: $activeReplyTarget) { target in
-            ComposeNoteSheet(
-                currentAccountPubkey: auth.currentAccount?.pubkey,
-                currentNsec: auth.currentNsec,
-                writeRelayURLs: effectiveWriteRelayURLs,
-                replyTargetEvent: target.displayEvent,
-                replyTargetDisplayNameHint: target.displayName,
-                replyTargetHandleHint: target.handle,
-                replyTargetAvatarURLHint: target.avatarURL,
-                onOptimisticPublished: { item in
-                    animateFeedInsertion {
-                        viewModel.appendLocalReply(item)
-                    }
-                    selectedContentTab = .replies
-                    pendingReplyScrollTargetID = item.id
-                },
-                onPublished: {
-                    Task {
-                        await viewModel.refresh()
-                    }
                 }
             )
         }
@@ -663,7 +616,50 @@ struct ThreadDetailView: View {
 
     @MainActor
     private func presentReplyComposer(for item: FeedItem) {
-        activeReplyTarget = item
+        composeSheetCoordinator.presentReply(
+            to: item.displayEvent,
+            displayNameHint: item.displayName,
+            handleHint: item.handle,
+            avatarURLHint: item.avatarURL,
+            onOptimisticPublished: { publishedItem in
+                animateFeedInsertion {
+                    viewModel.appendLocalReply(publishedItem)
+                }
+                selectedContentTab = .replies
+                pendingReplyScrollTargetID = publishedItem.id
+            },
+            onPublished: {
+                Task {
+                    await viewModel.refresh()
+                }
+            }
+        )
+    }
+
+    @MainActor
+    private func presentPendingQuoteComposer() {
+        guard let quoteDraft else { return }
+        self.quoteDraft = nil
+        composeSheetCoordinator.presentQuote(
+            quoteDraft,
+            onOptimisticPublished: { item in
+                guard item.displayEvent.referencesConversation(
+                    id: viewModel.rootItem.displayEventID
+                ) else {
+                    return
+                }
+                animateFeedInsertion {
+                    viewModel.appendLocalReply(item)
+                }
+                selectedContentTab = .replies
+                pendingReplyScrollTargetID = item.id
+            },
+            onPublished: {
+                Task {
+                    await viewModel.refresh()
+                }
+            }
+        )
     }
 
     @MainActor

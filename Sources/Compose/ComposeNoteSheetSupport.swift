@@ -1507,6 +1507,10 @@ struct ComposeMultilineTextView: UIViewRepresentable {
         }
     }
 
+    static func dismantleUIView(_ uiView: UITextView, coordinator: Coordinator) {
+        coordinator.persistTextBeforeDismantle(uiView)
+    }
+
     static func makeComposerTextView() -> UITextView {
         // Keep the composer on UIKit's plain native text-input path. Emoji
         // QuickType suggestions do not have a public opt-in API; they depend on
@@ -1626,6 +1630,12 @@ struct ComposeMultilineTextView: UIViewRepresentable {
             isApplyingProgrammaticUpdate = true
             textView.text = request.text
             isApplyingProgrammaticUpdate = false
+        }
+
+        func persistTextBeforeDismantle(_ textView: UITextView) {
+            guard !isApplyingProgrammaticUpdate else { return }
+            pendingTextReport = textView.text
+            flushPendingTextReport()
         }
 
         private func scheduleTextReport(_ newValue: String) {

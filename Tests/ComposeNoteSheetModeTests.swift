@@ -153,6 +153,53 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         XCTAssertFalse(accessorySource.contains("Swipe a composer down"))
     }
 
+    @MainActor
+    func testAppCoordinatorOwnsLiveComposeTextForPresentedDraft() throws {
+        let coordinator = AppComposeSheetCoordinator()
+        coordinator.presentNewNote()
+        let presentedDraft = try XCTUnwrap(coordinator.draft)
+        let liveViewModel = presentedDraft.viewModel
+
+        liveViewModel.text = "This draft must survive feed updates"
+        XCTAssertTrue(coordinator.draft?.viewModel === liveViewModel)
+        XCTAssertEqual(
+            coordinator.draft?.viewModel.text,
+            "This draft must survive feed updates"
+        )
+    }
+
+    @MainActor
+    func testAppCoordinatorCarriesContextSpecificPublishCallbacks() throws {
+        let coordinator = AppComposeSheetCoordinator()
+        var publishedCallbackCount = 0
+
+        coordinator.presentReply(
+            to: makeDraftEvent(idSuffix: "reply"),
+            onPublished: {
+                publishedCallbackCount += 1
+            }
+        )
+
+        let callback = try XCTUnwrap(coordinator.draft?.onPublished)
+        callback()
+        XCTAssertEqual(publishedCallbackCount, 1)
+    }
+
+    func testRefreshableRowsDoNotOwnComposeSheets() throws {
+        let mainShellSource = try Self.sourceText(at: "Sources/App/MainTabShellView.swift")
+        let feedRowSource = try Self.sourceText(at: "Sources/Design/FeedRowView.swift")
+        let threadSource = try Self.sourceText(at: "Sources/Thread/ThreadDetailView.swift")
+
+        XCTAssertTrue(mainShellSource.contains(".sheet(item: composeSheetDraftBinding"))
+        XCTAssertTrue(mainShellSource.contains("viewModel: draft.viewModel"))
+        XCTAssertFalse(feedRowSource.contains("ComposeNoteSheet("))
+        XCTAssertFalse(threadSource.contains("ComposeNoteSheet("))
+        XCTAssertTrue(feedRowSource.contains("composeSheetCoordinator.presentReply("))
+        XCTAssertTrue(feedRowSource.contains("composeSheetCoordinator.presentQuote("))
+        XCTAssertTrue(threadSource.contains("composeSheetCoordinator.presentReply("))
+        XCTAssertTrue(threadSource.contains("composeSheetCoordinator.presentQuote("))
+    }
+
     func testComposerControlsKeepLitSurfacesWhenInactive() throws {
         let source = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheetAccessoryViews.swift")
 
@@ -274,6 +321,40 @@ final class ComposeNoteSheetModeTests: XCTestCase {
 
         XCTAssertTrue(shouldAllowChange)
         XCTAssertEqual(textView.text, textValue)
+    }
+
+    @MainActor
+    func testDismantlingNativeEditorFlushesLatestPendingText() {
+        var textValue = ""
+        var isFocusedValue = true
+        var mentionsValue: [ComposeSelectedMention] = []
+        var mentionAnchorYValue: CGFloat = 44
+        let coordinator = ComposeMultilineTextView.Coordinator(
+            text: Binding(
+                get: { textValue },
+                set: { textValue = $0 }
+            ),
+            isFocused: Binding(
+                get: { isFocusedValue },
+                set: { isFocusedValue = $0 }
+            ),
+            mentions: Binding(
+                get: { mentionsValue },
+                set: { mentionsValue = $0 }
+            ),
+            mentionAnchorY: Binding(
+                get: { mentionAnchorYValue },
+                set: { mentionAnchorYValue = $0 }
+            ),
+            onMentionQueryChange: { _ in }
+        )
+        let textView = UITextView()
+        textView.text = "Native text pending during refresh"
+
+        coordinator.textViewDidChange(textView)
+        ComposeMultilineTextView.dismantleUIView(textView, coordinator: coordinator)
+
+        XCTAssertEqual(textValue, "Native text pending during refresh")
     }
 
     func testComposerCharacterCounterShowsSoftLimitOverageAsWarning() throws {

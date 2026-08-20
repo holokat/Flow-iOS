@@ -30,7 +30,7 @@ struct ComposeNoteSheet: View {
     @EnvironmentObject private var toastCenter: AppToastCenter
     @EnvironmentObject private var composeDraftStore: AppComposeDraftStore
     @State private var isEditorFocused = false
-    @StateObject private var viewModel = ComposeNoteViewModel()
+    @ObservedObject var viewModel: ComposeNoteViewModel
     @StateObject private var speechTranscriber = ComposeSpeechTranscriber()
     @State private var selectedMediaItems: [PhotosPickerItem] = []
     @State private var mediaAttachments: [ComposeMediaAttachment] = []

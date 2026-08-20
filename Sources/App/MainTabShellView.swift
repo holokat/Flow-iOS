@@ -544,6 +544,7 @@ struct MainTabShellView: View {
     @ViewBuilder
     private func composeNoteSheet(for draft: AppComposeSheetDraft) -> some View {
         ComposeNoteSheet(
+            viewModel: draft.viewModel,
             currentAccountPubkey: auth.currentAccount?.pubkey,
             currentNsec: auth.currentNsec,
             writeRelayURLs: effectiveWriteRelayURLs,
@@ -564,6 +565,10 @@ struct MainTabShellView: View {
             savedDraftID: draft.savedDraftID,
             onRequestAccountAccess: requestAccountAccessFromComposer,
             onOptimisticPublished: { item in
+                if let onOptimisticPublished = draft.onOptimisticPublished {
+                    onOptimisticPublished(item)
+                    return
+                }
                 switch selectedTab {
                 case .home:
                     animateFeedInsertion {
@@ -578,6 +583,10 @@ struct MainTabShellView: View {
                 }
             },
             onPublished: {
+                if let onPublished = draft.onPublished {
+                    onPublished()
+                    return
+                }
                 Task {
                     switch selectedTab {
                     case .home:
