@@ -78,6 +78,7 @@ struct MainTabShellView: View {
     @State private var isHomeSideMenuPresented = false
     private let bottomTabBarHeight: CGFloat = ScrollChromeLayout.defaultBottomTabBarHeight
     private static let bottomNavIconSize: CGFloat = 26
+    private static let bottomNavButtonSize: CGFloat = 48
     @State private var homeScrollChromeStore = ScrollChromeStore()
 
     @StateObject private var homeViewModel = HomeFeedViewModel(
@@ -354,7 +355,6 @@ struct MainTabShellView: View {
             safeAreaBottom: 0
         ) { chromeOpacity in
             bottomNavigationCapsule
-                .frame(maxWidth: 520)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 5)
                 .frame(maxWidth: .infinity)
@@ -394,7 +394,7 @@ struct MainTabShellView: View {
                 bottomNavButton(for: tab)
             }
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 4)
         .frame(height: 56)
     }
 
@@ -419,8 +419,7 @@ struct MainTabShellView: View {
                         .offset(x: Self.bottomNavIconSize * 0.55, y: -Self.bottomNavIconSize * 0.5)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 48)
+            .frame(width: Self.bottomNavButtonSize, height: Self.bottomNavButtonSize)
             .background {
                 if isSelected {
                     Capsule()
