@@ -248,6 +248,10 @@ struct FollowingListView: View {
                 }
         }
         .buttonStyle(.plain)
+        .followCelebration(
+            trigger: followStore.followCelebrationToken(for: row.pubkey),
+            accentColor: appSettings.primaryColor
+        )
         .disabled(auth.currentNsec == nil)
         .opacity(auth.currentNsec == nil ? 0.5 : 1)
         .accessibilityLabel(title)

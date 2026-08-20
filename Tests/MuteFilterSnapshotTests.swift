@@ -57,6 +57,72 @@ final class MuteFilterSnapshotTests: XCTestCase {
         XCTAssertEqual(aiList?.words, ["theboard", "zone_presence"])
         XCTAssertEqual(aiList?.allowsAddingWords, true)
     }
+
+    func testLocalMuteReasonsPersistPerAccountAndIgnoreBlankValues() {
+        let suiteName = "MuteFilterSnapshotTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let persistence = LocalMuteReasonPersistence(defaults: defaults)
+        persistence.save(
+            [
+                " PersonA ": "  Repeated unwanted replies  ",
+                "PersonB": " \n "
+            ],
+            for: " AccountA "
+        )
+
+        XCTAssertEqual(
+            persistence.load(for: "accounta"),
+            ["persona": "Repeated unwanted replies"]
+        )
+        XCTAssertTrue(persistence.load(for: "accountb").isEmpty)
+
+        persistence.save(
+            ["PersonA": "Updated local reason"],
+            for: "AccountA"
+        )
+        XCTAssertEqual(
+            persistence.load(for: "accounta"),
+            ["persona": "Updated local reason"]
+        )
+
+        persistence.save([:], for: "AccountA")
+        XCTAssertTrue(persistence.load(for: "accounta").isEmpty)
+    }
+
+    @MainActor
+    func testMutedPersonReasonCanBeAddedUpdatedAndRemovedLocally() {
+        let suiteName = "MuteFilterSnapshotTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(
+            ["person"],
+            forKey: "flow.mutedPubkeys.account"
+        )
+
+        let store = MuteStore(defaults: defaults)
+        let localRelayURL = URL(string: "ws://127.0.0.1:1")!
+        store.configure(
+            accountPubkey: "account",
+            nsec: nil,
+            readRelayURLs: [localRelayURL],
+            writeRelayURLs: [localRelayURL]
+        )
+
+        store.setMuteReason("First local reason", for: "PERSON")
+        XCTAssertEqual(store.muteReason(for: "person"), "First local reason")
+        XCTAssertTrue(store.isMuted("person"))
+
+        store.setMuteReason("Updated local reason", for: "person")
+        XCTAssertEqual(store.muteReason(for: "person"), "Updated local reason")
+        XCTAssertTrue(store.isMuted("person"))
+
+        store.setMuteReason(nil, for: "person")
+        XCTAssertNil(store.muteReason(for: "person"))
+        XCTAssertTrue(store.isMuted("person"))
+    }
 }
 
 private func makeMuteFilterEvent(content: String) -> NostrEvent {

@@ -85,8 +85,8 @@ struct SettingsGeneralView: View {
                         get: { appSettings.slowConnectionMode },
                         set: { appSettings.slowConnectionMode = $0 }
                     ),
-                    footer: "Use a lighter relay setup.",
-                    info: "Connects only to relay.damus.io and hides reactions to reduce relay load."
+                    footer: "Use a lighter connection setup.",
+                    info: "Uses one source and hides reactions to reduce data use."
                 )
             } header: {
                 Text("General")

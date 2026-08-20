@@ -14,6 +14,7 @@ final class FollowStore: ObservableObject {
     @Published private(set) var followedPubkeys: Set<String>
     @Published private(set) var lastPublishError: String?
     @Published private(set) var lastActionFeedback: ActionFeedback?
+    @Published private(set) var followCelebrationTokens: [String: Int]
 
     private let defaults: UserDefaults
     private let authStore: AuthStore
@@ -48,6 +49,7 @@ final class FollowStore: ObservableObject {
         self.feedService = feedService
         self.relayClient = relayClient
         self.followedPubkeys = []
+        self.followCelebrationTokens = [:]
     }
 
     deinit {
@@ -96,6 +98,7 @@ final class FollowStore: ObservableObject {
         latestFollowListSnapshot = nil
         lastPublishError = nil
         lastActionFeedback = nil
+        followCelebrationTokens = [:]
         hasInFlightFollowPublish = false
 
         syncTask?.cancel()
@@ -124,6 +127,10 @@ final class FollowStore: ObservableObject {
 
     func isFollowing(_ pubkey: String) -> Bool {
         followedPubkeys.contains(normalizePubkey(pubkey))
+    }
+
+    func followCelebrationToken(for pubkey: String) -> Int {
+        followCelebrationTokens[normalizePubkey(pubkey), default: 0]
     }
 
     func toggleFollow(_ pubkey: String) {
@@ -173,6 +180,17 @@ final class FollowStore: ObservableObject {
         guard updated != previous else { return }
 
         followedPubkeys = updated
+        if shouldFollow {
+            var updatedTokens = followCelebrationTokens
+            for target in normalizedTargets where !previous.contains(target) {
+                updatedTokens[target] = FollowCelebrationMotion.nextTrigger(
+                    current: updatedTokens[target, default: 0],
+                    didFollow: true,
+                    didChange: true
+                )
+            }
+            followCelebrationTokens = updatedTokens
+        }
         persistCurrentFollowings()
         lastPublishError = nil
         scheduleProfileCacheUpdate(for: session, snapshot: latestFollowListSnapshot)

@@ -3,6 +3,217 @@ import NostrSDK
 @testable import Flow
 
 final class NostrFeedServiceTests: XCTestCase {
+    func testRelayHashtagQueryValuesCoverCommonCaseVariantsWithoutDuplicates() {
+        XCTAssertEqual(
+            NostrEvent.relayHashtagQueryValues("#nOstrArmyKnife"),
+            ["nOstrArmyKnife", "nostrarmyknife", "Nostrarmyknife", "NOSTRARMYKNIFE"]
+        )
+        XCTAssertEqual(
+            NostrEvent.relayHashtagQueryValues("bitcoin"),
+            ["bitcoin", "Bitcoin", "BITCOIN"]
+        )
+    }
+
+    func testHashtagFeedQueriesCaseVariantsAndRejectsUnrelatedRelayResults() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FlowHashtagCaseVariants-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let matchingEvent = makeEvent(
+            id: hex("1"),
+            pubkey: hex("a"),
+            kind: 1,
+            tags: [["t", "Bitcoin"]],
+            content: "mixed-case tag"
+        )
+        let unrelatedEvent = makeEvent(
+            id: hex("2"),
+            pubkey: hex("b"),
+            kind: 1,
+            tags: [["t", "other"]],
+            content: "unrelated"
+        )
+        let relayClient = HashtagFilterRecordingRelayClient(events: [matchingEvent, unrelatedEvent])
+        let service = makeFeedService(
+            relayClient: relayClient,
+            fileManager: TestFileManager(rootURL: rootURL),
+            presentationCache: FeedPresentationCache()
+        )
+
+        let results = try await service.fetchHashtagFeed(
+            relayURLs: [relayURL],
+            hashtag: "bitcoin",
+            kinds: [1],
+            limit: 20,
+            until: nil,
+            hydrationMode: .cachedProfilesOnly,
+            fetchTimeout: 1,
+            relayFetchMode: .allRelays
+        )
+
+        XCTAssertEqual(results.map(\.id), [matchingEvent.id])
+        let filters = await relayClient.recordedFilters()
+        XCTAssertEqual(filters.first?.tagFilters?["t"], ["bitcoin", "Bitcoin", "BITCOIN"])
+    }
+
+    func testNIP50SearchPreservesRelayRelevanceOrder() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FlowSearchRanking-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let olderHigherRankedResult = makeEvent(
+            id: hex("1"),
+            pubkey: hex("a"),
+            kind: 1,
+            tags: [],
+            content: "swift nostr search exact phrase",
+            createdAt: 1_700_000_000
+        )
+        let newerLowerRankedResult = makeEvent(
+            id: hex("2"),
+            pubkey: hex("b"),
+            kind: 1,
+            tags: [],
+            content: "a newer swift nostr search mention",
+            createdAt: 1_800_000_000
+        )
+        let relayClient = DelayedRelayClient(
+            eventsByRelay: [relayURL: [olderHigherRankedResult, newerLowerRankedResult]],
+            delaysByRelay: [:]
+        )
+        let service = makeFeedService(
+            relayClient: relayClient,
+            fileManager: TestFileManager(rootURL: rootURL),
+            presentationCache: FeedPresentationCache()
+        )
+
+        let results = try await service.searchNotes(
+            relayURLs: [relayURL],
+            query: "swift nostr search",
+            kinds: [1],
+            limit: 10,
+            hydrationMode: .cachedProfilesOnly,
+            fetchTimeout: 1,
+            relayFetchMode: .allRelays
+        )
+
+        XCTAssertEqual(
+            results.map(\.id),
+            [olderHigherRankedResult.id, newerLowerRankedResult.id]
+        )
+    }
+
+    func testSearchRelayDiscoveryUsesLatestKind10007RelayTags() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FlowSearchRelays-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let owner = hex("c")
+        let searchRelayList = makeEvent(
+            id: hex("3"),
+            pubkey: owner,
+            kind: 10_007,
+            tags: [
+                ["relay", "wss://search-one.example/"],
+                ["relay", "https://not-a-relay.example/"],
+                ["relay", "wss://search-two.example/"],
+                ["relay", "wss://search-one.example/"]
+            ],
+            content: "",
+            createdAt: 1_800_000_000
+        )
+        let relayClient = DelayedRelayClient(
+            eventsByRelay: [relayURL: [searchRelayList]],
+            delaysByRelay: [:]
+        )
+        let service = makeFeedService(
+            relayClient: relayClient,
+            fileManager: TestFileManager(rootURL: rootURL),
+            presentationCache: FeedPresentationCache()
+        )
+
+        let relayURLs = await service.fetchSearchRelayURLs(
+            relayURLs: [relayURL],
+            pubkey: owner,
+            fetchTimeout: 1
+        )
+
+        XCTAssertEqual(
+            relayURLs.map(\.absoluteString),
+            ["wss://search-one.example/", "wss://search-two.example/"]
+        )
+    }
+
+    func testGenericRepostResolvesReplaceableTargetFromAddressTag() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FlowGenericRepostAddress-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let repostID = "d6d850ff95a0461b1fb7cc5727df68b0030c54b23a23c1e73e5914fbdf3f67c9"
+        let historicalTargetID = "524e90ae7486576e7fe86163c75568b6d7302d41452a392457612a75f817399a"
+        let targetAuthor = "266815e0c9210dfa324c6cba3573b14bee49da4209a9456f9484e5106cd408a5"
+        let targetRelay = try XCTUnwrap(URL(string: "wss://relay-two.example.com/"))
+        let repost = makeEvent(
+            id: repostID,
+            pubkey: "0461fcbecc4c3374439932d6b8f11269ccdb7cc973ad7a50ae362db135a474dd",
+            kind: 16,
+            tags: [
+                ["e", historicalTargetID, targetRelay.absoluteString],
+                ["p", targetAuthor],
+                ["k", "35128"],
+                ["a", "35128:\(targetAuthor):accordion", targetRelay.absoluteString]
+            ],
+            content: ""
+        )
+        let currentReplaceableTarget = makeEvent(
+            id: hex("a"),
+            pubkey: targetAuthor,
+            kind: 35_128,
+            tags: [
+                ["d", "accordion"],
+                ["title", "Accordion"],
+                ["description", "A Concord community app built using applesauce"]
+            ],
+            content: "",
+            createdAt: 1_700_000_100
+        )
+        let relayClient = DelayedRelayClient(
+            eventsByRelay: [
+                relayURL: [repost],
+                targetRelay: [currentReplaceableTarget]
+            ],
+            delaysByRelay: [:]
+        )
+        let service = makeFeedService(
+            relayClient: relayClient,
+            fileManager: TestFileManager(rootURL: rootURL),
+            presentationCache: FeedPresentationCache()
+        )
+        let reference = NostrEventReferencePointer(
+            normalizedIdentifier: repostID,
+            target: .eventID(repostID),
+            relayHints: [relayURL],
+            authorPubkey: repost.pubkey
+        )
+
+        let item = await service.fetchReferencedFeedItem(
+            reference: reference,
+            relayURLs: [relayURL],
+            hydrationMode: .full,
+            fetchTimeout: 2,
+            relayFetchMode: .allRelays
+        )
+
+        XCTAssertEqual(item?.id, repostID)
+        XCTAssertTrue(item?.isRepost == true)
+        XCTAssertEqual(item?.displayEvent.id, currentReplaceableTarget.id)
+        XCTAssertEqual(item?.displayEvent.kind, 35_128)
+    }
+
     func testNostrProfileDecodeReadsBannerMetadataKeys() {
         let bannerJSON = """
         {
@@ -1829,6 +2040,49 @@ final class NostrFeedServiceTests: XCTestCase {
         XCTAssertLessThan(elapsed, 0.35)
     }
 
+    func testFirstNonEmptyRelayModeWaitsPastFastEmptyRelayForSlowerResult() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FlowFirstActualResult-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let authorPubkey = hex("a")
+        let event = makeEvent(
+            id: hex("3"),
+            pubkey: authorPubkey,
+            kind: 1,
+            tags: [],
+            content: "slower relay event"
+        )
+        let relayClient = DelayedRelayClient(
+            eventsByRelay: [
+                relayURL: [],
+                relayURL2: [event]
+            ],
+            delaysByRelay: [
+                relayURL: 10_000_000,
+                relayURL2: 450_000_000
+            ]
+        )
+        let service = makeFeedService(
+            relayClient: relayClient,
+            fileManager: TestFileManager(rootURL: rootURL)
+        )
+
+        let items = try await service.fetchAuthorFeed(
+            relayURLs: [relayURL, relayURL2],
+            authorPubkey: authorPubkey,
+            kinds: [1],
+            limit: 1,
+            until: nil,
+            hydrationMode: .cachedProfilesOnly,
+            fetchTimeout: 1,
+            relayFetchMode: .firstNonEmptyRelay
+        )
+
+        XCTAssertEqual(items.map(\.id), [event.id])
+    }
+
     func testFeedPresentationCacheEvictsLeastRecentItemsWhenCapacityIsExceeded() async {
         let cache = FeedPresentationCache(capacity: 2)
         let first = FeedItem(event: makeEvent(id: hex("1"), pubkey: hex("a"), kind: 1, tags: [], content: "first"), profile: nil)
@@ -2200,6 +2454,28 @@ private actor DelayedRelayClient: NostrRelayEventFetching {
 
     func fetchCount() -> Int {
         fetchCallCount
+    }
+}
+
+private actor HashtagFilterRecordingRelayClient: NostrRelayEventFetching {
+    private let events: [Flow.NostrEvent]
+    private var filters: [NostrFilter] = []
+
+    init(events: [Flow.NostrEvent]) {
+        self.events = events
+    }
+
+    func fetchEvents(
+        relayURL: URL,
+        filter: NostrFilter,
+        timeout: TimeInterval
+    ) async throws -> [Flow.NostrEvent] {
+        filters.append(filter)
+        return events
+    }
+
+    func recordedFilters() -> [NostrFilter] {
+        filters
     }
 }
 

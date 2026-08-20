@@ -23,15 +23,15 @@ enum HaloLinkError: LocalizedError {
         case .invalidRecipient:
             return "That conversation has an invalid participant."
         case .missingInboxRelays:
-            return "Set up inbox relays before sending Halo Link messages."
+            return "Messaging isn’t fully connected yet. Check Connection settings."
         case .missingRecipientInboxRelays:
-            return "One or more recipients have not published inbox relays yet."
+            return "One or more people can’t receive private messages yet."
         case .publishFailed(let message):
             return message
         case .malformedGiftWrap:
-            return "A Halo Link message arrived in an invalid gift wrap."
+            return "Halo couldn’t open this private message."
         case .malformedRumor:
-            return "A Halo Link message rumor could not be decoded."
+            return "Halo couldn’t read this private message."
         case .decryptionFailed:
             return "A Halo Link message could not be decrypted."
         }
@@ -300,7 +300,7 @@ private actor HaloLinkMediaDecryptor {
     }
 }
 
-private struct HaloLinkEventFactory: EventCreating {}
+private struct HaloLinkEventFactory: EventCreating, EventVerifying {}
 
 @MainActor
 final class HaloLinkStore: ObservableObject {
@@ -739,8 +739,10 @@ final class HaloLinkStore: ObservableObject {
         restoredFromSnapshot: Bool
     ) async {
         if restoredFromSnapshot {
-            let recentSyncFloor = latestKnownActivityTimestamp().map { max(0, $0 - 180) }
-            let initialRelayTargets = lookupRelayTargets(for: session)
+            let recentSyncFloor = HaloLinkSyncPolicy.replaySince(
+                latestRumorTimestamp: latestKnownActivityTimestamp()
+            )
+            let initialRelayTargets = messageRelayTargets(for: session)
 
             startLiveSubscriptions(
                 for: session,
@@ -757,7 +759,7 @@ final class HaloLinkStore: ObservableObject {
             guard self.session == session else { return }
 
             ownInboxRelayURLs = resolvedOwnInboxRelayURLs
-            let refreshedRelayTargets = lookupRelayTargets(for: session)
+            let refreshedRelayTargets = messageRelayTargets(for: session)
             if refreshedRelayTargets != initialRelayTargets {
                 startLiveSubscriptions(
                     for: session,
@@ -780,7 +782,7 @@ final class HaloLinkStore: ObservableObject {
         }
 
         ownInboxRelayURLs = await resolveOwnInboxRelayURLs(for: session)
-        let relayTargets = lookupRelayTargets(for: session)
+        let relayTargets = messageRelayTargets(for: session)
         var until: Int?
 
         for page in 0..<HaloLinkSupport.maxBackfillPages {
@@ -812,7 +814,13 @@ final class HaloLinkStore: ObservableObject {
         isLoading = false
         hasLoadedMessages = true
         errorMessage = nil
-        startLiveSubscriptions(for: session, relayTargets: relayTargets)
+        startLiveSubscriptions(
+            for: session,
+            relayTargets: relayTargets,
+            since: HaloLinkSyncPolicy.replaySince(
+                latestRumorTimestamp: latestKnownActivityTimestamp()
+            )
+        )
     }
 
     private func startLiveSubscriptions(
@@ -877,10 +885,13 @@ final class HaloLinkStore: ObservableObject {
             }
         }
 
-        if !participantPubkeys.isEmpty {
-            await refreshProfiles(for: Array(participantPubkeys), session: session)
-        }
+        guard !participantPubkeys.isEmpty else { return }
 
+        // Publish decrypted messages immediately. Profile lookup is optional
+        // enrichment and must never hold a reply behind relay timeouts.
+        rebuildConversations()
+        await refreshProfiles(for: Array(participantPubkeys), session: session)
+        guard self.session == session else { return }
         rebuildConversations()
     }
 
@@ -890,11 +901,12 @@ final class HaloLinkStore: ObservableObject {
     ) async {
         let targets = lookupRelayTargets(for: session)
         let normalizedPubkeys = HaloLinkSupport.normalizedUniquePubkeys(pubkeys)
-        guard !normalizedPubkeys.isEmpty else { return }
+        let missingPubkeys = normalizedPubkeys.filter { profilesByPubkey[$0] == nil }
+        guard !missingPubkeys.isEmpty else { return }
 
         let fetchedProfiles = await feedService.fetchProfiles(
             relayURLs: targets,
-            pubkeys: normalizedPubkeys
+            pubkeys: missingPubkeys
         )
 
         guard self.session == session else { return }
@@ -1041,7 +1053,11 @@ final class HaloLinkStore: ObservableObject {
         let lookupTargets = HaloLinkSupport.normalizedRelayURLs(
             session.readRelayURLs + session.writeRelayURLs + bootstrapLookupRelayURLs
         )
-        let existing = await fetchInboxRelayURLs(for: session.accountPubkey, relayTargets: lookupTargets)
+        let existing = await fetchInboxRelayURLs(
+            for: session.accountPubkey,
+            relayTargets: lookupTargets,
+            useCache: false
+        )
 
         if !existing.isEmpty {
             inboxRelayCache[session.accountPubkey] = existing
@@ -1101,7 +1117,10 @@ final class HaloLinkStore: ObservableObject {
                     : session.inboxRelayURLs
                 relayURLs = ownInboxRelayURLs.isEmpty ? configuredInboxRelays : ownInboxRelayURLs
             } else {
-                relayURLs = await fetchInboxRelayURLs(for: recipientPubkey, relayTargets: lookupTargets)
+                relayURLs = await fetchInboxRelayURLs(
+                    for: recipientPubkey,
+                    relayTargets: lookupTargets
+                )
             }
 
             guard !relayURLs.isEmpty else {
@@ -1125,13 +1144,29 @@ final class HaloLinkStore: ObservableObject {
         )
     }
 
+    private func messageRelayTargets(for session: HaloLinkSession) -> [URL] {
+        let inboxTargets = HaloLinkSupport.normalizedRelayURLs(
+            ownInboxRelayURLs + session.inboxRelayURLs
+        )
+        if !inboxTargets.isEmpty {
+            return inboxTargets
+        }
+
+        return HaloLinkSupport.normalizedRelayURLs(
+            Array(session.writeRelayURLs.prefix(HaloLinkSupport.maxPublishedInboxRelays)) +
+            Array(session.readRelayURLs.prefix(2))
+        )
+    }
+
     private func fetchInboxRelayURLs(
         for pubkey: String,
-        relayTargets: [URL]
+        relayTargets: [URL],
+        useCache: Bool = true
     ) async -> [URL] {
         let normalizedPubkey = HaloLinkSupport.normalizePubkey(pubkey)
-        if let cached = inboxRelayCache[normalizedPubkey], !cached.isEmpty {
-            return cached
+        let cachedRelayURLs = inboxRelayCache[normalizedPubkey] ?? []
+        if useCache, !cachedRelayURLs.isEmpty {
+            return cachedRelayURLs
         }
 
         let events = await relayLookupService.fetchEvents(
@@ -1149,7 +1184,7 @@ final class HaloLinkStore: ObservableObject {
             }
             return lhs.createdAt > rhs.createdAt
         }
-        guard let latest = sorted.first else { return [] }
+        guard let latest = sorted.first else { return cachedRelayURLs }
 
         let relayURLs = latest.tags.compactMap { tag -> URL? in
             guard tag.first?.lowercased() == "relay",
@@ -1166,7 +1201,7 @@ final class HaloLinkStore: ObservableObject {
         if !normalized.isEmpty {
             inboxRelayCache[normalizedPubkey] = normalized
         }
-        return normalized
+        return normalized.isEmpty ? cachedRelayURLs : normalized
     }
 
     private func buildInboxRelayListEvent(
@@ -1463,9 +1498,23 @@ final class HaloLinkStore: ObservableObject {
         guard let keypair else {
             throw HaloLinkError.invalidPrivateKey
         }
+        let outerTags = wrappedEvent.tags
+        guard wrappedEvent.kind == HaloLinkSupport.giftWrapKind,
+              HaloLinkSupport.tagValues(named: "p", from: outerTags)
+                .map(HaloLinkSupport.normalizePubkey)
+                .contains(accountPubkey.lowercased()) else {
+            throw HaloLinkError.malformedGiftWrap
+        }
+
         let eventData = try JSONEncoder().encode(wrappedEvent)
         let giftWrap = try JSONDecoder().decode(GiftWrapEvent.self, from: eventData)
-        guard let rumor = try giftWrap.unsealedRumor(using: keypair.privateKey) else {
+        try eventFactory.verifyEvent(giftWrap)
+        let seal = try giftWrap.unwrappedSeal(using: keypair.privateKey)
+        try eventFactory.verifyEvent(seal)
+        let rumor = try seal.unsealedRumor(using: keypair.privateKey)
+
+        guard seal.pubkey.lowercased() == rumor.pubkey.lowercased(),
+              rumor.id.lowercased() == rumor.calculatedId.lowercased() else {
             throw HaloLinkError.malformedRumor
         }
 

@@ -419,7 +419,7 @@ private struct SettingsCustomFeedPersonPickerView: View {
     var body: some View {
         SettingsFeedPersonPicker(
             relayURLs: relayURLs,
-            searchFooter: "You can also paste a hex pubkey, npub, or nprofile directly.",
+            searchFooter: "You can also paste an account address directly.",
             isAdded: { pubkey in
                 selectedPubkeys.contains(pubkey.lowercased())
             },

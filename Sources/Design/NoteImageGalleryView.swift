@@ -261,7 +261,7 @@ struct NoteImageGalleryView: View {
     }
 
     private func aspectRatioHint(for url: URL) -> CGFloat? {
-        NoteImageLayoutGuide.aspectRatioHint(for: url, in: mediaAspectRatioHints)
+        NoteImageLayoutGuide.singleImageAspectRatioHint(for: url, in: mediaAspectRatioHints)
             ?? FlowMediaAspectRatioCache.shared.ratio(for: url)
     }
 
@@ -824,6 +824,7 @@ struct NoteSingleImageCellView: View {
     let onSave: @MainActor () async -> Void
     let onAddToNote: @MainActor () -> Void
     @EnvironmentObject private var appSettings: AppSettingsStore
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var networkPath = FlowNetworkPathMonitor.shared
     @State private var reservedAspectRatio: CGFloat
     @State private var bypassFileSizeLimits = false
@@ -842,7 +843,7 @@ struct NoteSingleImageCellView: View {
     ) {
         self.url = url
         self.cornerRadius = cornerRadius
-        self.aspectRatioHint = NoteImageLayoutGuide.normalizedAspectRatio(aspectRatioHint)
+        self.aspectRatioHint = NoteImageLayoutGuide.normalizedSingleImageAspectRatio(aspectRatioHint)
         self.maxHeight = maxHeight
         self.onTap = onTap
         self.isRemixDisabled = isRemixDisabled
@@ -851,7 +852,7 @@ struct NoteSingleImageCellView: View {
         self.onAddToNote = onAddToNote
         _reservedAspectRatio = State(
             initialValue: NoteImageLayoutGuide.reservedSingleImageAspectRatio(
-                exactHint: NoteImageLayoutGuide.normalizedAspectRatio(aspectRatioHint),
+                exactHint: NoteImageLayoutGuide.normalizedSingleImageAspectRatio(aspectRatioHint),
                 cachedExactRatio: FlowMediaAspectRatioCache.shared.ratio(for: url)
             )
         )
@@ -877,6 +878,11 @@ struct NoteSingleImageCellView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .clipped()
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(mediaOutlineColor, lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
                 .overlay {
                     FeedImageContextMenuOverlay(
                         url: url,
@@ -909,7 +915,7 @@ struct NoteSingleImageCellView: View {
                 for: url,
                 enforceNetworkByteLimit: shouldEnforceFileSizeLimit
             ) else { return }
-            guard let normalizedRatio = NoteImageLayoutGuide.normalizedAspectRatio(resolvedExactRatio) else { return }
+            guard let normalizedRatio = NoteImageLayoutGuide.normalizedSingleImageAspectRatio(resolvedExactRatio) else { return }
             guard !Task.isCancelled else { return }
 
             setReservedAspectRatio(normalizedRatio)
@@ -944,9 +950,17 @@ struct NoteSingleImageCellView: View {
         contextMenuAspectRatio ?? reservedAspectRatio
     }
 
+    private var mediaOutlineColor: Color {
+        colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08)
+    }
+
     @ViewBuilder
     private func mediaContent(asset: NoteMediaAsset) -> some View {
-        let base = NoteMediaAssetContentView(asset: asset, scaling: .fit)
+        let base = NoteMediaAssetContentView(
+            asset: asset,
+            scaling: .fit,
+            preservesNaturalAspectRatio: maxHeight == nil
+        )
 
         if let maxHeight {
             base
@@ -955,7 +969,6 @@ struct NoteSingleImageCellView: View {
                 .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .center)
         } else {
             base
-                .background(mediaBackgroundColor)
         }
     }
 
@@ -980,6 +993,9 @@ struct NoteSingleImageCellView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                     .onAppear {
                         isShowingTapToLoadPrompt = false
+                        if let ratio = NoteImageLayoutGuide.normalizedSingleImageAspectRatio(asset.aspectRatio) {
+                            setReservedAspectRatio(ratio)
+                        }
                     }
             } placeholder: {
                 loadingPlaceholder
@@ -995,7 +1011,6 @@ struct NoteSingleImageCellView: View {
         }
         .aspectRatio(reservedAspectRatio, contentMode: .fit)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(mediaBackgroundColor)
     }
 
     private var fixedHeightImageBody: some View {
@@ -1108,8 +1123,9 @@ private struct NoteSingleImageCellLayout: Layout {
             return fixedHeight
         }
 
-        let ratio = FlowLayoutGuardrails.clampedAspectRatio(aspectRatio)
-            ?? NoteImageLayoutGuide.defaultSingleImageAspectRatio
-        return width / ratio
+        return NoteImageLayoutGuide.singleImageHeight(
+            width: width,
+            aspectRatio: aspectRatio
+        )
     }
 }

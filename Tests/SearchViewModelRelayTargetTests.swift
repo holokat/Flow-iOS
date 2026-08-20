@@ -3,6 +3,19 @@ import XCTest
 
 @MainActor
 final class SearchViewModelRelayTargetTests: XCTestCase {
+    func testEditingQueryReturnsToPeopleSuggestionMode() throws {
+        let viewModel = SearchViewModel(
+            relayURL: try XCTUnwrap(URL(string: "wss://relay.damus.io/"))
+        )
+        viewModel.selectedScope = .notes
+        viewModel.searchText = "elon"
+
+        viewModel.handleSearchTextChanged()
+
+        XCTAssertEqual(viewModel.selectedScope, .people)
+        XCTAssertNil(viewModel.activeContentSearch)
+    }
+
     func testKeywordSearchRelayTargetsStartWithDittoSearchRelays() throws {
         let viewModel = SearchViewModel(
             relayURL: try XCTUnwrap(URL(string: "wss://relay.damus.io/")),

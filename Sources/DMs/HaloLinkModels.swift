@@ -277,6 +277,22 @@ enum HaloLinkSupport {
     }
 }
 
+enum HaloLinkSyncPolicy {
+    // NIP-17/NIP-59 gift wraps intentionally randomize their outer timestamp
+    // by as much as two days. A cursor based on the inner rumor timestamp must
+    // include that full window or compliant replies disappear from the REQ.
+    static let giftWrapRandomizationWindow = 2 * 24 * 60 * 60
+    static let clockSkewAllowance = 5 * 60
+
+    static func replaySince(latestRumorTimestamp: Int?) -> Int? {
+        guard let latestRumorTimestamp else { return nil }
+        return max(
+            0,
+            latestRumorTimestamp - giftWrapRandomizationWindow - clockSkewAllowance
+        )
+    }
+}
+
 private extension Array {
     subscript(safe index: Int) -> Element? {
         guard indices.contains(index) else { return nil }

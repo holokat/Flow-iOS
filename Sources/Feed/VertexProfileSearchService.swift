@@ -116,6 +116,7 @@ actor VertexProfileSearchService {
         var request = URLRequest(url: Self.apiURL)
         request.httpMethod = "POST"
         request.httpBody = requestData
+        request.timeoutInterval = 4
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let (responseData, response) = try await URLSession.shared.data(for: request)

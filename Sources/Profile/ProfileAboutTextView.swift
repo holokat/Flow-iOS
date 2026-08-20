@@ -1,9 +1,55 @@
 import NostrSDK
 import SwiftUI
+import UIKit
+
+enum ProfileAboutLayout {
+    static let collapsedLineLimit = 3
+
+    static func exceedsCollapsedLineLimit(
+        text: String,
+        width: CGFloat,
+        font: UIFont
+    ) -> Bool {
+        guard !text.isEmpty, width.isFinite, width > 0 else { return false }
+
+        let textStorage = NSTextStorage(
+            string: text,
+            attributes: [.font: font]
+        )
+        let layoutManager = NSLayoutManager()
+        let textContainer = NSTextContainer(
+            size: CGSize(width: width, height: .greatestFiniteMagnitude)
+        )
+        textContainer.lineFragmentPadding = 0
+        textContainer.lineBreakMode = .byWordWrapping
+        textContainer.maximumNumberOfLines = 0
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+
+        let glyphRange = layoutManager.glyphRange(for: textContainer)
+        var lineCount = 0
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, _, _, _, stop in
+            lineCount += 1
+            if lineCount > collapsedLineLimit {
+                stop.pointee = true
+            }
+        }
+        return lineCount > collapsedLineLimit
+    }
+}
+
+private struct ProfileAboutWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
 
 struct ProfileAboutTextView: View {
     private struct MentionMetadataDecoder: MetadataCoding {}
 
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     private let text: String
@@ -14,6 +60,8 @@ struct ProfileAboutTextView: View {
     private let onRelayTap: ((URL) -> Void)?
 
     @State private var mentionLabels: [String: String] = [:]
+    @State private var availableTextWidth: CGFloat = 0
+    @State private var isExpanded = false
 
     init(
         text: String,
@@ -30,33 +78,79 @@ struct ProfileAboutTextView: View {
     }
 
     var body: some View {
-        Text(attributedString)
-            .font(.body)
-            .foregroundStyle(appSettings.themePalette.foreground)
-            .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .layoutPriority(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .environment(\.openURL, OpenURLAction { url in
-                if let pubkey = NoteContentParser.profilePubkey(fromActionURL: url) {
-                    onProfileTap(pubkey)
-                    return .handled
-                }
-                if let hashtag = NoteContentParser.hashtagFromActionURL(url) {
-                    onHashtagTap?(hashtag)
-                    return .handled
-                }
-                if let relayURL = RelayURLSupport.relayURL(fromActionURL: url) {
-                    if let onRelayTap {
-                        onRelayTap(relayURL)
+        VStack(alignment: .leading, spacing: 0) {
+            Text(attributedString)
+                .font(appSettings.appFont(.body))
+                .foregroundStyle(appSettings.themePalette.foreground)
+                .multilineTextAlignment(.leading)
+                .lineLimit(isExpanded ? nil : ProfileAboutLayout.collapsedLineLimit)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ProfileAboutWidthPreferenceKey.self,
+                            value: proxy.size.width
+                        )
                     }
-                    return .handled
                 }
-                return .systemAction(url)
-            })
-            .task(id: text) {
-                await resolveMentionLabelsIfNeeded()
+
+            if shouldShowExpansionControl {
+                Button(isExpanded ? "Less" : "More") {
+                    if accessibilityReduceMotion {
+                        isExpanded.toggle()
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            isExpanded.toggle()
+                        }
+                    }
+                }
+                .font(appSettings.appFont(.footnote, weight: .semibold))
+                .foregroundStyle(appSettings.primaryColor)
+                .frame(minWidth: 40, minHeight: 40, alignment: .leading)
+                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityLabel(isExpanded ? "Show less bio" : "Show full bio")
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .environment(\.openURL, OpenURLAction { url in
+            if let pubkey = NoteContentParser.profilePubkey(fromActionURL: url) {
+                onProfileTap(pubkey)
+                return .handled
+            }
+            if let hashtag = NoteContentParser.hashtagFromActionURL(url) {
+                onHashtagTap?(hashtag)
+                return .handled
+            }
+            if let relayURL = RelayURLSupport.relayURL(fromActionURL: url) {
+                if let onRelayTap {
+                    onRelayTap(relayURL)
+                }
+                return .handled
+            }
+            return .systemAction(url)
+        })
+        .onPreferenceChange(ProfileAboutWidthPreferenceKey.self) { width in
+            guard width.isFinite, width > 0, abs(width - availableTextWidth) > 0.5 else { return }
+            availableTextWidth = width
+        }
+        .onChange(of: text) { _, _ in
+            isExpanded = false
+        }
+        .task(id: text) {
+            await resolveMentionLabelsIfNeeded()
+        }
+    }
+
+    private var shouldShowExpansionControl: Bool {
+        ProfileAboutLayout.exceedsCollapsedLineLimit(
+            text: String(attributedString.characters),
+            width: availableTextWidth,
+            font: appSettings.appUIFont(.body)
+        )
     }
 
     private var attributedString: AttributedString {

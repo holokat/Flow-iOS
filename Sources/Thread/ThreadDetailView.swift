@@ -118,6 +118,7 @@ struct ThreadDetailView: View {
         )
         .toolbarBackground(appSettings.themePalette.background, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .flowInteractiveBackSwipe()
         .onChange(of: auth.currentAccount?.pubkey) { _, _ in
             configureStores()
         }
@@ -234,6 +235,7 @@ struct ThreadDetailView: View {
         }
         .sheet(isPresented: $isShowingRootNoteOptionsSheet) {
             NoteOptionsBottomSheetView(
+                muteDisplayName: viewModel.rootItem.displayName,
                 canCopyText: rootHasCopyableNoteText,
                 onCopyText: {
                     UIPasteboard.general.string = rootCopyableNoteText
@@ -243,6 +245,10 @@ struct ThreadDetailView: View {
                     UIPasteboard.general.string = rootCopyableEventIdentifier
                     toastCenter.show("Copied event ID")
                 },
+                onCopyUserID: {
+                    UIPasteboard.general.string = rootCopyableAuthorIdentifier
+                    toastCenter.show("Copied user ID")
+                },
                 onCopyLink: {
                     UIPasteboard.general.string = rootNoteShareLink
                     toastCenter.show("Copied link")
@@ -251,8 +257,8 @@ struct ThreadDetailView: View {
                 onTranslate: rootCanTranslateNote ? {
                     presentRootTranslation()
                 } : nil,
-                onMute: {
-                    handleRootMuteAuthor()
+                onMute: { reason in
+                    applyRootMuteAuthor(reason: reason)
                 },
                 onMuteThread: {
                     handleRootMuteThread()
@@ -267,7 +273,7 @@ struct ThreadDetailView: View {
                     presentRootReportFlow()
                 }
             )
-            .presentationDetents([.height(rootCanTranslateNote ? 655 : 600), .medium])
+            .presentationDetents([.height(rootCanTranslateNote ? 710 : 655), .medium])
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $isShowingRootReportSheet) {
@@ -380,6 +386,10 @@ struct ThreadDetailView: View {
                         includeNoteActivity: selectedContentTab == .reactions || viewModel.hasLoadedNoteActivity
                     )
                 }
+                .flowHorizontalPaging(
+                    selection: $selectedContentTab,
+                    items: ThreadDetailContentTab.allCases
+                )
                 .task {
                     await performInitialLoad(isArticle: false)
                 }
@@ -450,6 +460,10 @@ struct ThreadDetailView: View {
             for: viewModel.rootItem.displayEvent,
             relayHints: effectiveReadRelayURLs
         ) ?? viewModel.rootItem.displayEventID
+    }
+
+    private var rootCopyableAuthorIdentifier: String {
+        npubIdentifier(for: viewModel.rootItem.displayAuthorPubkey) ?? viewModel.rootItem.displayAuthorPubkey
     }
 
     private var rootReactionCount: Int {
@@ -539,9 +553,9 @@ struct ThreadDetailView: View {
         }
     }
 
-    private func handleRootMuteAuthor() {
+    private func applyRootMuteAuthor(reason: String?) {
         let wasMuted = muteStore.isMuted(viewModel.rootItem.displayAuthorPubkey)
-        muteStore.toggleMute(viewModel.rootItem.displayAuthorPubkey)
+        muteStore.toggleMute(viewModel.rootItem.displayAuthorPubkey, reason: reason)
         let isMuted = muteStore.isMuted(viewModel.rootItem.displayAuthorPubkey)
 
         if !wasMuted && isMuted {

@@ -339,6 +339,7 @@ struct FeedRowView: View {
         }
         .sheet(isPresented: $isShowingNoteOptionsSheet) {
             NoteOptionsBottomSheetView(
+                muteDisplayName: item.displayName,
                 canCopyText: hasCopyableNoteText,
                 onCopyText: {
                     UIPasteboard.general.string = copyableNoteText
@@ -348,6 +349,10 @@ struct FeedRowView: View {
                     UIPasteboard.general.string = copyableEventIdentifier
                     toastCenter.show("Copied event ID")
                 },
+                onCopyUserID: {
+                    UIPasteboard.general.string = copyableAuthorIdentifier
+                    toastCenter.show("Copied user ID")
+                },
                 onCopyLink: {
                     UIPasteboard.general.string = copyableNoteLink
                     toastCenter.show("Copied link")
@@ -356,8 +361,8 @@ struct FeedRowView: View {
                 onTranslate: canTranslateNote ? {
                     presentTranslation()
                 } : nil,
-                onMute: {
-                    handleMuteAuthor()
+                onMute: { reason in
+                    applyMuteAuthor(reason: reason)
                 },
                 onMuteThread: {
                     handleMuteThread()
@@ -372,7 +377,7 @@ struct FeedRowView: View {
                     presentReportFlow()
                 }
             )
-            .presentationDetents([.height(canTranslateNote ? 655 : 600), .medium])
+            .presentationDetents([.height(canTranslateNote ? 710 : 655), .medium])
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $isShowingReportSheet) {
@@ -723,11 +728,11 @@ struct FeedRowView: View {
                     Label("View Profile", systemImage: "person")
                 }
 
-                if canToggleAuthorSpamMark {
+                if !isAuthoredByCurrentAccount {
                     Button {
-                        handleToggleAuthorSpamMark()
+                        applyMuteAuthor(reason: nil)
                     } label: {
-                        Label(spamMarkActionTitle, systemImage: spamMarkActionIcon)
+                        Label("Mute", systemImage: "speaker.slash")
                     }
                 }
             } label: {
@@ -989,6 +994,10 @@ struct FeedRowView: View {
         ) ?? item.displayEventID
     }
 
+    private var copyableAuthorIdentifier: String {
+        npubIdentifier(for: item.displayAuthorPubkey) ?? item.displayAuthorPubkey
+    }
+
     private var noteTranslationText: String {
         item.displayEvent.content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -1044,9 +1053,9 @@ struct FeedRowView: View {
         }
     }
 
-    private func handleMuteAuthor() {
+    private func applyMuteAuthor(reason: String?) {
         let wasMuted = muteStore.isMuted(item.displayAuthorPubkey)
-        muteStore.toggleMute(item.displayAuthorPubkey)
+        muteStore.toggleMute(item.displayAuthorPubkey, reason: reason)
         let isMuted = muteStore.isMuted(item.displayAuthorPubkey)
 
         if !wasMuted && isMuted {
@@ -1113,13 +1122,15 @@ struct NoteOptionsBottomSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var appSettings: AppSettingsStore
 
+    let muteDisplayName: String
     let canCopyText: Bool
     let onCopyText: () -> Void
     let onCopyEventID: () -> Void
+    let onCopyUserID: () -> Void
     let onCopyLink: () -> Void
     let showsTranslateAction: Bool
     let onTranslate: (() -> Void)?
-    let onMute: () -> Void
+    let onMute: (String?) -> Void
     let onMuteThread: (() -> Void)?
     let spamMarkTitle: String
     let spamMarkIcon: String
@@ -1127,7 +1138,29 @@ struct NoteOptionsBottomSheetView: View {
     let onToggleSpamMark: () -> Void
     let onReport: () -> Void
 
+    @State private var isEnteringMuteReason = false
+
+    @ViewBuilder
     var body: some View {
+        if isEnteringMuteReason {
+            MuteReasonEditorView(
+                displayName: muteDisplayName,
+                mode: .mute,
+                onCancel: {
+                    isEnteringMuteReason = false
+                },
+                onConfirm: { reason in
+                    onMute(reason)
+                    dismiss()
+                }
+            )
+            .interactiveDismissDisabled()
+        } else {
+            optionsList
+        }
+    }
+
+    private var optionsList: some View {
         VStack(spacing: 12) {
             VStack(spacing: 0) {
                 optionRow(
@@ -1148,6 +1181,17 @@ struct NoteOptionsBottomSheetView: View {
                     tint: .primary
                 ) {
                     onCopyEventID()
+                }
+
+                sheetDivider
+
+                optionRow(
+                    title: "Copy User ID",
+                    icon: "person.text.rectangle",
+                    isEnabled: true,
+                    tint: .primary
+                ) {
+                    onCopyUserID()
                 }
 
                 sheetDivider
@@ -1188,9 +1232,10 @@ struct NoteOptionsBottomSheetView: View {
                     title: "Mute",
                     icon: "speaker.slash",
                     isEnabled: true,
-                    tint: .primary
+                    tint: .primary,
+                    dismissAfterAction: false
                 ) {
-                    onMute()
+                    isEnteringMuteReason = true
                 }
 
                 if let onMuteThread {
@@ -1259,12 +1304,15 @@ struct NoteOptionsBottomSheetView: View {
         icon: String,
         isEnabled: Bool,
         tint: Color,
+        dismissAfterAction: Bool = true,
         action: (() -> Void)? = nil
     ) -> some View {
         Button {
             guard isEnabled else { return }
             action?()
-            dismiss()
+            if dismissAfterAction {
+                dismiss()
+            }
         } label: {
             HStack(spacing: 12) {
                 Text(title)

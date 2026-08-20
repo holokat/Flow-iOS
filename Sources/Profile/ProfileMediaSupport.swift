@@ -12,6 +12,52 @@ func isProfileLoopingVideoURL(_ url: URL) -> Bool {
     }
 }
 
+enum ProfileAvatarSwipeDismissBehavior {
+    static let dismissalFraction: CGFloat = 0.25
+
+    static func shouldBegin(translation: CGSize) -> Bool {
+        translation.height > 8
+            && translation.height >= abs(translation.width) * 1.15
+    }
+
+    static func offset(for translation: CGSize) -> CGFloat {
+        max(0, translation.height)
+    }
+
+    static func dismissalDistance(containerHeight: CGFloat) -> CGFloat {
+        max(120, containerHeight * dismissalFraction)
+    }
+
+    static func shouldDismiss(
+        translation: CGFloat,
+        predictedEndTranslation: CGFloat,
+        containerHeight: CGFloat
+    ) -> Bool {
+        guard containerHeight > 0 else { return false }
+        let threshold = dismissalDistance(containerHeight: containerHeight)
+        return max(translation, predictedEndTranslation) >= threshold
+    }
+
+    static func scale(
+        offset: CGFloat,
+        containerHeight: CGFloat,
+        reduceMotion: Bool
+    ) -> CGFloat {
+        guard !reduceMotion, containerHeight > 0 else { return 1 }
+        let fraction = min(max(offset / containerHeight, 0), 1)
+        return max(0.90, 1 - (fraction * 0.18))
+    }
+
+    static func backgroundOpacity(
+        offset: CGFloat,
+        containerHeight: CGFloat
+    ) -> Double {
+        guard containerHeight > 0 else { return 1 }
+        let fraction = min(max(offset / containerHeight, 0), 1)
+        return max(0.18, 1 - Double(fraction * 1.3))
+    }
+}
+
 struct ProfileAvatarFullscreenViewer: View {
     let url: URL
     let title: String
@@ -19,61 +65,165 @@ struct ProfileAvatarFullscreenViewer: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var toastCenter: AppToastCenter
+
+    @State private var isImageZoomed = false
+    @State private var swipeDismissOffset: CGFloat = 0
+    @State private var isTrackingSwipeDismiss = false
+    @State private var isCompletingSwipeDismiss = false
+    @State private var hasCrossedDismissThreshold = false
 
     private var savableImageURL: URL? {
         isProfileLoopingVideoURL(url) ? nil : url
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                viewerBackgroundColor
-                    .ignoresSafeArea()
+        GeometryReader { geometry in
+            NavigationStack {
+                ZStack {
+                    viewerBackgroundColor
+                        .opacity(
+                            ProfileAvatarSwipeDismissBehavior.backgroundOpacity(
+                                offset: swipeDismissOffset,
+                                containerHeight: geometry.size.height
+                            )
+                        )
+                        .ignoresSafeArea()
 
-                if isProfileLoopingVideoURL(url) {
-                    ProfileLoopingVideoView(
-                        url: url,
-                        videoGravity: .resizeAspect
-                    )
-                    .padding(16)
-                } else {
-                    CachedAsyncImage(
-                        url: url,
-                        kind: .profileImageFullscreen
-                    ) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFit()
-                                .padding(16)
-                        case .failure:
-                            Image(systemName: "person.crop.circle.badge.exclamationmark")
-                                .font(.largeTitle)
-                                .foregroundStyle(chromeForegroundColor.opacity(0.8))
-                        case .empty:
-                            ProgressView()
-                                .tint(chromeForegroundColor)
-                        @unknown default:
-                            EmptyView()
+                    if isProfileLoopingVideoURL(url) {
+                        ProfileLoopingVideoView(
+                            url: url,
+                            videoGravity: .resizeAspect
+                        )
+                        .padding(16)
+                    } else {
+                        NoteZoomableFullscreenImageView(
+                            url: url,
+                            kind: .profileImageFullscreen,
+                            chromeForegroundColor: chromeForegroundColor,
+                            onZoomStateChange: { isImageZoomed = $0 }
+                        )
+                        .accessibilityLabel("\(title)'s profile image")
+                        .accessibilityHint("Pinch or double-tap to zoom. Swipe down to close when not zoomed in.")
+                    }
+                }
+                .flowRemoteImageSaveContextMenu(url: savableImageURL, kind: .profileImageFullscreen)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ThemedToolbarDoneButton {
+                            dismiss()
                         }
                     }
                 }
+                .toolbarBackground(.visible, for: .navigationBar)
+                .toolbarBackground(viewerNavigationBarColor, for: .navigationBar)
+                .toolbarColorScheme(effectiveColorScheme == .dark ? .dark : .light, for: .navigationBar)
             }
-            .flowRemoteImageSaveContextMenu(url: savableImageURL, kind: .profileImageFullscreen)
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    ThemedToolbarDoneButton {
-                        dismiss()
+            .offset(y: swipeDismissOffset)
+            .scaleEffect(
+                ProfileAvatarSwipeDismissBehavior.scale(
+                    offset: swipeDismissOffset,
+                    containerHeight: geometry.size.height,
+                    reduceMotion: accessibilityReduceMotion
+                )
+            )
+            .simultaneousGesture(
+                swipeToDismissGesture(containerHeight: geometry.size.height)
+            )
+        }
+        .presentationBackground(.clear)
+        .onChange(of: isImageZoomed) { _, isZoomed in
+            if isZoomed, isTrackingSwipeDismiss {
+                settleSwipeDismissBack()
+            }
+        }
+    }
+
+    private func swipeToDismissGesture(containerHeight: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .local)
+            .onChanged { value in
+                guard !isImageZoomed, !isCompletingSwipeDismiss else { return }
+
+                if !isTrackingSwipeDismiss {
+                    guard ProfileAvatarSwipeDismissBehavior.shouldBegin(
+                        translation: value.translation
+                    ) else {
+                        return
                     }
+                    isTrackingSwipeDismiss = true
+                }
+
+                let offset = ProfileAvatarSwipeDismissBehavior.offset(
+                    for: value.translation
+                )
+                swipeDismissOffset = offset
+                updateDismissThresholdFeedback(
+                    offset: offset,
+                    containerHeight: containerHeight
+                )
+            }
+            .onEnded { value in
+                guard isTrackingSwipeDismiss, !isCompletingSwipeDismiss else { return }
+                isTrackingSwipeDismiss = false
+                hasCrossedDismissThreshold = false
+
+                let translation = ProfileAvatarSwipeDismissBehavior.offset(
+                    for: value.translation
+                )
+                let predictedEndTranslation = ProfileAvatarSwipeDismissBehavior.offset(
+                    for: value.predictedEndTranslation
+                )
+
+                if ProfileAvatarSwipeDismissBehavior.shouldDismiss(
+                    translation: translation,
+                    predictedEndTranslation: predictedEndTranslation,
+                    containerHeight: containerHeight
+                ) {
+                    completeSwipeDismiss(containerHeight: containerHeight)
+                } else {
+                    settleSwipeDismissBack()
                 }
             }
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(viewerNavigationBarColor, for: .navigationBar)
-            .toolbarColorScheme(effectiveColorScheme == .dark ? .dark : .light, for: .navigationBar)
+    }
+
+    private func updateDismissThresholdFeedback(
+        offset: CGFloat,
+        containerHeight: CGFloat
+    ) {
+        let crossedThreshold = offset >= ProfileAvatarSwipeDismissBehavior.dismissalDistance(
+            containerHeight: containerHeight
+        )
+        guard crossedThreshold != hasCrossedDismissThreshold else { return }
+
+        hasCrossedDismissThreshold = crossedThreshold
+        let feedbackStyle: UIImpactFeedbackGenerator.FeedbackStyle = crossedThreshold ? .soft : .light
+        UIImpactFeedbackGenerator(style: feedbackStyle).impactOccurred()
+    }
+
+    private func settleSwipeDismissBack() {
+        isTrackingSwipeDismiss = false
+        hasCrossedDismissThreshold = false
+        let animation: Animation = accessibilityReduceMotion
+            ? .easeOut(duration: 0.14)
+            : .spring(response: 0.30, dampingFraction: 0.86)
+        withAnimation(animation) {
+            swipeDismissOffset = 0
+        }
+    }
+
+    private func completeSwipeDismiss(containerHeight: CGFloat) {
+        isCompletingSwipeDismiss = true
+        let duration = accessibilityReduceMotion ? 0.12 : 0.18
+        withAnimation(.easeOut(duration: duration)) {
+            swipeDismissOffset = max(containerHeight * 1.08, swipeDismissOffset)
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(Int(duration * 1_000)))
+            dismiss()
         }
     }
 

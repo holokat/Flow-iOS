@@ -154,7 +154,13 @@ enum AttributedLinkStyler {
 }
 
 struct NoteContentView: View {
-    private enum RenderPart {
+    struct TaggedEventSummary: Equatable {
+        let title: String
+        let description: String?
+        let kind: Int
+    }
+
+    enum RenderPart {
         case inlineTokens([NoteContentToken])
         case imageGallery([URL])
         case video(URL)
@@ -165,10 +171,20 @@ struct NoteContentView: View {
 
     private struct MentionMetadataDecoder: MetadataCoding {}
     struct ParsedContent {
+        let renderEvent: NostrEvent
+        let articleMetadata: NostrLongFormArticleMetadata?
+        let zapReceiptMetadata: NostrZapReceiptMetadata?
+        let appHandlerMetadata: NostrAppHandlerMetadata?
+        let unsupportedEventMetadata: NostrUnsupportedEventMetadata?
+        let pollMetadata: NostrPollMetadata?
         let tokens: [NoteContentToken]
+        let parts: [RenderPart]
         let websitePreviewURL: URL?
         let mentionIdentifiers: [String]
         let emojiTagURLs: [String: URL]
+        let mediaAspectRatioHints: [String: CGFloat]
+        let gifLikeVideoURLKeys: Set<String>
+        let taggedEventSummary: TaggedEventSummary
     }
 
     private let tokens: [NoteContentToken]
@@ -179,6 +195,7 @@ struct NoteContentView: View {
     private let sourceEvent: NostrEvent
     private let articleMetadata: NostrLongFormArticleMetadata?
     private let zapReceiptMetadata: NostrZapReceiptMetadata?
+    private let appHandlerMetadata: NostrAppHandlerMetadata?
     private let unsupportedEventMetadata: NostrUnsupportedEventMetadata?
     private let articleAuthor: LongFormArticleAuthorSummary?
     private let pollEvent: NostrEvent
@@ -194,6 +211,7 @@ struct NoteContentView: View {
     private let mentionIdentifiers: [String]
     private let emojiTagURLs: [String: URL]
     private let mediaRevealCacheKey: String
+    private let taggedEventSummary: TaggedEventSummary
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
     @ObservedObject private var followStore = FollowStore.shared
@@ -208,6 +226,14 @@ struct NoteContentView: View {
     private static let collapsedPreviewLineLimit = 9
     private static let maxEmbeddedReferenceDepth = 1
     private static let maxConcatenatedInlineTokenCount = 64
+    private static let maximumRenderContentByteCount = 65_536
+    private static let maximumEmbeddedEventJSONByteCount = 262_144
+    private static let maximumRenderTagCount = 512
+    private static let maximumRenderElementsPerTag = 33
+    private static let maximumRenderTagNameByteCount = 32
+    private static let maximumRenderTagValueByteCount = 8_192
+    private static let maximumRenderTagBytes = 65_536
+    private static let maximumCustomEmojiCount = 64
     private static let parsedContentCache = NoteParsedContentCache.shared
     private static let blurRevealStateCache = NoteBlurRevealStateCache.shared
 
@@ -224,31 +250,44 @@ struct NoteContentView: View {
         onRelayTap: ((URL) -> Void)? = nil
     ) {
         sourceEvent = event
-        let renderEvent = Self.renderEvent(for: event)
-        articleMetadata = renderEvent.longFormArticleMetadata
-        zapReceiptMetadata = NostrZapReceiptMetadata(event: renderEvent)
-        unsupportedEventMetadata = NostrUnsupportedEventMetadata(event: renderEvent)
-        self.articleAuthor = articleAuthor
-        pollEvent = renderEvent
-        pollMetadata = renderEvent.pollMetadata
         let parsedContent = Self.parsedContentCache.parsedContent(for: event) {
+            let renderEvent = Self.preparedRenderEvent(for: event)
             let parsedTokens = NoteContentParser.tokenize(event: renderEvent)
             return ParsedContent(
+                renderEvent: renderEvent,
+                articleMetadata: renderEvent.longFormArticleMetadata,
+                zapReceiptMetadata: NostrZapReceiptMetadata(event: renderEvent),
+                appHandlerMetadata: NostrAppHandlerMetadata(event: renderEvent),
+                unsupportedEventMetadata: NostrUnsupportedEventMetadata(event: renderEvent),
+                pollMetadata: renderEvent.pollMetadata,
                 tokens: parsedTokens,
+                parts: Self.buildRenderParts(tokens: parsedTokens),
                 websitePreviewURL: NoteContentParser.lastWebsiteURL(in: parsedTokens),
                 mentionIdentifiers: Self.collectMentionIdentifiers(tokens: parsedTokens),
-                emojiTagURLs: Self.parseEmojiTagURLs(from: renderEvent.tags)
+                emojiTagURLs: Self.parseEmojiTagURLs(from: renderEvent.tags),
+                mediaAspectRatioHints: NoteImageLayoutGuide.mediaAspectRatioHints(from: renderEvent.tags),
+                gifLikeVideoURLKeys: Self.gifLikeVideoURLKeys(from: renderEvent.tags),
+                taggedEventSummary: Self.taggedEventSummary(for: renderEvent)
             )
         }
 
+        articleMetadata = parsedContent.articleMetadata
+        zapReceiptMetadata = parsedContent.zapReceiptMetadata
+        appHandlerMetadata = parsedContent.appHandlerMetadata
+        unsupportedEventMetadata = parsedContent.unsupportedEventMetadata
+        self.articleAuthor = articleAuthor
+        pollEvent = parsedContent.renderEvent
+        pollMetadata = parsedContent.pollMetadata
         tokens = parsedContent.tokens
-        parts = Self.buildRenderParts(tokens: parsedContent.tokens)
+        parts = parsedContent.parts
         mentionIdentifiers = parsedContent.mentionIdentifiers
         emojiTagURLs = parsedContent.emojiTagURLs
         websitePreviewURL = parsedContent.websitePreviewURL
-        mediaAspectRatioHints = NoteImageLayoutGuide.mediaAspectRatioHints(from: renderEvent.tags)
-        gifLikeVideoURLKeys = Self.gifLikeVideoURLKeys(from: renderEvent.tags)
-        mediaRevealCacheKey = event.id.lowercased()
+        mediaAspectRatioHints = parsedContent.mediaAspectRatioHints
+        gifLikeVideoURLKeys = parsedContent.gifLikeVideoURLKeys
+        let rowStateKey = NoteRenderEnvelopeSafety.normalizedEventID(event.id) ?? ""
+        mediaRevealCacheKey = rowStateKey
+        taggedEventSummary = parsedContent.taggedEventSummary
         self.onHashtagTap = onHashtagTap
         self.onProfileTap = onProfileTap
         self.onReferencedEventTap = onReferencedEventTap
@@ -258,7 +297,7 @@ struct NoteContentView: View {
         self.commentCount = commentCount
         self.embedDepth = embedDepth
         _revealsBlurredMedia = State(
-            initialValue: Self.blurRevealStateCache.isRevealed(for: event.id.lowercased())
+            initialValue: Self.blurRevealStateCache.isRevealed(for: rowStateKey)
         )
     }
 
@@ -266,6 +305,8 @@ struct NoteContentView: View {
         Group {
             if let zapReceiptMetadata {
                 NostrZapReceiptCardView(metadata: zapReceiptMetadata)
+            } else if let appHandlerMetadata {
+                NostrAppHandlerCardView(metadata: appHandlerMetadata)
             } else if let articleMetadata {
                 LongFormArticlePreviewView(
                     article: articleMetadata,
@@ -273,6 +314,8 @@ struct NoteContentView: View {
                 )
             } else if let unsupportedEventMetadata {
                 NostrUnsupportedEventCardView(metadata: unsupportedEventMetadata)
+            } else if parts.isEmpty, pollMetadata == nil {
+                taggedEventSummaryView
             } else {
                 let pollInsertionOffsets = NoteContentPollPlacement.insertionOffsets(
                     partCount: renderedParts.count,
@@ -335,7 +378,12 @@ struct NoteContentView: View {
                                     text: "Video hidden in Text Only Mode"
                                 )
                             } else {
-                                restrictedMediaView {
+                                restrictedMediaView(
+                                    placeholderAspectRatio: NoteImageLayoutGuide.aspectRatioHint(
+                                        for: url,
+                                        in: mediaAspectRatioHints
+                                    ) ?? NoteImageLayoutGuide.defaultVideoAspectRatio
+                                ) {
                                     NoteVideoPlayerView(
                                         url: url,
                                         layout: mediaLayout,
@@ -358,7 +406,9 @@ struct NoteContentView: View {
                                     text: "YouTube video hidden in Text Only Mode"
                                 )
                             } else {
-                                restrictedMediaView {
+                                restrictedMediaView(
+                                    placeholderAspectRatio: NoteImageLayoutGuide.defaultVideoAspectRatio
+                                ) {
                                     YouTubeInlinePlayerView(
                                         url: url,
                                         layout: mediaLayout
@@ -438,18 +488,65 @@ struct NoteContentView: View {
         }
     }
 
+    private var taggedEventSummaryView: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(taggedEventSummary.title)
+                .font(appSettings.appFont(.headline, weight: .semibold))
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let description = taggedEventSummary.description {
+                Text(description)
+                    .font(appSettings.appFont(.body))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("Kind \(taggedEventSummary.kind)")
+                .font(appSettings.appFont(.caption1, weight: .semibold))
+                .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(appSettings.themePalette.tertiaryFill))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    static func taggedEventSummary(for event: NostrEvent) -> TaggedEventSummary {
+        let title = firstNonemptyTagValue(named: ["title", "subject"], in: event.tags) ?? "Shared item"
+        let description = firstNonemptyTagValue(named: ["summary", "description"], in: event.tags)
+        return TaggedEventSummary(title: title, description: description, kind: event.kind)
+    }
+
+    private static func firstNonemptyTagValue(
+        named names: Set<String>,
+        in tags: [[String]]
+    ) -> String? {
+        for tag in tags {
+            guard tag.count > 1, names.contains(tag[0].lowercased()) else { continue }
+            let value = tag[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+
     @ViewBuilder
-    private func restrictedMediaView<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func restrictedMediaView<Content: View>(
+        placeholderAspectRatio: CGFloat = NoteImageLayoutGuide.defaultSingleImageAspectRatio,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         if shouldBlurMediaFromUnfollowedAuthors {
             NoteBlurRevealContainer(
                 cornerRadius: restrictedMediaCornerRadius,
+                aspectRatio: placeholderAspectRatio,
                 onReveal: {
                     revealsBlurredMedia = true
                     Self.blurRevealStateCache.markRevealed(for: mediaRevealCacheKey)
                 }
-            ) {
-                content()
-            }
+            )
         } else {
             content()
         }
@@ -503,9 +600,8 @@ struct NoteContentView: View {
     }
 
     private func normalizedMediaAuthorPubkey(_ pubkey: String?) -> String {
-        pubkey?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() ?? ""
+        guard let pubkey else { return "" }
+        return NoteRenderEnvelopeSafety.normalizedPubkey(pubkey) ?? ""
     }
 
     private var inlineCharacterCount: Int {
@@ -621,7 +717,7 @@ struct NoteContentView: View {
         return index
     }
 
-    private static func buildRenderParts(tokens: [NoteContentToken]) -> [RenderPart] {
+    static func buildRenderParts(tokens: [NoteContentToken]) -> [RenderPart] {
         var parts: [RenderPart] = []
         var inlineBuffer: [NoteContentToken] = []
         var index = 0
@@ -649,10 +745,11 @@ struct NoteContentView: View {
                 while index < tokens.count {
                     let currentToken = tokens[index]
 
-                    if currentToken.type == .image,
-                       let url = NoteContentParser.webURL(from: currentToken.value) {
-                        imageURLs.append(url)
+                    if currentToken.type == .image {
                         index += 1
+                        if let url = NoteContentParser.webURL(from: currentToken.value) {
+                            imageURLs.append(url)
+                        }
                         continue
                     }
 
@@ -906,6 +1003,7 @@ struct NoteContentView: View {
 
     private static func parseEmojiTagURLs(from tags: [[String]]) -> [String: URL] {
         var result: [String: URL] = [:]
+        var acceptedShortcodes = Set<String>()
 
         for tag in tags {
             guard tag.count >= 3 else { continue }
@@ -914,10 +1012,19 @@ struct NoteContentView: View {
             let rawShortcode = tag[1].trimmingCharacters(in: .whitespacesAndNewlines)
             let urlString = tag[2].trimmingCharacters(in: .whitespacesAndNewlines)
             guard let shortcode = normalizedEmojiShortcode(from: rawShortcode), !urlString.isEmpty else { continue }
-            guard let url = URL(string: urlString), url.scheme != nil else { continue }
+            guard let url = URL(string: urlString),
+                  FlowURLSafety.isPubliclyLoadableWebURL(url) else {
+                continue
+            }
+
+            let normalizedShortcode = shortcode.lowercased()
+            if !acceptedShortcodes.contains(normalizedShortcode) {
+                guard acceptedShortcodes.count < maximumCustomEmojiCount else { continue }
+                acceptedShortcodes.insert(normalizedShortcode)
+            }
 
             result[shortcode] = url
-            result[shortcode.lowercased()] = url
+            result[normalizedShortcode] = url
         }
 
         return result
@@ -1035,16 +1142,27 @@ struct NoteContentView: View {
         return trimmed
     }
 
-    private static func renderEvent(for event: NostrEvent) -> NostrEvent {
+    static func preparedRenderEvent(for event: NostrEvent) -> NostrEvent {
         // Kind 6 reposts often carry a full JSON event in `content` (NIP-18).
         // We render the embedded event body/media so users don't see raw JSON text.
-        guard event.kind == 6 || event.kind == 16 else { return event }
-        guard let embedded = decodeEmbeddedEvent(from: event.content) else { return event }
-        guard embedded.kind != 6 && embedded.kind != 16 else { return event }
-        return embedded
+        guard event.kind == 6 || event.kind == 16 else {
+            return boundedRenderEvent(event)
+        }
+        guard let embedded = decodeEmbeddedEvent(from: event.content),
+              embedded.kind != 6,
+              embedded.kind != 16 else {
+            return boundedRenderEvent(event)
+        }
+        return boundedRenderEvent(embedded)
     }
 
     private static func decodeEmbeddedEvent(from content: String) -> NostrEvent? {
+        guard isWithinUTF8ByteLimit(
+            content,
+            maximum: maximumEmbeddedEventJSONByteCount
+        ) else {
+            return nil
+        }
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else { return nil }
         guard let data = trimmed.data(using: .utf8),
@@ -1082,6 +1200,64 @@ struct NoteContentView: View {
         )
     }
 
+    /// Creates the bounded copy used by every feed-row parser and metadata helper.
+    /// Relay event fields are untrusted, so no row-rendering path should walk an
+    /// arbitrarily large content string or tag collection on the main thread.
+    static func boundedRenderEvent(_ event: NostrEvent) -> NostrEvent {
+        var remainingTagBytes = maximumRenderTagBytes
+        var boundedTags: [[String]] = []
+        boundedTags.reserveCapacity(min(event.tags.count, maximumRenderTagCount))
+
+        for tag in event.tags.prefix(maximumRenderTagCount) {
+            guard remainingTagBytes > 0 else { break }
+
+            var boundedTag: [String] = []
+            boundedTag.reserveCapacity(min(tag.count, maximumRenderElementsPerTag))
+
+            for (elementIndex, value) in tag.prefix(maximumRenderElementsPerTag).enumerated() {
+                guard remainingTagBytes > 0 else { break }
+                let elementByteLimit = elementIndex == 0
+                    ? maximumRenderTagNameByteCount
+                    : maximumRenderTagValueByteCount
+                let byteLimit = min(elementByteLimit, remainingTagBytes)
+                let boundedValue = boundedUTF8Prefix(value, maximum: byteLimit)
+                remainingTagBytes -= boundedValue.utf8.count
+                boundedTag.append(boundedValue)
+            }
+
+            if !boundedTag.isEmpty {
+                boundedTags.append(boundedTag)
+            }
+        }
+
+        return NostrEvent(
+            id: event.id,
+            pubkey: event.pubkey,
+            createdAt: event.createdAt,
+            kind: event.kind,
+            tags: boundedTags,
+            content: boundedUTF8Prefix(
+                event.content,
+                maximum: maximumRenderContentByteCount
+            ),
+            sig: event.sig
+        )
+    }
+
+    private static func boundedUTF8Prefix(_ value: String, maximum: Int) -> String {
+        let boundedBytes = value.utf8.prefix(maximum + 1)
+        guard boundedBytes.count > maximum else { return value }
+        var result = String(decoding: boundedBytes.prefix(maximum), as: UTF8.self)
+        while result.utf8.count > maximum {
+            result.removeLast()
+        }
+        return result
+    }
+
+    private static func isWithinUTF8ByteLimit(_ value: String, maximum: Int) -> Bool {
+        value.utf8.prefix(maximum + 1).count <= maximum
+    }
+
     fileprivate static func normalizeMentionIdentifier(_ raw: String) -> String {
         let lowered = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1115,5 +1291,176 @@ struct NoteContentView: View {
             return "\(normalized.prefix(10))...\(normalized.suffix(4))"
         }
         return normalized
+    }
+}
+
+private struct NostrAppHandlerCardView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appSettings: AppSettingsStore
+
+    let metadata: NostrAppHandlerMetadata
+    @State private var isExpanded = false
+
+    private static let cardCornerRadius: CGFloat = 18
+    private static let iconCornerRadius: CGFloat = 16
+    private static let collapsedAboutLineLimit = 7
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 14) {
+                appIcon
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Label("Compatible application", systemImage: "app.badge")
+                        .font(appSettings.appFont(.caption1, weight: .semibold))
+                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
+
+                    Text(metadata.name)
+                        .font(appSettings.appFont(.title3, weight: .bold))
+                        .foregroundStyle(appSettings.themePalette.foreground)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if let host = metadata.websiteURL?.host {
+                        Text(host)
+                            .font(appSettings.appFont(.caption1))
+                            .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            if let about = metadata.about {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(about)
+                        .font(appSettings.appFont(.body))
+                        .foregroundStyle(appSettings.themePalette.foreground)
+                        .lineLimit(isExpanded ? nil : Self.collapsedAboutLineLimit)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if shouldOfferExpansion(for: about) {
+                        Button(isExpanded ? "Show less" : "More") {
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                isExpanded.toggle()
+                            }
+                        }
+                        .font(appSettings.appFont(.caption1, weight: .semibold))
+                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                        .buttonStyle(.plain)
+                        .frame(minHeight: 40, alignment: .leading)
+                    }
+                }
+            }
+
+            if !visibleCategories.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(visibleCategories, id: \.self) { category in
+                        Text(category.capitalized)
+                            .font(appSettings.appFont(.caption2, weight: .semibold))
+                            .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(appSettings.themePalette.tertiaryFill, in: Capsule())
+                    }
+                }
+            }
+
+            if !metadata.supportedKinds.isEmpty || metadata.websiteURL != nil {
+                HStack(spacing: 10) {
+                    if !metadata.supportedKinds.isEmpty {
+                        Label(supportedKindsLabel, systemImage: "puzzlepiece.extension")
+                            .font(appSettings.appFont(.caption1, weight: .medium))
+                            .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if let websiteURL = metadata.websiteURL {
+                        Link(destination: websiteURL) {
+                            HStack(spacing: 6) {
+                                Text("Open website")
+                                Image(systemName: "arrow.up.right")
+                                    .font(.caption.weight(.bold))
+                            }
+                            .font(appSettings.appFont(.caption1, weight: .semibold))
+                            .foregroundStyle(appSettings.primaryColor)
+                            .frame(minHeight: 40)
+                            .padding(.horizontal, 12)
+                            .background(appSettings.primaryColor.opacity(0.10), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(appSettings.themePalette.linkPreviewBackground)
+        .clipShape(cardShape)
+        .overlay(cardShape.stroke(appSettings.themePalette.linkPreviewBorder, lineWidth: 0.8))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var appIcon: some View {
+        Group {
+            if appSettings.textOnlyMode || metadata.pictureURL == nil {
+                appIconPlaceholder
+            } else {
+                CachedAsyncImage(url: metadata.pictureURL, kind: .avatar) { phase in
+                    if case .success(let image) = phase {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        appIconPlaceholder
+                    }
+                }
+            }
+        }
+        .frame(width: 72, height: 72)
+        .clipShape(iconShape)
+        .overlay(iconShape.stroke(iconOutlineColor, lineWidth: 1))
+        .accessibilityHidden(true)
+    }
+
+    private var appIconPlaceholder: some View {
+        ZStack {
+            appSettings.themePalette.tertiaryFill
+            Image(systemName: "app.dashed")
+                .font(.system(size: 25, weight: .semibold))
+                .foregroundStyle(appSettings.themePalette.secondaryForeground)
+        }
+    }
+
+    private var visibleCategories: [String] {
+        Array(metadata.categories.prefix(3))
+    }
+
+    private var supportedKindsLabel: String {
+        let visibleKinds = metadata.supportedKinds.prefix(3).map(String.init).joined(separator: ", ")
+        let remainingCount = metadata.supportedKinds.count - min(metadata.supportedKinds.count, 3)
+        let suffix = remainingCount > 0 ? " +\(remainingCount)" : ""
+        let noun = metadata.supportedKinds.count == 1 ? "kind" : "kinds"
+        return "Handles \(noun) \(visibleKinds)\(suffix)"
+    }
+
+    private var iconOutlineColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.10)
+    }
+
+    private var cardShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Self.cardCornerRadius, style: .continuous)
+    }
+
+    private var iconShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: Self.iconCornerRadius, style: .continuous)
+    }
+
+    private func shouldOfferExpansion(for text: String) -> Bool {
+        text.count > 420 || text.filter(\.isNewline).count >= Self.collapsedAboutLineLimit
     }
 }

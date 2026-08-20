@@ -1,11 +1,9 @@
 import SwiftUI
 
 enum ProfileHeaderBannerMetrics {
-    static let height: CGFloat = LongFormArticleReaderLayout.heroMinHeight
-    static let fadeHeight: CGFloat = LongFormArticleReaderLayout.heroMinHeight * 0.21
+    static let height: CGFloat = 220
     static let topScrimOpacity: Double = 0.04
-    static let bottomFadeMidOpacity: Double = 0.08
-    static let bottomFadeStrongOpacity: Double = 0.48
+    static let edgeOpacity: Double = 0.10
     static let loadedImageOpacity: Double = 1
     static let loadedImageSaturation: Double = 1
 }
@@ -120,7 +118,6 @@ struct ProfileHeaderContent {
     let websiteDisplayText: String?
     let followsCurrentUser: Bool
     let followingCountText: String
-    let followStatusIconName: String?
     let knownFollowers: [ProfileKnownFollower]
     let actionMessage: String?
 
@@ -226,7 +223,6 @@ struct ProfileHeaderSection<BackButton: View, MenuButton: View, ActionRow: View>
                 ProfileIdentityBlock(
                     displayName: content.displayName,
                     handle: content.handle,
-                    followStatusIconName: content.followStatusIconName,
                     followsCurrentUser: content.followsCurrentUser,
                     followingCountText: content.followingCountText,
                     onFollowingTap: onFollowingTap
@@ -550,6 +546,7 @@ private struct ProfileBannerArtwork: View {
     let bannerURL: URL?
 
     @EnvironmentObject private var appSettings: AppSettingsStore
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         GeometryReader { proxy in
@@ -576,18 +573,14 @@ private struct ProfileBannerArtwork: View {
                     )
                     .frame(width: width, height: ProfileHeaderBannerMetrics.height)
                 }
-                .overlay(alignment: .bottomLeading) {
-                    LinearGradient(
-                        stops: [
-                            .init(color: Color.clear, location: 0),
-                            .init(color: appSettings.themePalette.background.opacity(ProfileHeaderBannerMetrics.bottomFadeMidOpacity), location: 0.42),
-                            .init(color: appSettings.themePalette.background.opacity(ProfileHeaderBannerMetrics.bottomFadeStrongOpacity), location: 0.78),
-                            .init(color: appSettings.themePalette.background, location: 1)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(width: width, height: ProfileHeaderBannerMetrics.fadeHeight)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(
+                            colorScheme == .dark
+                                ? Color.white.opacity(ProfileHeaderBannerMetrics.edgeOpacity)
+                                : Color.black.opacity(ProfileHeaderBannerMetrics.edgeOpacity)
+                        )
+                        .frame(height: 1)
                 }
                 .clipped()
         }
@@ -727,7 +720,6 @@ private struct ProfileAvatarView: View {
 private struct ProfileIdentityBlock: View {
     let displayName: String
     let handle: String
-    let followStatusIconName: String?
     let followsCurrentUser: Bool
     let followingCountText: String
     let onFollowingTap: () -> Void
@@ -737,39 +729,20 @@ private struct ProfileIdentityBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             displayNameText
-            ViewThatFits(in: .vertical) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    handleRow
-                    Spacer(minLength: 12)
-                    followMetadataRow
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    handleRow
-                    followMetadataRow
-                }
-            }
+            handleRow
+            followMetadataRow
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .layoutPriority(1)
     }
 
     private var handleRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(FlowLayoutGuardrails.softWrapped(handle, maxNonBreakingRunLength: 18, minimumLength: 18))
-                .font(appSettings.appFont(.subheadline))
-                .foregroundStyle(appSettings.themePalette.mutedForeground)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            if let followStatusIconName {
-                Image(systemName: followStatusIconName)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(appSettings.primaryColor)
-                    .accessibilityHidden(true)
-            }
-        }
-        .layoutPriority(1)
+        Text(FlowLayoutGuardrails.softWrapped(handle, maxNonBreakingRunLength: 18, minimumLength: 18))
+            .font(appSettings.appFont(.subheadline))
+            .foregroundStyle(appSettings.themePalette.mutedForeground)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .layoutPriority(1)
     }
 
     private var followMetadataRow: some View {

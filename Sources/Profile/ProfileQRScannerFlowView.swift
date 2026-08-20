@@ -125,7 +125,7 @@ struct ProfileQRScannerFlowView: View {
             .padding(.horizontal, 24)
             .shadow(color: Color.black.opacity(0.35), radius: 28, x: 0, y: 16)
 
-            Text("Halo and Nostr profile codes are supported.")
+            Text("Halo and compatible profile codes are supported.")
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.6))
 
@@ -228,6 +228,10 @@ struct ProfileQRScannerFlowView: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .followCelebration(
+                        trigger: followStore.followCelebrationToken(for: profile.pubkey),
+                        accentColor: .white
+                    )
                     .disabled(followStore.isFollowing(profile.pubkey) || auth.currentNsec == nil)
                 }
 
@@ -345,7 +349,7 @@ struct ProfileQRScannerFlowView: View {
     private func resolveScannedCode(_ rawValue: String) async {
         guard let pubkey = resolvedProfilePubkey(from: rawValue) else {
             await MainActor.run {
-                phase = .invalid("That QR code doesn’t look like a Halo or Nostr profile.")
+                phase = .invalid("That QR code doesn’t look like a compatible profile.")
             }
             return
         }

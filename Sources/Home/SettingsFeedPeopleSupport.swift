@@ -62,7 +62,7 @@ struct SettingsFeedPersonPicker: View {
     var body: some View {
         ThemedSettingsForm {
             Section {
-                TextField("Search name or paste npub", text: $searchText)
+                TextField("Search name or paste account address", text: $searchText)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .onChange(of: searchText) { _, _ in

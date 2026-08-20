@@ -131,19 +131,50 @@ enum FlowMediaCache {
     static let sharedURLCacheMemoryCapacity = 64 * 1_024 * 1_024
     static let sharedURLCacheDiskCapacity = 256 * 1_024 * 1_024
     static let sharedURLCacheDirectory = "flow-url-cache"
+    private static let rollbackCleanupKey = "flow.performanceRollbackCleanup.v1"
 
     static func configureSharedURLCache() {
         let current = URLCache.shared
-        if current.memoryCapacity >= sharedURLCacheMemoryCapacity,
-           current.diskCapacity >= sharedURLCacheDiskCapacity {
-            return
+        if current.memoryCapacity < sharedURLCacheMemoryCapacity ||
+            current.diskCapacity < sharedURLCacheDiskCapacity {
+            URLCache.shared = URLCache(
+                memoryCapacity: sharedURLCacheMemoryCapacity,
+                diskCapacity: sharedURLCacheDiskCapacity,
+                diskPath: sharedURLCacheDirectory
+            )
         }
 
-        URLCache.shared = URLCache(
-            memoryCapacity: sharedURLCacheMemoryCapacity,
-            diskCapacity: sharedURLCacheDiskCapacity,
-            diskPath: sharedURLCacheDirectory
-        )
+        removeDiscardedPerformanceCachesIfNeeded()
+    }
+
+    private static func removeDiscardedPerformanceCachesIfNeeded(
+        defaults: UserDefaults = .standard,
+        fileManager: FileManager = .default
+    ) {
+        guard !defaults.bool(forKey: rollbackCleanupKey) else { return }
+
+        // These stores belonged to the removed eager-prefetch implementation.
+        // Clearing them is safe: account, relay, draft, and note data live elsewhere.
+        URLCache.shared.removeAllCachedResponses()
+        defaults.removeObject(forKey: FlowMediaAspectRatioCache.storageKey)
+
+        if let cachesDirectory = fileManager.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+        ).first {
+            for directoryName in [
+                "flow-media-cache",
+                "flow-link-previews-v1",
+                "flow-video-files-v1",
+                "flow-video-posters-v1"
+            ] {
+                try? fileManager.removeItem(
+                    at: cachesDirectory.appendingPathComponent(directoryName, isDirectory: true)
+                )
+            }
+        }
+
+        defaults.set(true, forKey: rollbackCleanupKey)
     }
 }
 
@@ -241,13 +272,19 @@ enum FlowImageCacheRequestKind: Hashable, Sendable {
 final class FlowMediaAspectRatioCache {
     static let shared = FlowMediaAspectRatioCache()
 
-    private static let storageKey = "flow.mediaAspectRatios.v1"
+    fileprivate static let storageKey = "flow.mediaAspectRatios.v1"
     private static let maxPersistedRatios = 2_048
+    private static let persistenceDelay: TimeInterval = 0.75
 
     private let cache = NSCache<NSString, NSNumber>()
     private let defaults: UserDefaults
     private let lock = NSLock()
+    private let persistenceQueue = DispatchQueue(
+        label: "flow.media-aspect-ratio-persistence",
+        qos: .utility
+    )
     private var persistedRatios: [String: Double]
+    private var persistenceGeneration: UInt64 = 0
 
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -289,8 +326,28 @@ final class FlowMediaAspectRatioCache {
         cache.setObject(NSNumber(value: normalizedRatio), forKey: key as NSString)
 
         lock.lock()
+        if let existing = persistedRatios[key],
+           abs(existing - normalizedRatio) < 0.000_1 {
+            lock.unlock()
+            return
+        }
         persistedRatios[key] = normalizedRatio
         trimPersistedRatiosIfNeeded()
+        persistenceGeneration &+= 1
+        let generation = persistenceGeneration
+        lock.unlock()
+
+        persistenceQueue.asyncAfter(deadline: .now() + Self.persistenceDelay) { [weak self] in
+            self?.persistRatiosIfCurrent(generation: generation)
+        }
+    }
+
+    private func persistRatiosIfCurrent(generation: UInt64) {
+        lock.lock()
+        guard generation == persistenceGeneration else {
+            lock.unlock()
+            return
+        }
         let snapshot = persistedRatios
         lock.unlock()
 

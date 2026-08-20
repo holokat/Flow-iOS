@@ -295,53 +295,56 @@ struct ThreadDetailContentSection: View {
                 .padding(.top, 12)
                 .padding(.bottom, 10)
 
-                switch selectedContentTab {
-                case .replies:
-                    ThreadDetailRepliesSection(
-                        replies: replies,
-                        spamReplies: spamReplies,
-                        spamRepliesExpanded: spamRepliesExpanded,
-                        replyCountsByTarget: replyCountsByTarget,
-                        isLoading: isLoadingReplies,
-                        rootEventID: rootEventID,
-                        showReactions: showReactions,
-                        effectiveReadRelayURLs: effectiveReadRelayURLs,
-                        currentUserPubkey: currentUserPubkey,
-                        isFollowingAuthor: isFollowingAuthor,
-                        onFollowToggle: onFollowToggle,
-                        onOpenHashtag: onOpenHashtag,
-                        onOpenProfile: onOpenProfile,
-                        onOpenRelay: onOpenRelay,
-                        onOpenThread: onOpenThread,
-                        onReplyTap: onReplyTap,
-                        onToggleSpamReplies: onToggleSpamReplies,
-                        onMarkNotSpam: onMarkNotSpam
-                    )
+                VStack(alignment: .leading, spacing: 0) {
+                    switch selectedContentTab {
+                    case .replies:
+                        ThreadDetailRepliesSection(
+                            replies: replies,
+                            spamReplies: spamReplies,
+                            spamRepliesExpanded: spamRepliesExpanded,
+                            replyCountsByTarget: replyCountsByTarget,
+                            isLoading: isLoadingReplies,
+                            rootEventID: rootEventID,
+                            showReactions: showReactions,
+                            effectiveReadRelayURLs: effectiveReadRelayURLs,
+                            currentUserPubkey: currentUserPubkey,
+                            isFollowingAuthor: isFollowingAuthor,
+                            onFollowToggle: onFollowToggle,
+                            onOpenHashtag: onOpenHashtag,
+                            onOpenProfile: onOpenProfile,
+                            onOpenRelay: onOpenRelay,
+                            onOpenThread: onOpenThread,
+                            onReplyTap: onReplyTap,
+                            onToggleSpamReplies: onToggleSpamReplies,
+                            onMarkNotSpam: onMarkNotSpam
+                        )
 
-                    if let repliesErrorMessage {
-                        Text(repliesErrorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                    }
-                case .reactions:
-                    ThreadDetailReactionsSection(
-                        noteActivityRows: noteActivityRows,
-                        isLoading: isLoadingReactions,
-                        onOpenProfile: onOpenProfile
-                    )
+                        if let repliesErrorMessage {
+                            Text(repliesErrorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                        }
+                    case .reactions:
+                        ThreadDetailReactionsSection(
+                            noteActivityRows: noteActivityRows,
+                            isLoading: isLoadingReactions,
+                            onOpenProfile: onOpenProfile
+                        )
 
-                    if let reactionsErrorMessage {
-                        Text(reactionsErrorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
+                        if let reactionsErrorMessage {
+                            Text(reactionsErrorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                        }
                     }
                 }
+                .flowPeerTabContentTransition(selection: selectedContentTab)
             }
         }
     }

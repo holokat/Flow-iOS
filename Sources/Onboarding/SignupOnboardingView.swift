@@ -49,7 +49,7 @@ struct SignupOnboardingView: View {
         canSwitchToSignIn: Bool,
         onSwitchToSignIn: @escaping () -> Void,
         onComplete: @escaping () -> Void,
-        initialPrimaryColorOption: AppPrimaryColorOption = .defaultOption,
+        initialPrimaryColorOption _: AppPrimaryColorOption = .defaultOption,
         initialThemeOption: AppThemeOption = AppSettingsStore.defaultThemeForCurrentTime()
     ) {
         self.canSwitchToSignIn = canSwitchToSignIn
@@ -60,7 +60,9 @@ struct SignupOnboardingView: View {
         let safeTheme = Self.onboardingThemeOptions.contains(resolvedTheme)
             ? resolvedTheme
             : (Self.onboardingThemeOptions.first ?? .holographicLight)
-        _selectedButtonStyleOption = State(initialValue: OnboardingButtonStyleOption(primaryColor: initialPrimaryColorOption.color))
+        _selectedButtonStyleOption = State(
+            initialValue: OnboardingButtonStyleOption(primaryColor: AppSettingsStore.defaultPrimaryColor)
+        )
         _selectedThemeOption = State(initialValue: safeTheme)
     }
 
@@ -232,7 +234,7 @@ struct SignupOnboardingView: View {
         return VStack(alignment: .leading, spacing: 18) {
             stepIntro(
                 title: "Customize Profile",
-                subtitle: "Pick a primary color and palette, then upload photos if you want. You can change all of this later."
+                subtitle: "Choose an appearance, then upload photos if you want. You can change this later."
             )
 
             OnboardingProfilePreviewCard(
@@ -254,30 +256,7 @@ struct SignupOnboardingView: View {
 
             onboardingFieldCard {
                 VStack(alignment: .leading, spacing: 16) {
-                    fieldLabel("Primary Color")
-
-                    ColorPicker(
-                        selection: primaryColorPickerBinding,
-                        supportsOpacity: false
-                    ) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "eyedropper.halffull")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(selectedButtonStyleOption.primaryColor)
-
-                            Text("Custom Color")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(previewThemePalette.foreground)
-                        }
-                    }
-                    .tint(selectedButtonStyleOption.primaryColor)
-
-                    HStack(spacing: 10) {
-                        ForEach(AppSettingsStore.availablePrimaryColorOptions) { option in
-                            primaryColorChip(for: option)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    fieldLabel("Appearance")
 
                     HStack(spacing: 8) {
                         ForEach(Self.onboardingThemeOptions) { option in
@@ -589,43 +568,6 @@ struct SignupOnboardingView: View {
         .buttonStyle(.plain)
     }
 
-    private var primaryColorPickerBinding: Binding<Color> {
-        Binding(
-            get: { selectedButtonStyleOption.primaryColor },
-            set: { newValue in
-                selectedButtonStyleOption = OnboardingButtonStyleOption(
-                    primaryColor: AppSettingsStore.opaquePrimaryColor(from: newValue)
-                )
-            }
-        )
-    }
-
-    private func primaryColorChip(for option: AppPrimaryColorOption) -> some View {
-        let isSelected = AppSettingsStore.matchingPrimaryColorOption(
-            for: selectedButtonStyleOption.primaryColor
-        ) == option
-
-        return Button {
-            selectedButtonStyleOption = OnboardingButtonStyleOption(primaryColor: option.color)
-        } label: {
-            Circle()
-                .fill(option.color)
-                .frame(width: 34, height: 34)
-                .overlay {
-                    if isSelected {
-                        Image(systemName: "checkmark")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(selectedButtonStyleOption.buttonTextColor)
-                    }
-                }
-                .scaleEffect(isSelected ? 1.04 : 1)
-                .frame(width: 38, height: 38)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Primary color #\(option.hexCode)")
-    }
-
     private func paletteChip(for option: AppThemeOption) -> some View {
         let isSelected = selectedThemeOption == option
 
@@ -918,7 +860,7 @@ struct SignupOnboardingView: View {
         defer { isPreparingAccount = false }
 
         guard let keypair = Keypair() else {
-            errorMessage = "Couldn’t generate a new keypair right now."
+            errorMessage = "Couldn’t create your account right now."
             return
         }
 
@@ -1103,7 +1045,6 @@ struct SignupOnboardingView: View {
     }
 
     private func applySelectedButtonStyle() {
-        appSettings.primaryColor = selectedButtonStyleOption.primaryColor
         appSettings.clearButtonGradient()
     }
 

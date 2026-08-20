@@ -51,32 +51,32 @@ struct NoteMediaPlaceholderView: View {
     }
 }
 
-struct NoteBlurRevealContainer<Content: View>: View {
+struct NoteBlurRevealContainer: View {
+    @EnvironmentObject private var appSettings: AppSettingsStore
+
     let cornerRadius: CGFloat
+    let aspectRatio: CGFloat
     let onReveal: () -> Void
-    let content: Content
 
     init(
         cornerRadius: CGFloat,
-        onReveal: @escaping () -> Void,
-        @ViewBuilder content: () -> Content
+        aspectRatio: CGFloat = NoteImageLayoutGuide.defaultSingleImageAspectRatio,
+        onReveal: @escaping () -> Void
     ) {
         self.cornerRadius = cornerRadius
+        self.aspectRatio = NoteImageLayoutGuide.normalizedAspectRatio(aspectRatio)
+            ?? NoteImageLayoutGuide.defaultSingleImageAspectRatio
         self.onReveal = onReveal
-        self.content = content()
     }
 
     var body: some View {
         ZStack {
-            content
-                .compositingGroup()
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .blur(radius: 22)
-                .overlay {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Color.black.opacity(0.22))
-                }
-                .allowsHitTesting(false)
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(appSettings.themePalette.secondaryBackground)
+
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 38, weight: .medium))
+                .foregroundStyle(appSettings.themePalette.secondaryForeground.opacity(0.34))
 
             VStack(spacing: 8) {
                 Image(systemName: "eye.slash.fill")
@@ -124,6 +124,8 @@ struct NoteBlurRevealContainer<Content: View>: View {
             )
             .shadow(color: Color.black.opacity(0.22), radius: 16, x: 0, y: 9)
         }
+        .aspectRatio(aspectRatio, contentMode: .fit)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .onTapGesture(perform: onReveal)

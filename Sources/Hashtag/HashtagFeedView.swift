@@ -510,8 +510,8 @@ struct RelayFeedView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(
                     isCurrentRelayFavorite
-                        ? "Remove relay from Feed Sources"
-                        : "Add relay to Feed Sources"
+                        ? "Remove source from Feed Sources"
+                        : "Add source to Feed Sources"
                 )
             }
         }
@@ -580,7 +580,7 @@ struct RelayFeedView: View {
                     .multilineTextAlignment(.center)
                     .foregroundStyle(appSettings.themePalette.secondaryForeground)
             } else {
-                Text("No posts found on \(viewModel.relayHostLabel)")
+                Text("No posts found from \(viewModel.relayHostLabel)")
                     .font(appSettings.appFont(.body))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(appSettings.themePalette.secondaryForeground)

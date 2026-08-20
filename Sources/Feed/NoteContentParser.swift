@@ -117,6 +117,22 @@ enum NoteContentParser {
 
     private static let trailingURLPunctuation = CharacterSet(charactersIn: #".,;:'")]}!?，。；："'！？】）"#)
 
+    // Keep untrusted event/tag data from turning URL normalization into an
+    // unbounded main-thread operation while SwiftUI is constructing feed rows.
+    // 8 KiB is already far beyond normal web and signed-media URLs.
+    private static let maximumWebURLByteCount = 8_192
+    private static let maximumTokenizedContentByteCount = 32_768
+    private static let maximumStructuredTokenCandidates = 512
+    private static let maximumEventTagsToInspect = 512
+    private static let maximumValuesPerImetaTag = 32
+    private static let maximumImetaTagsToInspect = 32
+    private static let maximumImetaMediaTokens = 12
+    private static let maximumQuotedReferenceTags = 32
+    private static let maximumTagNameByteCount = 32
+    private static let maximumMIMETypeByteCount = 256
+    private static let maximumReferenceTagValueByteCount = 8_192
+    private static let truncatedContentMarker = "\n\n[Note shortened for performance]"
+
     private static let imageExtensions: Set<String> = [
         "jpg", "jpeg", "png", "gif", "webp", "heic", "svg"
     ]
@@ -145,17 +161,21 @@ enum NoteContentParser {
 
     static func tokenize(content: String) -> [NoteContentToken] {
         guard !content.isEmpty else { return [] }
-        let nsContent = content as NSString
+        let boundedContent = boundedContentForTokenization(content)
+        let nsContent = boundedContent as NSString
         let fullRange = NSRange(location: 0, length: nsContent.length)
         var candidates: [Candidate] = []
 
         if let linkDetector {
-            let matches = linkDetector.matches(in: content, options: [], range: fullRange)
+            let matches = linkDetector.matches(in: boundedContent, options: [], range: fullRange)
             for match in matches {
+                guard candidates.count < maximumStructuredTokenCandidates else { break }
+                guard match.range.length <= maximumWebURLByteCount else { continue }
                 guard let url = match.url else { continue }
                 let scheme = url.scheme?.lowercased() ?? ""
                 guard scheme == "http" || scheme == "https" else { continue }
                 let raw = nsContent.substring(with: match.range)
+                guard isWithinWebURLByteLimit(raw) else { continue }
                 let sanitized = trimTrailingPunctuation(raw)
                 let adjustedLength = (sanitized as NSString).length
                 guard adjustedLength > 0 else { continue }
@@ -169,10 +189,13 @@ enum NoteContentParser {
             }
         }
 
-        if let websocketRegex {
-            let matches = websocketRegex.matches(in: content, options: [], range: fullRange)
+        if candidates.count < maximumStructuredTokenCandidates, let websocketRegex {
+            let matches = websocketRegex.matches(in: boundedContent, options: [], range: fullRange)
             for match in matches {
+                guard candidates.count < maximumStructuredTokenCandidates else { break }
+                guard match.range.length <= maximumWebURLByteCount else { continue }
                 let raw = nsContent.substring(with: match.range)
+                guard isWithinWebURLByteLimit(raw) else { continue }
                 let sanitized = trimTrailingPunctuation(raw)
                 let adjustedLength = (sanitized as NSString).length
                 guard adjustedLength > 0 else { continue }
@@ -186,9 +209,10 @@ enum NoteContentParser {
             }
         }
 
-        if let nostrReferenceRegex {
-            let matches = nostrReferenceRegex.matches(in: content, options: [], range: fullRange)
+        if candidates.count < maximumStructuredTokenCandidates, let nostrReferenceRegex {
+            let matches = nostrReferenceRegex.matches(in: boundedContent, options: [], range: fullRange)
             for match in matches {
+                guard candidates.count < maximumStructuredTokenCandidates else { break }
                 candidates.append(
                     Candidate(
                         range: match.range,
@@ -199,9 +223,10 @@ enum NoteContentParser {
             }
         }
         
-        if let hashtagRegex {
-            let matches = hashtagRegex.matches(in: content, options: [], range: fullRange)
+        if candidates.count < maximumStructuredTokenCandidates, let hashtagRegex {
+            let matches = hashtagRegex.matches(in: boundedContent, options: [], range: fullRange)
             for match in matches {
+                guard candidates.count < maximumStructuredTokenCandidates else { break }
                 candidates.append(
                     Candidate(
                         range: match.range,
@@ -212,9 +237,10 @@ enum NoteContentParser {
             }
         }
 
-        if let emojiShortcodeRegex {
-            let matches = emojiShortcodeRegex.matches(in: content, options: [], range: fullRange)
+        if candidates.count < maximumStructuredTokenCandidates, let emojiShortcodeRegex {
+            let matches = emojiShortcodeRegex.matches(in: boundedContent, options: [], range: fullRange)
             for match in matches {
+                guard candidates.count < maximumStructuredTokenCandidates else { break }
                 candidates.append(
                     Candidate(
                         range: match.range,
@@ -370,6 +396,7 @@ enum NoteContentParser {
 
     static func relayHintURL(from raw: String?) -> URL? {
         guard let raw else { return nil }
+        guard isWithinWebURLByteLimit(raw) else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               let url = URL(string: trimmed),
@@ -429,6 +456,7 @@ enum NoteContentParser {
     }
 
     static func webURL(from rawValue: String) -> URL? {
+        guard isWithinWebURLByteLimit(rawValue) else { return nil }
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let sanitized = trimTrailingPunctuation(trimmed)
         guard !sanitized.isEmpty else { return nil }
@@ -444,9 +472,12 @@ enum NoteContentParser {
     }
 
     static func youtubeVideoEmbed(from urlString: String) -> YouTubeVideoEmbed? {
-        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = webURL(from: trimmed),
-              let scheme = url.scheme?.lowercased(),
+        guard let url = webURL(from: urlString) else { return nil }
+        return youtubeVideoEmbed(from: url)
+    }
+
+    private static func youtubeVideoEmbed(from url: URL) -> YouTubeVideoEmbed? {
+        guard let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let host = components.host?.lowercased() else {
@@ -565,11 +596,47 @@ enum NoteContentParser {
     }
 
     private static func trimTrailingPunctuation(_ raw: String) -> String {
-        var scalarView = raw.unicodeScalars
-        while let last = scalarView.last, trailingURLPunctuation.contains(last) {
-            scalarView.removeLast()
+        let scalarView = raw.unicodeScalars
+        var endIndex = scalarView.endIndex
+
+        while endIndex != scalarView.startIndex {
+            let previousIndex = scalarView.index(before: endIndex)
+            guard trailingURLPunctuation.contains(scalarView[previousIndex]) else { break }
+            endIndex = previousIndex
         }
-        return String(String.UnicodeScalarView(scalarView))
+
+        guard endIndex != scalarView.endIndex else { return raw }
+        return String(raw[..<endIndex])
+    }
+
+    private static func boundedContentForTokenization(_ content: String) -> String {
+        let boundedBytes = content.utf8.prefix(maximumTokenizedContentByteCount + 1)
+        guard boundedBytes.count > maximumTokenizedContentByteCount else {
+            return content
+        }
+
+        return String(
+            decoding: boundedBytes.prefix(maximumTokenizedContentByteCount),
+            as: UTF8.self
+        ) + truncatedContentMarker
+    }
+
+    private static func isWithinUTF8ByteLimit<Value: StringProtocol>(
+        _ value: Value,
+        maximum: Int
+    ) -> Bool {
+        var byteCount = 0
+        for _ in value.utf8 {
+            byteCount += 1
+            if byteCount > maximum {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func isWithinWebURLByteLimit<Value: StringProtocol>(_ value: Value) -> Bool {
+        isWithinUTF8ByteLimit(value, maximum: maximumWebURLByteCount)
     }
 
     private static func nostrIdentifier(from raw: String) -> String? {
@@ -617,27 +684,51 @@ enum NoteContentParser {
             tokens.filter { $0.type != .text }.map(\.value)
         )
 
-        for tag in tags {
-            guard let name = tag.first?.lowercased(), name == "imeta" else { continue }
+        var appendedMediaCount = 0
+        var inspectedImetaTagCount = 0
+        for tag in tags.prefix(maximumEventTagsToInspect) {
+            guard appendedMediaCount < maximumImetaMediaTokens else { break }
+            guard let rawName = tag.first,
+                  isWithinUTF8ByteLimit(rawName, maximum: maximumTagNameByteCount),
+                  rawName.caseInsensitiveCompare("imeta") == .orderedSame else {
+                continue
+            }
+            guard inspectedImetaTagCount < maximumImetaTagsToInspect else { break }
+            inspectedImetaTagCount += 1
 
             var urlString: String?
             var mimeType: String?
-            for value in tag.dropFirst() {
-                if value.hasPrefix("url ") {
-                    urlString = String(value.dropFirst(4))
-                } else if value.hasPrefix("m ") {
-                    mimeType = String(value.dropFirst(2)).lowercased()
+            var inspectedURLField = false
+            var inspectedMIMEField = false
+            for value in tag.dropFirst().prefix(maximumValuesPerImetaTag) {
+                if !inspectedURLField, value.hasPrefix("url ") {
+                    inspectedURLField = true
+                    let candidate = value.dropFirst(4)
+                    if isWithinWebURLByteLimit(candidate) {
+                        urlString = String(candidate)
+                    }
+                } else if !inspectedMIMEField, value.hasPrefix("m ") {
+                    inspectedMIMEField = true
+                    let candidate = value.dropFirst(2)
+                    if isWithinUTF8ByteLimit(candidate, maximum: maximumMIMETypeByteCount) {
+                        mimeType = String(candidate).lowercased()
+                    }
+                }
+
+                if inspectedURLField && inspectedMIMEField {
+                    break
                 }
             }
 
             guard let urlString, !urlString.isEmpty else { continue }
             guard !existingURLs.contains(urlString) else { continue }
+            guard let parsedURL = webURL(from: urlString) else { continue }
 
             let tokenType: NoteContentTokenType
-            if youtubeVideoEmbed(from: urlString) != nil {
+            if youtubeVideoEmbed(from: parsedURL) != nil {
                 tokenType = .youtubeVideo
             } else {
-                let mediaType = classifyMediaType(urlString: urlString, mimeType: mimeType)
+                let mediaType = classifyMediaType(url: parsedURL, mimeType: mimeType)
                 switch mediaType {
                 case .image:
                     tokenType = .image
@@ -655,6 +746,7 @@ enum NoteContentParser {
             }
             result.append(NoteContentToken(type: tokenType, value: urlString))
             existingURLs.insert(urlString)
+            appendedMediaCount += 1
         }
 
         return mergeConsecutiveTextTokens(result)
@@ -672,18 +764,34 @@ enum NoteContentParser {
             existingReferenceIndices[key] = index
         }
 
-        for tag in tags {
+        var inspectedReferenceCount = 0
+        for tag in tags.prefix(maximumEventTagsToInspect) {
+            guard inspectedReferenceCount < maximumQuotedReferenceTags else { break }
             guard tag.count > 1 else { continue }
-            guard let name = tag.first?.lowercased() else { continue }
+            guard let rawName = tag.first,
+                  isWithinUTF8ByteLimit(rawName, maximum: maximumTagNameByteCount) else {
+                continue
+            }
+            let name = rawName.lowercased()
 
+            guard isWithinUTF8ByteLimit(tag[1], maximum: maximumReferenceTagValueByteCount) else {
+                continue
+            }
             let value = tag[1].trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else { continue }
 
-            let marker = tag.count > 3 ? tag[3].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() : ""
+            let marker: String
+            if tag.count > 3,
+               isWithinUTF8ByteLimit(tag[3], maximum: maximumTagNameByteCount) {
+                marker = tag[3].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            } else {
+                marker = ""
+            }
             let isQuoteReferenceTag = name == "q"
             let isMentionedEventTag = name == "e" && marker == "mention"
             let isMentionedAddressTag = name == "a" && marker == "mention"
             guard isQuoteReferenceTag || isMentionedEventTag || isMentionedAddressTag else { continue }
+            inspectedReferenceCount += 1
 
             let rawNormalized = normalizeReferenceValue(value)
             let tagRelayHint = relayHintURL(from: tag.count > 2 ? tag[2] : nil)
@@ -1028,10 +1136,14 @@ enum NoteContentParser {
             candidate = nil
         }
 
-        guard let normalized = candidate?
+        guard let candidate,
+              isWithinUTF8ByteLimit(candidate, maximum: maximumReferenceTagValueByteCount) else {
+            return nil
+        }
+        let normalized = candidate
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased(),
-              isHex64(normalized) else {
+            .lowercased()
+        guard isHex64(normalized) else {
             return nil
         }
         return normalized
@@ -1188,6 +1300,11 @@ enum NoteContentParser {
     }
 
     private static func classifyMediaType(urlString: String, mimeType: String?) -> ParsedMediaType? {
+        guard let url = webURL(from: urlString) else { return nil }
+        return classifyMediaType(url: url, mimeType: mimeType)
+    }
+
+    private static func classifyMediaType(url: URL, mimeType: String?) -> ParsedMediaType? {
         if let mimeType {
             let normalizedMIMEType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if normalizedMIMEType.hasPrefix("image/") { return .image }
@@ -1197,7 +1314,6 @@ enum NoteContentParser {
             if normalizedMIMEType.hasPrefix("audio/") { return .audio }
         }
 
-        guard let url = webURL(from: urlString) else { return nil }
         let ext = url.pathExtension.lowercased()
         if imageExtensions.contains(ext) { return .image }
         if videoExtensions.contains(ext) { return .video }

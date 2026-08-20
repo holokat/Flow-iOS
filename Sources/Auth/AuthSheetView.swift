@@ -878,15 +878,15 @@ struct AuthSheetView: View {
     }
 
     private var authPrimaryButtonFill: Color {
-        colorScheme == .dark ? Color.white.opacity(0.96) : authInk
+        appSettings.primaryColor
     }
 
     private var authPrimaryButtonForeground: Color {
-        colorScheme == .dark ? authInk : .white
+        appSettings.buttonTextColor
     }
 
     private var authPrimaryButtonBorder: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : authInk.opacity(0.16)
+        appSettings.primaryColor.opacity(0.24)
     }
 
     private var normalizedPrivateKeyInput: String {
@@ -898,7 +898,7 @@ struct AuthSheetView: View {
     }
 
     private var signInAccentColor: Color {
-        resolvedSignUpSeedPrimaryColorOption.color
+        appSettings.primaryColor
     }
 
     private var signInPrimaryButtonFill: Color {
@@ -906,18 +906,7 @@ struct AuthSheetView: View {
     }
 
     private var signInPrimaryButtonForeground: Color {
-        let resolved = UIColor(signInAccentColor)
-            .resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-        guard resolved.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
-            return .white
-        }
-        let luminance = (0.299 * red) + (0.587 * green) + (0.114 * blue)
-        let baseForeground: Color = luminance > 0.68 ? .black : .white
-        return baseForeground.opacity(canSubmitSignIn ? 1 : 0.74)
+        appSettings.buttonTextColor.opacity(canSubmitSignIn ? 1 : 0.74)
     }
 
     private var signInPrimaryButtonBorder: Color {

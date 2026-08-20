@@ -68,10 +68,16 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testFixedAccentPaletteMatchesProductChoices() {
-        XCTAssertEqual(
-            AppSettingsStore.availablePrimaryColorOptions.map(\.hexCode),
-            ["FF0000", "0059FF", "FF5900", "91C500", "00D4FF", "D000FF", "9000FF"]
+    func testFixedAccentMatchesLightAndDarkProductBlue() {
+        assertColor(
+            AppSettingsStore.defaultPrimaryColor,
+            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1),
+            style: .light
+        )
+        assertColor(
+            AppSettingsStore.defaultPrimaryColor,
+            matches: UIColor(red: 63.0 / 255.0, green: 142.0 / 255.0, blue: 247.0 / 255.0, alpha: 1),
+            style: .dark
         )
     }
 
@@ -84,7 +90,7 @@ final class AppThemeOptionTests: XCTestCase {
         let settings = AppSettingsStore(defaults: defaults, authStore: authStore)
 
         settings.configure(accountPubkey: pubkey)
-        settings.primaryColor = AppSettingsStore.availablePrimaryColorOptions[1].color
+        settings.primaryColor = .red
 
         let reloaded = AppSettingsStore(defaults: defaults, authStore: authStore)
         reloaded.configure(accountPubkey: pubkey)
@@ -92,12 +98,19 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(reloaded.usesPrimaryGradientForProminentButtons)
         XCTAssertNil(reloaded.activeButtonGradientOption)
         XCTAssertNil(reloaded.activeHolographicGradientOption)
-        assertColor(reloaded.primaryColor, matches: UIColor(red: 0.0, green: 0x59 / 255.0, blue: 1.0, alpha: 1))
-        assertColor(reloaded.linkColor, matches: UIColor(red: 0.0, green: 0x59 / 255.0, blue: 1.0, alpha: 1))
+        assertColor(
+            reloaded.primaryColor,
+            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
+        )
+        assertColor(
+            reloaded.linkColor,
+            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
+        )
+        XCTAssertFalse(reloaded.canCustomizePrimaryColor)
     }
 
     @MainActor
-    func testCustomPrimaryColorPersistsWithoutSnappingToPreset() {
+    func testSavedCustomPrimaryColorCannotOverrideFixedAccent() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         let authStore = AuthStore(defaults: defaults)
@@ -113,20 +126,21 @@ final class AppThemeOptionTests: XCTestCase {
 
         assertColor(
             reloaded.primaryColor,
-            matches: UIColor(red: 0.18, green: 0.42, blue: 0.73, alpha: 1)
+            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
         )
         assertColor(
             reloaded.linkColor,
-            matches: UIColor(red: 0.18, green: 0.42, blue: 0.73, alpha: 1)
+            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
         )
         XCTAssertNil(reloaded.selectedPrimaryColorOption)
 
         reloaded.primaryColor = AppSettingsStore.availablePrimaryColorOptions[0].color
 
-        XCTAssertEqual(
-            reloaded.selectedPrimaryColorOption,
-            AppSettingsStore.availablePrimaryColorOptions[0]
+        assertColor(
+            reloaded.primaryColor,
+            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
         )
+        XCTAssertNil(reloaded.selectedPrimaryColorOption)
     }
 
     @MainActor
@@ -227,10 +241,9 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(reloaded.usesPrimaryGradientForProminentButtons)
         XCTAssertNil(reloaded.activeButtonGradientOption)
         XCTAssertNil(reloaded.activeHolographicGradientOption)
-        XCTAssertTrue(
-            AppSettingsStore.availablePrimaryColorOptions.contains { option in
-                colorsMatch(option.color, reloaded.primaryColor)
-            }
+        assertColor(
+            reloaded.primaryColor,
+            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
         )
     }
 
@@ -874,11 +887,12 @@ final class AppThemeOptionTests: XCTestCase {
     func testScrollChromeContentPaddingMatchesOverlayChrome() {
         let padding = ScrollChromeLayout.feedContentPadding(
             topBarHeight: 58,
+            safeAreaTop: 47,
             bottomBarHeight: 65,
             safeAreaBottom: 34
         )
 
-        XCTAssertEqual(padding.top, 58, accuracy: 0.0001)
+        XCTAssertEqual(padding.top, 105, accuracy: 0.0001)
         XCTAssertEqual(padding.bottom, 99, accuracy: 0.0001)
     }
 
@@ -917,11 +931,11 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(paddingSource.contains("topBarOffset:"))
     }
 
-    func testHomeFeedLeavesBottomSafeAreaToNativeTabBarMinimization() throws {
+    func testHomeFeedExtendsBehindTransparentTopAndBottomChrome() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
-        XCTAssertFalse(source.contains(".ignoresSafeArea(edges: .bottom)"))
-        XCTAssertFalse(source.contains(".ignoresSafeArea(edges: [.top, .bottom])"))
+        XCTAssertTrue(source.contains(".ignoresSafeArea(edges: [.top, .bottom])"))
+        XCTAssertTrue(source.contains(".contentMargins(.vertical, 0, for: .scrollContent)"))
         XCTAssertTrue(source.contains(".homeFeedNativeTabBarMinimizeBehavior()"))
     }
 
@@ -968,9 +982,9 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("ScrollChromeOpacityReader("))
         XCTAssertTrue(shellSource.contains("ScrollChromeLayout.chromeOpacity("))
         XCTAssertTrue(shellSource.contains("homeScrollChromeStore.showChromeAtRest()"))
-        XCTAssertTrue(shellSource.contains("}\n            .frame(maxWidth: .infinity)\n            .frame(height: ScrollChromeLayout.defaultBottomTabBarHeight)\n            .background("))
-        XCTAssertTrue(shellSource.contains("appSettings.themePalette.background\n                    .ignoresSafeArea(edges: .bottom)"))
-        XCTAssertTrue(shellSource.contains(".contentShape(Rectangle())\n            .opacity(chromeOpacity)"))
+        XCTAssertTrue(shellSource.contains("bottomNavigationCapsule\n                .frame(maxWidth: 520)"))
+        XCTAssertTrue(shellSource.contains("GlassEffectContainer(spacing: 8)"))
+        XCTAssertTrue(shellSource.contains(".contentShape(Rectangle())\n                .opacity(chromeOpacity)"))
         XCTAssertTrue(shellSource.contains("TabView(selection: tabSelection)"))
         XCTAssertTrue(shellSource.contains("func flowNativeTabBarHidden() -> some View"))
         XCTAssertTrue(shellSource.contains(".environment(\\.flowBottomTabBarHeight, bottomTabBarHeight)"))
@@ -997,8 +1011,8 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
         XCTAssertTrue(source.contains("feedContent(\n                contentPadding.bottom,\n                contentPadding.top,\n                safeAreaBottom\n            )"))
         XCTAssertTrue(source.contains("feedTopChromeClearance(height: topBarHeight)\n                .homeFeedListRow()"))
-        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                scrollChromeStore: scrollChromeStore,\n                bottomBarHeight: bottomTabBarHeight,\n                safeAreaBottom: safeAreaBottom,\n                topNavigationBar: topNavigationBar\n            )"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
+        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                scrollChromeStore: scrollChromeStore,\n                bottomBarHeight: bottomTabBarHeight,\n                safeAreaTop: safeAreaTop,\n                safeAreaBottom: safeAreaBottom,\n                topNavigationBar: topNavigationBar\n            )"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
         XCTAssertTrue(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertFalse(source.contains("let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)"))
@@ -1006,7 +1020,8 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains("topHiddenOffset"))
         XCTAssertFalse(source.contains("topBarHeight: topNavigationContentHeight"))
         XCTAssertFalse(source.contains("topNavigationContentHeight + topNavigationToTabsSpacing"))
-        XCTAssertFalse(topNavChromeSource.contains("safeAreaTop"))
+        XCTAssertTrue(topNavChromeSource.contains("let safeAreaTop: CGFloat"))
+        XCTAssertTrue(topNavChromeSource.contains(".padding(.top, safeAreaTop)"))
         XCTAssertFalse(topNavChromeSource.contains(".offset(y: topBarOffset)"))
     }
 
@@ -1017,6 +1032,8 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains("GeometryReader { navigationGeometry in"))
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertFalse(source.contains("bottomSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.bottom)"))
+        XCTAssertTrue(source.contains("let safeAreaTop = max(0, geometry.safeAreaInsets.top)"))
+        XCTAssertTrue(source.contains("safeAreaTop: safeAreaTop"))
         XCTAssertFalse(source.contains("let topSafeAreaInset: CGFloat"))
         XCTAssertFalse(source.contains("let bottomSafeAreaInset: CGFloat"))
     }
@@ -1032,7 +1049,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(rootSource.contains("            }\n            .modifier(navigationDestinationsModifier)\n        }"))
     }
 
-    func testHomeFeedRootKeepsStandardTopSafeArea() throws {
+    func testHomeFeedRootUsesSafeAreaClearanceInsideEdgeToEdgeScrollContent() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
         let rootStart = try XCTUnwrap(source.range(of: "private struct HomeFeedRootContent"))
         let rootEnd = try XCTUnwrap(source.range(of: "private struct HomeFeedTopNavigationChromeView"))
@@ -1040,7 +1057,9 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertTrue(source.contains("GeometryReader { geometry in"))
         XCTAssertTrue(source.contains("}\n        .toolbar(.hidden, for: .navigationBar)"))
-        XCTAssertFalse(rootSource.contains(".ignoresSafeArea(edges: .top)"))
+        XCTAssertTrue(rootSource.contains("let safeAreaTop = max(0, geometry.safeAreaInsets.top)"))
+        XCTAssertTrue(rootSource.contains("safeAreaTop: safeAreaTop"))
+        XCTAssertTrue(rootSource.contains(".ignoresSafeArea(edges: [.top, .bottom])"))
     }
 
     func testHomeTopChromeUsesStaticThemeBackground() throws {
@@ -1051,7 +1070,7 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertFalse(source.contains(".background(topNavigationBackground)"))
         XCTAssertFalse(source.contains("private var topNavigationBackground"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
         XCTAssertTrue(source.contains(".background(topNavigationBarBackground)"))
         XCTAssertTrue(source.contains("private var topNavigationBarBackground: some View"))
         XCTAssertTrue(source.contains("appSettings.themePalette.background"))
@@ -1077,7 +1096,7 @@ final class AppThemeOptionTests: XCTestCase {
         let refreshFunctionRange = try XCTUnwrap(source.range(of: "private func refreshFeed() async"))
         let revealFunctionRange = try XCTUnwrap(source.range(of: "private func revealBufferedNewItems", range: refreshFunctionRange.upperBound..<source.endIndex))
         let refreshFunctionSource = source[refreshFunctionRange.lowerBound..<revealFunctionRange.lowerBound]
-        XCTAssertTrue(refreshFunctionSource.contains("await viewModel.refresh()"))
+        XCTAssertTrue(refreshFunctionSource.contains("await viewModel.refresh(force: true)"))
         XCTAssertFalse(refreshFunctionSource.contains("visibleBufferedNewItemsCount"))
         XCTAssertFalse(source.contains("ScrollView(.vertical"))
         XCTAssertFalse(source.contains("pullToRefreshIndicator"))
@@ -1245,9 +1264,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)"))
         XCTAssertFalse(source.contains("@State private var feedScrollTarget: String?"))
         XCTAssertFalse(source.contains(".scrollPosition(id: $feedScrollTarget, anchor: .top)"))
-        XCTAssertTrue(source.contains(".contentMargins(.top, 0, for: .scrollContent)"))
-        XCTAssertFalse(source.contains("let topScrollContentMargin = -max(0, safeAreaTop)"))
-        XCTAssertFalse(source.contains(".contentMargins(.top, topScrollContentMargin, for: .scrollContent)"))
+        XCTAssertTrue(source.contains(".contentMargins(.vertical, 0, for: .scrollContent)"))
         XCTAssertFalse(source.contains(".environment(\\.defaultMinListRowHeight, 0)"))
         XCTAssertTrue(source.contains(".homeFeedNativeTabBarMinimizeBehavior()"))
         XCTAssertTrue(source.contains("self.scrollEdgeEffectHidden(true, for: .bottom)"))
@@ -1418,40 +1435,46 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains(".ignoresSafeArea(edges: [.top, .bottom])"))
     }
 
-    func testSideMenuUsesThemePaletteBackgroundAndTintedIconCircles() throws {
+    func testSideMenuUsesDistinctDarkBackgroundAndUnframedNavigationRows() throws {
         let source = try sourceText(at: "Sources/Home/HomeSlideoutMenuView.swift")
 
         XCTAssertFalse(source.contains("private static let darkMenuBackground"))
+        XCTAssertTrue(source.contains("if effectiveColorScheme == .dark"))
+        XCTAssertTrue(source.contains("red: 17.0 / 255.0"))
+        XCTAssertTrue(source.contains("green: 17.0 / 255.0"))
+        XCTAssertTrue(source.contains("blue: 17.0 / 255.0"))
         XCTAssertTrue(source.contains("appSettings.themePalette.background"))
-        XCTAssertTrue(source.contains("let iconTint = tint ?? appSettings.themePalette.foreground.opacity(0.86)"))
+        XCTAssertTrue(source.contains("let iconTint = tint ?? appSettings.themePalette.foreground.opacity(0.9)"))
         XCTAssertTrue(source.contains("let textTint = tint ?? appSettings.themePalette.foreground"))
         XCTAssertTrue(source.contains(".foregroundStyle(iconTint)"))
         XCTAssertTrue(source.contains(".foregroundStyle(textTint)"))
-        XCTAssertTrue(source.contains("private func menuCircleBackgroundFill(tint: Color? = nil) -> Color {"))
-        XCTAssertTrue(source.contains("return baseTint.opacity(effectiveMenuColorScheme == .light ? 0.08 : 0.16)"))
-        XCTAssertTrue(source.contains("private func menuCircleStroke(tint: Color? = nil) -> Color {"))
-        XCTAssertTrue(source.contains("return baseTint.opacity(effectiveMenuColorScheme == .light ? 0.12 : 0.22)"))
-        XCTAssertTrue(source.contains("menuCircleBackgroundFill(tint: tint)"))
-        XCTAssertTrue(source.contains("menuCircleStroke(tint: tint)"))
+        XCTAssertTrue(source.contains(".font(.system(size: 21, weight: .regular))"))
+        XCTAssertTrue(source.contains(".frame(minHeight: 56)"))
+        XCTAssertTrue(source.contains("SideMenuPressButtonStyle"))
+        XCTAssertTrue(source.contains("? 0.96"))
+        XCTAssertFalse(source.contains("menuCircleBackgroundFill"))
+        XCTAssertFalse(source.contains("menuCircleStroke"))
         XCTAssertFalse(source.contains(".background(.ultraThinMaterial, in: Circle())"))
         XCTAssertTrue(source.contains("SideMenuTransitionLayout.logoutTopSpacing"))
     }
 
-    func testSideMenuProfileCloseOverlaysBannerAndQRAlignsWithIdentity() throws {
+    func testSideMenuProfileHeaderUsesAvatarIdentityAndQRWithoutBanner() throws {
         let source = try sourceText(at: "Sources/Home/HomeSlideoutMenuView.swift")
         let headerStart = try XCTUnwrap(source.range(of: "private func accountProfileHeader(_ account: AuthAccount) -> some View {"))
-        let headerEnd = try XCTUnwrap(source.range(of: "private var closeOnlyHeader: some View"))
+        let headerEnd = try XCTUnwrap(source.range(of: "private var guestHeader: some View"))
         let headerSource = source[headerStart.lowerBound..<headerEnd.lowerBound]
-        let bannerRange = try XCTUnwrap(headerSource.range(of: "SideMenuProfileBannerArtwork"))
-        let identityRange = try XCTUnwrap(headerSource.range(of: "HStack(alignment: .center"))
+        let avatarRange = try XCTUnwrap(headerSource.range(of: "accountHeaderAvatar"))
+        let identityRange = try XCTUnwrap(headerSource.range(of: "Text(resolvedName)"))
         let qrRange = try XCTUnwrap(headerSource.range(of: "profileQRButton"))
-        let closeRange = try XCTUnwrap(headerSource.range(of: "closeMenuButton"))
 
-        XCTAssertLessThan(bannerRange.lowerBound, closeRange.lowerBound)
-        XCTAssertLessThan(closeRange.lowerBound, identityRange.lowerBound)
-        XCTAssertLessThan(identityRange.lowerBound, qrRange.lowerBound)
-        XCTAssertTrue(headerSource.contains("accountHeaderBannerURL"))
-        XCTAssertTrue(headerSource.contains("SideMenuTransitionLayout.profileHeaderAvatarSize / 2"))
+        XCTAssertLessThan(avatarRange.lowerBound, qrRange.lowerBound)
+        XCTAssertLessThan(qrRange.lowerBound, identityRange.lowerBound)
+        XCTAssertFalse(headerSource.contains("SideMenuProfileBannerArtwork"))
+        XCTAssertFalse(headerSource.contains("closeMenuButton"))
+        XCTAssertFalse(source.contains("accountHeaderBannerURL"))
+        XCTAssertTrue(headerSource.contains("max(menuSafeAreaInsets.top, 0) + 14"))
+        XCTAssertTrue(source.contains("Color.white.opacity(0.1)"))
+        XCTAssertTrue(source.contains("Color.black.opacity(0.1)"))
     }
 
     func testHomeSideMenuUsesContainerSafeAreaResolution() throws {
@@ -1464,16 +1487,25 @@ final class AppThemeOptionTests: XCTestCase {
         // open/close spring and row stagger animations can play.
         XCTAssertFalse(homeSource.contains("if isShowingSideMenu {\n                    SideMenuContainer("))
         XCTAssertTrue(homeSource.contains("private func primaryContent("))
-        XCTAssertTrue(homeSource.contains("SideMenuContainer(\n                isOpen: $isShowingSideMenu\n            )"))
         XCTAssertTrue(sideMenuCallSource.contains("isOpen: $isShowingSideMenu"))
-        XCTAssertFalse(sideMenuCallSource.contains("topSafeAreaInset: safeAreaTop"))
+        XCTAssertTrue(sideMenuCallSource.contains("topSafeAreaInset: safeAreaTop"))
+        XCTAssertTrue(sideMenuCallSource.contains("menuBackground: HomeSlideoutMenuStyle.background("))
         XCTAssertTrue(sideMenuSource.contains("let resolvedTopSafeArea = SideMenuTransitionLayout.resolvedTopSafeArea("))
         XCTAssertTrue(sideMenuSource.contains("explicitTopSafeAreaInset: topSafeAreaInset,"))
         XCTAssertTrue(sideMenuSource.contains("geometryTopSafeAreaInset: geometry.safeAreaInsets.top"))
+        XCTAssertTrue(sideMenuSource.contains("private let menuBackground: Color"))
+        XCTAssertTrue(sideMenuSource.contains("menuBackground\n                    .frame(width: geometry.size.width, height: geometry.size.height)"))
         XCTAssertTrue(sideMenuSource.contains(".frame(width: width, height: height, alignment: .topLeading)"))
         XCTAssertTrue(sideMenuSource.contains(".ignoresSafeArea()"))
         XCTAssertTrue(sideMenuSource.contains(".environment(\\.sideMenuSafeAreaInsets, safeAreaInsets)"))
-        XCTAssertTrue(sideMenuSource.contains(".offset(x: isOpen ? 0 : -width * SideMenuTransitionLayout.menuClosedOffsetFraction)"))
+        XCTAssertTrue(sideMenuSource.contains(".environment(\\.sideMenuPresentationProgress, progress)"))
+        XCTAssertTrue(sideMenuSource.contains(".simultaneousGesture(sideMenuDragGesture(openOffset: openOffset), including: .all)"))
+        XCTAssertTrue(sideMenuSource.contains("value.predictedEndTranslation.width"))
+        XCTAssertTrue(sideMenuSource.contains("UnevenRoundedRectangle("))
+        XCTAssertTrue(sideMenuSource.contains("topLeadingRadius: cornerRadius"))
+        XCTAssertTrue(sideMenuSource.contains("bottomLeadingRadius: cornerRadius"))
+        XCTAssertTrue(sideMenuSource.contains(".clipShape(panelShape)"))
+        XCTAssertFalse(sideMenuSource.contains("SideMenuLeadingRoundedShape"))
     }
 
     func testAudioPlayerProgressClampsToPlayableRange() {
@@ -1696,11 +1728,13 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(rootStatusSource.contains(".foregroundStyle(appSettings.primaryColor)"))
         XCTAssertFalse(rootStatusSource.contains(".foregroundStyle(Color.accentColor)"))
 
-        let profileSource = try sourceText(at: "Sources/Profile/ProfileHeaderSection.swift")
-        let profileStatusRange = try XCTUnwrap(profileSource.range(of: "if let followStatusIconName {"))
+        let profileSource = try sourceText(at: "Sources/Profile/ProfileControls.swift")
+        let profileStatusRange = try XCTUnwrap(profileSource.range(of: "struct ProfileActionTextButton: View"))
         let profileStatusSource = profileSource[profileStatusRange.lowerBound...]
 
-        XCTAssertTrue(profileStatusSource.contains(".foregroundStyle(appSettings.primaryColor)"))
+        XCTAssertTrue(profileStatusSource.contains("appSettings.primaryColor"))
+        XCTAssertTrue(profileStatusSource.contains("appSettings.buttonTextColor"))
+        XCTAssertFalse(profileStatusSource.contains("style?.primaryForeground"))
         XCTAssertFalse(profileStatusSource.contains(".foregroundStyle(Color.accentColor)"))
     }
 

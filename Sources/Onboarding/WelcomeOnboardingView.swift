@@ -84,7 +84,7 @@ struct WelcomeOnboardingView: View {
                     .foregroundStyle(buttonForegroundColor)
                     .background(
                         Capsule(style: .continuous)
-                            .fill(welcomeSelection.primaryColorOption.color)
+                            .fill(appSettings.primaryColor)
                     )
                     .overlay {
                         Capsule(style: .continuous)
@@ -118,17 +118,7 @@ struct WelcomeOnboardingView: View {
     }
 
     private var buttonForegroundColor: Color {
-        let resolved = UIColor(welcomeSelection.primaryColorOption.color)
-            .resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 0
-        guard resolved.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
-            return .white
-        }
-        let luminance = (0.299 * red) + (0.587 * green) + (0.114 * blue)
-        return luminance > 0.68 ? .black : .white
+        appSettings.buttonTextColor
     }
 
     private func welcomeButtonLabel(_ title: String) -> some View {

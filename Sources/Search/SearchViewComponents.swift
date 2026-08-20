@@ -3,6 +3,7 @@ import SwiftUI
 enum SearchBarGlassStyle {
     static let usesSolidBarBackground = false
     static let fieldCornerRadius: CGFloat = 22
+    static let fieldHeight: CGFloat = 44
     static let lightFieldWhiteOpacity: Double = 0.86
     static let darkFieldThemeOpacity: Double = 0.78
     static let darkFieldWhiteOverlayOpacity: Double = 0.10
@@ -12,10 +13,10 @@ enum SearchBarGlassStyle {
     static let darkRimHighlightOpacity: Double = 0.24
     static let lightInnerBorderOpacity: Double = 0.20
     static let darkInnerBorderOpacity: Double = 0.34
-    static let lightDropShadowOpacity: Double = 0.16
-    static let darkDropShadowOpacity: Double = 0.10
-    static let fieldShadowRadius: CGFloat = 18
-    static let fieldShadowYOffset: CGFloat = 8
+    static let lightDropShadowOpacity: Double = 0.10
+    static let darkDropShadowOpacity: Double = 0.07
+    static let fieldShadowRadius: CGFloat = 8
+    static let fieldShadowYOffset: CGFloat = 3
 }
 
 private struct SearchListRowStyle: ViewModifier {
@@ -224,18 +225,15 @@ struct SearchBarSection: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     @Binding var searchText: String
-    private let selectedScope: Binding<SearchViewModel.SearchScope>?
     let placeholder: String
     let onSubmit: () -> Void
 
     init(
         searchText: Binding<String>,
-        selectedScope: Binding<SearchViewModel.SearchScope>? = nil,
         placeholder: String = "Search",
         onSubmit: @escaping () -> Void
     ) {
         _searchText = searchText
-        self.selectedScope = selectedScope
         self.placeholder = placeholder
         self.onSubmit = onSubmit
     }
@@ -243,7 +241,7 @@ struct SearchBarSection: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .font(.title3.weight(.medium))
+                .font(.body.weight(.medium))
                 .foregroundStyle(appSettings.themePalette.mutedForeground)
 
             TextField(placeholder, text: $searchText)
@@ -256,10 +254,6 @@ struct SearchBarSection: View {
                 .onSubmit(onSubmit)
                 .frame(minWidth: 0)
 
-            if let selectedScope {
-                scopeSelector(selectedScope)
-            }
-
             if !searchText.isEmpty {
                 Button {
                     searchText = ""
@@ -267,13 +261,16 @@ struct SearchBarSection: View {
                     Image(systemName: "xmark.circle.fill")
                         .font(.headline)
                         .foregroundStyle(appSettings.themePalette.mutedForeground)
+                        .frame(width: 40, height: 40)
                 }
                 .buttonStyle(.plain)
+                .contentShape(Rectangle())
                 .accessibilityLabel("Clear search")
             }
         }
-        .padding(.horizontal, 15)
-        .padding(.vertical, 13)
+        .padding(.leading, 14)
+        .padding(.trailing, 2)
+        .frame(height: SearchBarGlassStyle.fieldHeight)
         .background {
             searchFieldGlassBackground
         }
@@ -292,60 +289,9 @@ struct SearchBarSection: View {
             x: 0,
             y: SearchBarGlassStyle.fieldShadowYOffset
         )
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
-    }
-
-    private func scopeSelector(_ selectedScope: Binding<SearchViewModel.SearchScope>) -> some View {
-        HStack(spacing: 2) {
-            ForEach(SearchViewModel.SearchScope.allCases) { scope in
-                let isSelected = selectedScope.wrappedValue == scope
-
-                Button {
-                    withAnimation(.snappy(duration: 0.18)) {
-                        selectedScope.wrappedValue = scope
-                    }
-                } label: {
-                    Image(systemName: scope.iconName)
-                        .font(.subheadline.weight(.semibold))
-                        .frame(width: 30, height: 30)
-                        .foregroundStyle(isSelected ? selectedScopeIconForeground : unselectedScopeIconForeground)
-                        .background {
-                            if isSelected {
-                                Circle()
-                                    .fill(appSettings.primaryColor)
-                            }
-                        }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(scope.title)
-                .accessibilityValue(isSelected ? "Selected" : "")
-            }
-        }
-        .padding(3)
-        .background {
-            Capsule(style: .continuous)
-                .fill(scopeSelectorBackground)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Search type")
-    }
-
-    private var selectedScopeIconForeground: Color {
-        effectiveSearchColorScheme == .light ? .white : appSettings.themePalette.background
-    }
-
-    private var unselectedScopeIconForeground: Color {
-        appSettings.themePalette.mutedForeground
-    }
-
-    private var scopeSelectorBackground: Color {
-        if effectiveSearchColorScheme == .light {
-            return Color.black.opacity(0.055)
-        }
-
-        return Color.white.opacity(0.09)
+        .padding(.horizontal, 14)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     private var searchFieldGlassBackground: some View {
@@ -537,63 +483,61 @@ struct SearchProfileResultRow: View {
         let isFollowing = followStore.isFollowing(profile.pubkey)
 
         return HStack(alignment: .center, spacing: 12) {
-            HStack(alignment: .center, spacing: 12) {
-                AvatarView(url: profile.avatarURL, fallback: profile.displayName, size: 36)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(profile.displayName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(appSettings.themePalette.foreground)
-                        .lineLimit(1)
-
-                    Text(profile.handle)
-                        .font(.footnote)
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                        .lineLimit(1)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
+            Button {
                 onOpenProfile(profile.pubkey)
-            }
+            } label: {
+                HStack(alignment: .center, spacing: 12) {
+                    AvatarView(url: profile.avatarURL, fallback: profile.displayName, size: 36)
 
-            Spacer(minLength: 0)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(profile.displayName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(appSettings.themePalette.foreground)
+                            .lineLimit(1)
+
+                        Text(profile.handle)
+                            .font(.footnote)
+                            .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(FlowPressScaleButtonStyle())
+            .accessibilityLabel("\(profile.displayName), \(profile.handle)")
+            .accessibilityHint("Opens profile")
 
             if isCurrentUser {
                 Label("You", systemImage: "person.crop.circle.fill")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(appSettings.themePalette.foreground)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        appSettings.themePalette.secondaryGroupedBackground,
-                        in: Capsule(style: .continuous)
-                    )
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
             } else {
                 Button {
                     followStore.toggleFollow(profile.pubkey)
                 } label: {
-                    Text(isFollowing ? "Following" : "Follow")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(isFollowing ? appSettings.themePalette.mutedForeground : appSettings.buttonTextColor)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(
-                                    isFollowing
-                                        ? AnyShapeStyle(appSettings.themePalette.secondaryGroupedBackground)
-                                        : AnyShapeStyle(appSettings.primaryGradient)
-                                )
-                        )
-                        .overlay {
-                            if isFollowing {
-                                Capsule(style: .continuous)
-                                    .stroke(appSettings.themePalette.separator, lineWidth: 0.8)
-                            }
+                    Group {
+                        if isFollowing {
+                            Label("Following", systemImage: "checkmark")
+                                .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                        } else {
+                            Text("Follow")
+                                .foregroundStyle(appSettings.buttonTextColor)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(appSettings.primaryGradient, in: Capsule(style: .continuous))
                         }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .frame(minWidth: 40, minHeight: 40)
+                    .contentTransition(.symbolEffect(.replace))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(FlowPressScaleButtonStyle())
+                .followCelebration(
+                    trigger: followStore.followCelebrationToken(for: profile.pubkey),
+                    accentColor: appSettings.primaryColor
+                )
+                .accessibilityLabel(isFollowing ? "Unfollow \(profile.displayName)" : "Follow \(profile.displayName)")
             }
         }
     }

@@ -185,6 +185,58 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         XCTAssertFalse(toolbarSource.contains("Hide attachment choices"))
     }
 
+    func testSharedMediaPreparationDoesNotBlockTheMainActor() throws {
+        let source = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheetSupport.swift")
+        let methodStart = try XCTUnwrap(
+            source.range(of: "private func prepareSharedComposeAttachmentForUpload")
+        )
+        let methodEnd = try XCTUnwrap(
+            source.range(
+                of: "\n    }\n}\n\nstruct ComposeMentionSuggestionController",
+                range: methodStart.upperBound..<source.endIndex
+            )
+        )
+        let methodSource = source[methodStart.lowerBound..<methodEnd.lowerBound]
+
+        XCTAssertTrue(methodSource.contains("Task.detached(priority: .userInitiated)"))
+        XCTAssertTrue(methodSource.contains("options: .mappedIfSafe"))
+        XCTAssertTrue(methodSource.contains("withTaskCancellationHandler"))
+        XCTAssertTrue(methodSource.contains("preparationTask.cancel()"))
+    }
+
+    func testMediaUploadsAvoidBuildingASecondFullPayloadInMemory() throws {
+        let source = try Self.sourceText(at: "Sources/App/MediaUploadService.swift")
+
+        XCTAssertTrue(source.contains("uploadSession.upload("))
+        XCTAssertTrue(source.contains("fromFile: multipartFileURL"))
+        XCTAssertTrue(source.contains("private func makeMultipartBodyFile("))
+        XCTAssertFalse(source.contains("private func makeMultipartBody("))
+        XCTAssertFalse(source.contains("request.httpBody = body"))
+        XCTAssertFalse(source.contains("uploadRequest.httpBody = data"))
+    }
+
+    func testComposeImagesCanOpenTheExistingEditorAndReplaceTheirUpload() throws {
+        let sheetSource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheet.swift")
+        let stripSource = try Self.sourceText(at: "Sources/Compose/ComposeMediaAttachmentPreviewViews.swift")
+        let editorSource = try Self.sourceText(at: "Sources/Design/ImageRemixEditorView.swift")
+        let supportSource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheetSupport.swift")
+
+        XCTAssertTrue(stripSource.contains("if attachment.isImage && !attachment.isGIF"))
+        XCTAssertTrue(stripSource.contains("Image(systemName: \"pencil\")"))
+        XCTAssertTrue(stripSource.contains(".frame(width: 40, height: 40)"))
+        XCTAssertTrue(stripSource.contains(".accessibilityLabel(\"Edit image\")"))
+
+        XCTAssertTrue(sheetSource.contains(".fullScreenCover(item: $imageEditSession)"))
+        XCTAssertTrue(sheetSource.contains("ImageRemixEditorView(sourceImage: session.sourceImage)"))
+        XCTAssertTrue(sheetSource.contains("replaceMediaAttachment(session.attachment, with: editedImage)"))
+        XCTAssertTrue(sheetSource.contains("mediaAttachments[attachmentIndex] = replacement"))
+
+        XCTAssertTrue(editorSource.contains("isEditingComposeAttachment ? \"Edit image\" : \"Remix\""))
+        XCTAssertTrue(editorSource.contains(".accessibilityLabel(\"Use edited image\")"))
+        XCTAssertTrue(editorSource.contains("try await onApplyEditedImage(renderEditedImage())"))
+        XCTAssertTrue(supportSource.contains("fromEditedImage image: UIImage"))
+    }
+
     @MainActor
     func testComposeTextViewCoordinatorAllowsTypingPastSoftLimit() {
         var textValue = String(repeating: "a", count: 238)

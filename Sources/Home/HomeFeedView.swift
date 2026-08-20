@@ -25,6 +25,7 @@ struct HomeFeedView: View {
     @Binding var isRootVisible: Bool
     let scrollChromeStore: ScrollChromeStore
     let bottomTabBarHeight: CGFloat
+    var onRequestSearch: () -> Void = {}
     private let reactionStats = NoteReactionStatsService.shared
     @ObservedObject private var followStore = FollowStore.shared
     @ObservedObject private var muteStore = MuteStore.shared
@@ -252,6 +253,8 @@ struct HomeFeedView: View {
         NavigationStack {
             HomeFeedRootContent(
                 isShowingSideMenu: $isShowingSideMenu,
+                allowsSideMenuOpeningGesture: !viewModel.supportsModeTabsForCurrentSource
+                    || viewModel.mode == HomeFeedMode.allCases.first,
                 scrollChromeStore: scrollChromeStore,
                 bottomTabBarHeight: bottomTabBarHeight,
                 topNavigationBar: { topNavigationBar },
@@ -266,6 +269,7 @@ struct HomeFeedView: View {
             )
             .modifier(navigationDestinationsModifier)
         }
+        .flowInteractiveBackSwipe()
     }
 
     private func feedContent(
@@ -314,7 +318,7 @@ struct HomeFeedView: View {
                 .homeFeedListRow()
         }
         .listStyle(.plain)
-        .contentMargins(.top, 0, for: .scrollContent)
+        .contentMargins(.vertical, 0, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .homeFeedNativeTabBarMinimizeBehavior()
@@ -338,6 +342,12 @@ struct HomeFeedView: View {
             legacyScrollCoordinator.idleTask?.cancel()
             legacyScrollCoordinator.idleTask = nil
         }
+        .flowHorizontalPaging(
+            selection: $viewModel.mode,
+            items: HomeFeedMode.allCases,
+            isEnabled: viewModel.supportsModeTabsForCurrentSource,
+            handsLeadingBoundaryToParent: true
+        )
 
         if #available(iOS 18.0, *) {
             list
@@ -723,9 +733,6 @@ struct HomeFeedView: View {
             onLogout: {
                 auth.logout()
                 closeSideMenu()
-            },
-            onClose: {
-                closeSideMenu()
             }
         )
         .environmentObject(auth)
@@ -924,55 +931,129 @@ struct HomeFeedView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 14) {
             if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .font(.body)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                emptyStateCopy(title: "Couldn’t refresh", message: errorMessage)
+                emptyStateActionButton("Try again", systemImage: "arrow.clockwise") {
+                    Task {
+                        await viewModel.refresh()
+                    }
+                }
+                .flowHierarchyEntrance(index: 1)
             } else if viewModel.interestsFeedHasNoHashtags {
-                Text("No interests selected yet")
-                    .font(.headline)
-                Text("Add topic hashtags in Core > Feeds > Interests.")
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
-            } else if viewModel.followingFeedHasNoFollowings {
-                Text(viewModel.feedSource == .articles ? "No followed writers yet" : "No followed accounts yet")
-                    .font(.headline)
-                Text(
-                    viewModel.feedSource == .articles
-                        ? "Follow some people to discover their writing."
-                        : "Follow people or try Trending from the feed selector."
+                emptyStateCopy(
+                    title: "No interests selected yet",
+                    message: "Choose a few topics to shape this feed."
                 )
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                emptyStateActionButton("Choose interests", systemImage: "slider.horizontal.3") {
+                    isShowingSettings = true
+                }
+                .flowHierarchyEntrance(index: 1)
+            } else if viewModel.followingFeedHasNoFollowings {
+                emptyStateCopy(
+                    title: viewModel.feedSource == .articles
+                        ? "No followed writers yet"
+                        : "No followed accounts yet",
+                    message: viewModel.feedSource == .articles
+                        ? "Find people whose writing you want to see here."
+                        : "Find people to follow or browse what’s popular now."
+                )
+
+                VStack(spacing: 10) {
+                    emptyStateActionButton(
+                        "Find people",
+                        systemImage: "person.badge.plus",
+                        fillsAvailableWidth: true
+                    ) {
+                        onRequestSearch()
+                    }
+
+                    if viewModel.feedSource != .articles {
+                        emptyStateActionButton(
+                            "Browse popular",
+                            systemImage: "flame",
+                            fillsAvailableWidth: true
+                        ) {
+                            if let animation = FlowTransitionMotion.textSwapAnimation(
+                                reduceMotion: accessibilityReduceMotion
+                            ) {
+                                withAnimation(animation) {
+                                    viewModel.selectFeedSource(.trending)
+                                }
+                            } else {
+                                viewModel.selectFeedSource(.trending)
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: 260)
+                .flowHierarchyEntrance(index: 1)
             } else if viewModel.feedSource == .articles {
-                Text("No articles yet")
-                    .font(.headline)
-                Text("When people you follow publish long-form writing, it will show up here.")
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                emptyStateCopy(
+                    title: "No articles yet",
+                    message: "New writing from people you follow will appear here."
+                )
+                emptyStateActionButton("Refresh", systemImage: "arrow.clockwise") {
+                    Task { await viewModel.refresh() }
+                }
+                .flowHierarchyEntrance(index: 1)
             } else if viewModel.feedSource == .polls {
-                Text("No polls yet")
-                    .font(.headline)
-                Text("Follow people who post polls or pull down to refresh.")
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                emptyStateCopy(
+                    title: "No polls yet",
+                    message: "Follow more people or check again for new polls."
+                )
+                emptyStateActionButton("Refresh", systemImage: "arrow.clockwise") {
+                    Task { await viewModel.refresh() }
+                }
+                .flowHierarchyEntrance(index: 1)
             } else {
-                Text("No posts yet")
-                    .font(.headline)
-                Text("Pull down to refresh and try these relays again.")
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                emptyStateCopy(
+                    title: "No posts yet",
+                    message: "Check for new posts or try again in a moment."
+                )
+                emptyStateActionButton("Refresh", systemImage: "arrow.clockwise") {
+                    Task { await viewModel.refresh() }
+                }
+                .flowHierarchyEntrance(index: 1)
             }
         }
         .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
         .padding(.vertical, 28)
+    }
+
+    private func emptyStateCopy(title: String, message: String) -> some View {
+        VStack(spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(appSettings.themePalette.foreground)
+
+            Text(message)
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(appSettings.themePalette.secondaryForeground)
+        }
+        .flowHierarchyEntrance(index: 0)
+    }
+
+    private func emptyStateActionButton(
+        _ title: String,
+        systemImage: String,
+        fillsAvailableWidth: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(appSettings.appFont(.subheadline, weight: .semibold))
+                .foregroundStyle(appSettings.buttonTextColor)
+                .padding(.horizontal, 16)
+                .frame(
+                    maxWidth: fillsAvailableWidth ? .infinity : nil,
+                    minHeight: 44
+                )
+                .background(appSettings.primaryGradient, in: Capsule(style: .continuous))
+        }
+        .buttonStyle(FlowPressScaleButtonStyle())
     }
 
     private var loadingRow: some View {
@@ -1150,7 +1231,7 @@ struct HomeFeedView: View {
         case .hashtag(let hashtag):
             return "#\(HomePrimaryFeedSource.normalizeHashtag(hashtag))"
         case .relay(let relayURL):
-            guard let url = RelayURLSupport.normalizedURL(from: relayURL) else { return "Relay" }
+            guard let url = RelayURLSupport.normalizedURL(from: relayURL) else { return "Source" }
             return RelayURLSupport.displayName(for: url)
         }
     }
@@ -1526,7 +1607,10 @@ private struct HomeFeedRootContent<
     FeedContent: View,
     SideMenuContent: View
 >: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appSettings: AppSettingsStore
     @Binding var isShowingSideMenu: Bool
+    let allowsSideMenuOpeningGesture: Bool
 
     let scrollChromeStore: ScrollChromeStore
     let bottomTabBarHeight: CGFloat
@@ -1536,28 +1620,42 @@ private struct HomeFeedRootContent<
 
     var body: some View {
         GeometryReader { geometry in
+            let safeAreaTop = max(0, geometry.safeAreaInsets.top)
             let safeAreaBottom = max(0, geometry.safeAreaInsets.bottom)
             let contentPadding = ScrollChromeLayout.feedContentPadding(
                 topBarHeight: ScrollChromeLayout.defaultTopBarHeight,
+                safeAreaTop: safeAreaTop,
                 bottomBarHeight: bottomTabBarHeight,
                 safeAreaBottom: safeAreaBottom
             )
             SideMenuContainer(
-                isOpen: $isShowingSideMenu
+                isOpen: $isShowingSideMenu,
+                topSafeAreaInset: safeAreaTop,
+                menuBackground: HomeSlideoutMenuStyle.background(
+                    appSettings: appSettings,
+                    colorScheme: colorScheme
+                ),
+                allowsOpeningGesture: allowsSideMenuOpeningGesture
             ) {
                 sideMenuContent()
             } content: {
                 primaryContent(
                     contentPadding: contentPadding,
+                    safeAreaTop: safeAreaTop,
                     safeAreaBottom: safeAreaBottom
                 )
             }
+            // Expand the whole scrolling root, not just the List's child frame.
+            // This prevents NavigationStack/SideMenuContainer from clipping rows
+            // at the Dynamic Island and home-indicator safe-area boundaries.
+            .ignoresSafeArea(edges: [.top, .bottom])
         }
         .toolbar(.hidden, for: .navigationBar)
     }
 
     private func primaryContent(
         contentPadding: ScrollChromeContentPadding,
+        safeAreaTop: CGFloat,
         safeAreaBottom: CGFloat
     ) -> some View {
         ZStack(alignment: .top) {
@@ -1570,10 +1668,12 @@ private struct HomeFeedRootContent<
                 safeAreaBottom
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea(edges: [.top, .bottom])
 
             HomeFeedTopNavigationChromeView(
                 scrollChromeStore: scrollChromeStore,
                 bottomBarHeight: bottomTabBarHeight,
+                safeAreaTop: safeAreaTop,
                 safeAreaBottom: safeAreaBottom,
                 topNavigationBar: topNavigationBar
             )
@@ -1586,13 +1686,17 @@ private struct HomeFeedTopNavigationChromeView<TopNavigationBar: View>: View {
     @ObservedObject var scrollChromeStore: ScrollChromeStore
 
     let bottomBarHeight: CGFloat
+    let safeAreaTop: CGFloat
     let safeAreaBottom: CGFloat
     let topNavigationBar: () -> TopNavigationBar
 
     var body: some View {
         topNavigationBar()
+            .padding(.top, safeAreaTop)
             .background(topNavigationBarBackground)
             .opacity(chromeOpacity)
+            .allowsHitTesting(chromeOpacity > 0.05)
+            .accessibilityHidden(chromeOpacity <= 0.05)
     }
 
     private var topNavigationBarBackground: some View {

@@ -253,6 +253,7 @@ struct LongFormArticleReaderView: View {
     private struct MentionMetadataDecoder: MetadataCoding {}
 
     @EnvironmentObject private var appSettings: AppSettingsStore
+    @ObservedObject private var followStore = FollowStore.shared
 
     let item: FeedItem
     let article: NostrLongFormArticleMetadata
@@ -537,6 +538,10 @@ struct LongFormArticleReaderView: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .followCelebration(
+                        trigger: followStore.followCelebrationToken(for: item.displayAuthorPubkey),
+                        accentColor: appSettings.primaryColor
+                    )
                 }
             }
             .padding(.vertical, 16)

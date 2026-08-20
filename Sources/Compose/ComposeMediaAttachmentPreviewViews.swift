@@ -9,7 +9,9 @@ struct ComposeMediaAttachmentStrip: View {
 
     let attachments: [ComposeMediaAttachment]
     let colorScheme: ColorScheme
+    let preparingEditAttachmentID: UUID?
     let onPreview: (ComposeMediaAttachment) -> Void
+    let onEdit: (ComposeMediaAttachment) -> Void
     let onRemove: (ComposeMediaAttachment) -> Void
 
     var body: some View {
@@ -33,10 +35,34 @@ struct ComposeMediaAttachmentStrip: View {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.title3)
                                 .foregroundStyle(appSettings.themePalette.iconMutedForeground)
-                                .padding(6)
+                                .frame(width: 40, height: 40)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Remove attachment")
+                    }
+                    .overlay(alignment: .bottomLeading) {
+                        if attachment.isImage && !attachment.isGIF {
+                            Button {
+                                onEdit(attachment)
+                            } label: {
+                                Group {
+                                    if preparingEditAttachmentID == attachment.id {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                    } else {
+                                        Image(systemName: "pencil")
+                                            .font(.system(size: 15, weight: .semibold))
+                                    }
+                                }
+                                .foregroundStyle(appSettings.themePalette.foreground)
+                                .frame(width: 40, height: 40)
+                                .background(.regularMaterial, in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(preparingEditAttachmentID != nil)
+                            .accessibilityLabel("Edit image")
+                            .accessibilityHint("Opens filters, drawing, text, and stickers")
+                        }
                     }
                 }
             }

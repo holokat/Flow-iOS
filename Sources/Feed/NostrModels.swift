@@ -361,6 +361,25 @@ struct NostrEvent: Codable, Hashable, Sendable {
             )
     }
 
+    static func relayHashtagQueryValues(_ hashtag: String) -> [String] {
+        let sanitized = hashtag
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+            .replacingOccurrences(
+                of: "[^\\p{L}\\p{N}_+\\-]",
+                with: "",
+                options: .regularExpression
+            )
+        guard !sanitized.isEmpty else { return [] }
+
+        let lowercase = sanitized.lowercased()
+        let leadingCapital = lowercase.prefix(1).uppercased() + lowercase.dropFirst()
+        let candidates = [sanitized, lowercase, leadingCapital, lowercase.uppercased()]
+
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0).inserted }
+    }
+
     private static func decodeEmbeddedEvent(from content: String) -> NostrEvent? {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else { return nil }
@@ -504,6 +523,87 @@ struct NostrProfile: Codable, Hashable, Sendable {
     }
 }
 
+enum NostrAppHandlerKind {
+    static let information = 31_990
+}
+
+struct NostrAppHandlerMetadata: Hashable, Sendable {
+    let name: String
+    let about: String?
+    let pictureURL: URL?
+    let websiteURL: URL?
+    let supportedKinds: [Int]
+    let categories: [String]
+
+    init?(event: NostrEvent) {
+        guard event.kind == NostrAppHandlerKind.information else { return nil }
+
+        let profile = NostrProfile.decode(from: event.content)
+        name = profile?.displayName ??
+            profile?.name ??
+            Self.nameFromAltTag(in: event.tags) ??
+            "Compatible application"
+        about = profile?.about
+        pictureURL = profile?.resolvedAvatarURL
+        websiteURL = profile?.website.flatMap(Self.publicWebURL(from:))
+        supportedKinds = Self.uniqueIntegerTagValues(named: "k", in: event.tags)
+        categories = Self.uniqueTextTagValues(named: "t", in: event.tags)
+    }
+
+    private static func nameFromAltTag(in tags: [[String]]) -> String? {
+        guard let alt = firstTagValue(named: "alt", in: tags) else { return nil }
+        let prefix = "nip-89 handler:"
+        if alt.lowercased().hasPrefix(prefix) {
+            let index = alt.index(alt.startIndex, offsetBy: prefix.count)
+            let trimmed = alt[index...].trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return alt
+    }
+
+    private static func publicWebURL(from rawValue: String) -> URL? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let url = URL(string: trimmed).flatMap { candidate in
+            candidate.scheme == nil ? URL(string: "https://\(trimmed)") : candidate
+        }
+        guard let url, FlowURLSafety.isPubliclyLoadableWebURL(url) else {
+            return nil
+        }
+        return url
+    }
+
+    private static func uniqueIntegerTagValues(named name: String, in tags: [[String]]) -> [Int] {
+        var seen = Set<Int>()
+        return tags.compactMap { tag in
+            guard tag.count > 1, tag[0].lowercased() == name,
+                  let value = Int(tag[1].trimmingCharacters(in: .whitespacesAndNewlines)),
+                  seen.insert(value).inserted else {
+                return nil
+            }
+            return value
+        }
+    }
+
+    private static func uniqueTextTagValues(named name: String, in tags: [[String]]) -> [String] {
+        var seen = Set<String>()
+        return tags.compactMap { tag in
+            guard tag.count > 1, tag[0].lowercased() == name else { return nil }
+            let value = tag[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !value.isEmpty, value.count <= 24, seen.insert(value).inserted else { return nil }
+            return value
+        }
+    }
+
+    private static func firstTagValue(named name: String, in tags: [[String]]) -> String? {
+        for tag in tags where tag.count > 1 && tag[0].lowercased() == name {
+            let value = tag[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty { return value }
+        }
+        return nil
+    }
+}
+
 func shortNostrIdentifier(_ pubkey: String, prefixCount: Int = 10, suffixCount: Int = 6) -> String {
     let normalized = pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard !normalized.isEmpty else { return "" }
@@ -512,6 +612,12 @@ func shortNostrIdentifier(_ pubkey: String, prefixCount: Int = 10, suffixCount: 
     let minimumLength = prefixCount + suffixCount + 1
     guard identifier.count > minimumLength else { return identifier }
     return "\(identifier.prefix(prefixCount))…\(identifier.suffix(suffixCount))"
+}
+
+func npubIdentifier(for pubkey: String) -> String? {
+    let normalized = pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !normalized.isEmpty else { return nil }
+    return PublicKey(hex: normalized)?.npub
 }
 
 struct FeedItem: Identifiable, Hashable, Sendable {

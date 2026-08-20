@@ -16,7 +16,7 @@ enum PollResultsError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingRelaySources:
-            return "No relay sources are available for this poll."
+            return "No sources are available for this poll."
         case .loadFailed:
             return "Couldn't load poll results right now."
         }

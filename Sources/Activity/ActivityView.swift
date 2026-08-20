@@ -41,149 +41,153 @@ struct ActivityView: View {
         let _ = appSettings.spamReplyFilterSignature
 
         NavigationStack {
-            SideMenuContainer(isOpen: $isShowingSideMenu) {
-                sideMenuContent
-            } content: {
-                ZStack(alignment: .leading) {
-                    AppThemeBackgroundView()
-                        .ignoresSafeArea()
+            GeometryReader { geometry in
+                let safeAreaTop = max(0, geometry.safeAreaInsets.top)
 
-                    VStack(spacing: 0) {
-                        topNavigationBar
+                SideMenuContainer(
+                    isOpen: $isShowingSideMenu,
+                    topSafeAreaInset: safeAreaTop,
+                    menuBackground: HomeSlideoutMenuStyle.background(
+                        appSettings: appSettings,
+                        colorScheme: colorScheme
+                    ),
+                    allowsOpeningGesture: viewModel.selectedFilter == ActivityFilter.allCases.first
+                ) {
+                    sideMenuContent
+                } content: {
+                    ZStack(alignment: .leading) {
+                        AppThemeBackgroundView()
+                            .ignoresSafeArea()
 
-                        List {
-                            Section {
-                                FlowCapsuleTabBar(
-                                    selection: $viewModel.selectedFilter,
-                                    items: ActivityFilter.allCases,
-                                    title: { $0.title }
-                                )
-                                .accessibilityLabel("Pulse filter")
-                            }
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+                        VStack(spacing: 0) {
+                            topNavigationBar
 
-                            Section {
-                                SettingsToggleRow(
-                                    title: "Show muted notifications",
-                                    isOn: mutedNotificationsVisibilityBinding,
-                                    footer: "Muted activity stays out of your unread count."
-                                )
-                                .accessibilityHint(
-                                    "Shows muted activity as private placeholders. Opening one does not change your mute settings."
-                                )
-                                .accessibilityIdentifier("pulse-show-muted-notifications")
-                            }
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+                            List {
+                                Section {
+                                    FlowCapsuleTabBar(
+                                        selection: $viewModel.selectedFilter,
+                                        items: ActivityFilter.allCases,
+                                        title: { $0.title }
+                                    )
+                                    .accessibilityLabel("Pulse filter")
+                                }
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
 
-                            if viewModel.isLoading && viewModel.items.isEmpty {
-                                ForEach(0..<5, id: \.self) { _ in
-                                    loadingRow
+                                if viewModel.isLoading && viewModel.items.isEmpty {
+                                    ForEach(0..<5, id: \.self) { _ in
+                                        loadingRow
+                                            .listRowSeparator(.hidden)
+                                            .listRowBackground(Color.clear)
+                                    }
+                                } else if viewModel.visibleItems.isEmpty {
+                                    emptyStateRow
                                         .listRowSeparator(.hidden)
                                         .listRowBackground(Color.clear)
-                                }
-                            } else if viewModel.visibleItems.isEmpty {
-                                emptyStateRow
-                                    .listRowSeparator(.hidden)
-                                    .listRowBackground(Color.clear)
-                            } else {
-                                ForEach(viewModel.visibleItems) { item in
-                                    let isMutedNotification = viewModel.isMutedNotification(item)
-                                    ActivityRowCell(
-                                        item: item,
-                                        isMuted: isMutedNotification,
-                                        onTap: {
-                                            selectedThreadRoute = ActivityThreadRouting.route(
-                                                for: item,
-                                                revealMutedContent: isMutedNotification
-                                            )
-                                        },
-                                        onAvatarTap: {
-                                            selectedProfileRoute = ProfileRoute(pubkey: item.actorPubkey)
-                                        }
-                                    )
-                                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                                    .listRowSeparatorTint(appSettings.themePalette.chromeBorder)
-                                    .listRowBackground(Color.clear)
+                                } else {
+                                    ForEach(Array(viewModel.visibleItems.enumerated()), id: \.element.id) { index, item in
+                                        let isMutedNotification = viewModel.isMutedNotification(item)
+                                        ActivityRowCell(
+                                            item: item,
+                                            isMuted: isMutedNotification,
+                                            onTap: {
+                                                selectedThreadRoute = ActivityThreadRouting.route(
+                                                    for: item,
+                                                    revealMutedContent: isMutedNotification
+                                                )
+                                            },
+                                            onAvatarTap: {
+                                                selectedProfileRoute = ProfileRoute(pubkey: item.actorPubkey)
+                                            }
+                                        )
+                                        .flowHierarchyEntrance(index: index)
+                                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                                        .listRowSeparatorTint(appSettings.themePalette.chromeBorder)
+                                        .listRowBackground(Color.clear)
+                                    }
                                 }
                             }
+                            .listStyle(.plain)
+                            .scrollContentBackground(.hidden)
+                            .background(Color.clear)
+                            .refreshable {
+                                relaySettings.configure(
+                                    accountPubkey: auth.currentAccount?.pubkey,
+                                    nsec: auth.currentNsec
+                                )
+                                configureFollowStore()
+                                configureMuteStore()
+                                viewModel.configure(
+                                    currentUserPubkey: auth.currentAccount?.pubkey,
+                                    readRelayURLs: effectiveReadRelayURLs
+                                )
+                                await viewModel.refresh()
+                            }
                         }
-                        .listStyle(.plain)
-                        .scrollContentBackground(.hidden)
-                        .background(Color.clear)
-                        .refreshable {
-                            relaySettings.configure(
-                                accountPubkey: auth.currentAccount?.pubkey,
-                                nsec: auth.currentNsec
-                            )
-                            configureFollowStore()
-                            configureMuteStore()
-                            viewModel.configure(
-                                currentUserPubkey: auth.currentAccount?.pubkey,
-                                readRelayURLs: effectiveReadRelayURLs
-                            )
-                            await viewModel.refresh()
-                        }
+                        .padding(.top, safeAreaTop)
+                    }
+                    .flowHorizontalPaging(
+                        selection: $viewModel.selectedFilter,
+                        items: ActivityFilter.allCases,
+                        handsLeadingBoundaryToParent: true
+                    )
+                }
+                .toolbar(.hidden, for: .navigationBar)
+                .task(id: isTabActive) {
+                    guard isTabActive else { return }
+                    relaySettings.configure(
+                        accountPubkey: auth.currentAccount?.pubkey,
+                        nsec: auth.currentNsec
+                    )
+                    configureFollowStore()
+                    configureMuteStore()
+                    configureMutedThreadStore()
+                    viewModel.configure(
+                        currentUserPubkey: auth.currentAccount?.pubkey,
+                        readRelayURLs: effectiveReadRelayURLs
+                    )
+                    await viewModel.loadIfNeeded()
+                }
+                .onChange(of: auth.currentAccount?.pubkey) { _, newValue in
+                    configureFollowStore()
+                    configureMuteStore()
+                    configureMutedThreadStore()
+                    viewModel.configure(
+                        currentUserPubkey: newValue,
+                        readRelayURLs: effectiveReadRelayURLs
+                    )
+                }
+                .onChange(of: auth.currentNsec) { _, _ in
+                    configureFollowStore()
+                    configureMuteStore()
+                    configureMutedThreadStore()
+                }
+                .onChange(of: relaySettings.readRelays) { _, _ in
+                    configureFollowStore()
+                    configureMuteStore()
+                    configureMutedThreadStore()
+                    viewModel.configure(
+                        currentUserPubkey: auth.currentAccount?.pubkey,
+                        readRelayURLs: effectiveReadRelayURLs
+                    )
+                }
+                .onChange(of: relaySettings.writeRelays) { _, _ in
+                    configureFollowStore()
+                    configureMuteStore()
+                    configureMutedThreadStore()
+                }
+                .onChange(of: appSettings.slowConnectionMode) { _, _ in
+                    configureFollowStore()
+                    configureMuteStore()
+                    configureMutedThreadStore()
+                    viewModel.configure(
+                        currentUserPubkey: auth.currentAccount?.pubkey,
+                        readRelayURLs: effectiveReadRelayURLs
+                    )
+                    Task {
+                        await viewModel.refresh()
                     }
                 }
-            }
-            .toolbar(.hidden, for: .navigationBar)
-            .task(id: isTabActive) {
-                guard isTabActive else { return }
-                relaySettings.configure(
-                    accountPubkey: auth.currentAccount?.pubkey,
-                    nsec: auth.currentNsec
-                )
-                configureFollowStore()
-                configureMuteStore()
-                configureMutedThreadStore()
-                viewModel.configure(
-                    currentUserPubkey: auth.currentAccount?.pubkey,
-                    readRelayURLs: effectiveReadRelayURLs
-                )
-                await viewModel.loadIfNeeded()
-            }
-            .onChange(of: auth.currentAccount?.pubkey) { _, newValue in
-                configureFollowStore()
-                configureMuteStore()
-                configureMutedThreadStore()
-                viewModel.configure(
-                    currentUserPubkey: newValue,
-                    readRelayURLs: effectiveReadRelayURLs
-                )
-            }
-            .onChange(of: auth.currentNsec) { _, _ in
-                configureFollowStore()
-                configureMuteStore()
-                configureMutedThreadStore()
-            }
-            .onChange(of: relaySettings.readRelays) { _, _ in
-                configureFollowStore()
-                configureMuteStore()
-                configureMutedThreadStore()
-                viewModel.configure(
-                    currentUserPubkey: auth.currentAccount?.pubkey,
-                    readRelayURLs: effectiveReadRelayURLs
-                )
-            }
-            .onChange(of: relaySettings.writeRelays) { _, _ in
-                configureFollowStore()
-                configureMuteStore()
-                configureMutedThreadStore()
-            }
-            .onChange(of: appSettings.slowConnectionMode) { _, _ in
-                configureFollowStore()
-                configureMuteStore()
-                configureMutedThreadStore()
-                viewModel.configure(
-                    currentUserPubkey: auth.currentAccount?.pubkey,
-                    readRelayURLs: effectiveReadRelayURLs
-                )
-                Task {
-                    await viewModel.refresh()
-                }
-            }
             .sheet(isPresented: $isShowingSettings, onDismiss: {
                 settingsSheetState.reset()
             }) {
@@ -253,7 +257,9 @@ struct ActivityView: View {
             .onChange(of: followStore.followedPubkeys) { _, _ in
                 viewModel.notificationPreferencesChanged()
             }
+            }
         }
+        .flowInteractiveBackSwipe()
     }
 
     private var effectiveReadRelayURLs: [URL] {
@@ -387,9 +393,6 @@ struct ActivityView: View {
             onLogout: {
                 auth.logout()
                 closeSideMenu()
-            },
-            onClose: {
-                closeSideMenu()
             }
         )
         .environmentObject(auth)
@@ -397,7 +400,10 @@ struct ActivityView: View {
 
     private var notificationSettingsSheet: some View {
         NavigationStack {
-            NotificationPreferencesView(navigationTitleText: "Pulse Alerts")
+            NotificationPreferencesView(
+                navigationTitleText: "Pulse Settings",
+                showsMutedNotifications: mutedNotificationsVisibilityBinding
+            )
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         ThemedToolbarDoneButton {
@@ -414,32 +420,68 @@ struct ActivityView: View {
     }
 
     private var emptyStateRow: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 12) {
             if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .font(.subheadline)
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                activityEmptyCopy(title: "Couldn’t refresh Pulse", message: errorMessage)
+                activityEmptyAction("Try again", systemImage: "arrow.clockwise") {
+                    Task { await viewModel.refresh() }
+                }
             } else if viewModel.hasMutedNotificationsHidden {
-                Text("Muted notifications are hidden")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
-
-                Text("Turn on Show muted notifications above to review them.")
-                    .font(.footnote)
-                    .foregroundStyle(appSettings.themePalette.mutedForeground)
-                    .multilineTextAlignment(.center)
+                activityEmptyCopy(
+                    title: "Some muted activity is hidden",
+                    message: "You can review it from Pulse settings."
+                )
+                activityEmptyAction("Open Pulse settings", systemImage: "slider.horizontal.3") {
+                    isShowingNotificationSettings = true
+                }
             } else if viewModel.hasItemsHiddenByNotificationPreferences {
-                Text("No activity matches your current notification settings.")
-                    .font(.subheadline)
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                activityEmptyCopy(
+                    title: "Nothing matches your Pulse settings",
+                    message: "Choose which activity you want to see and count as unread."
+                )
+                activityEmptyAction("Review settings", systemImage: "slider.horizontal.3") {
+                    isShowingNotificationSettings = true
+                }
             } else {
-                Text("No activity yet")
-                    .font(.subheadline)
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                activityEmptyCopy(
+                    title: "No activity yet",
+                    message: "Mentions, replies, reactions, and reshares will appear here."
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 24)
+    }
+
+    private func activityEmptyCopy(title: String, message: String) -> some View {
+        VStack(spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(appSettings.themePalette.foreground)
+
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                .multilineTextAlignment(.center)
+        }
+        .flowHierarchyEntrance(index: 0)
+    }
+
+    private func activityEmptyAction(
+        _ title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(appSettings.appFont(.subheadline, weight: .semibold))
+                .foregroundStyle(appSettings.buttonTextColor)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 44)
+                .background(appSettings.primaryGradient, in: Capsule(style: .continuous))
+        }
+        .buttonStyle(FlowPressScaleButtonStyle())
+        .flowHierarchyEntrance(index: 1)
     }
 
     private var mutedNotificationsVisibilityBinding: Binding<Bool> {

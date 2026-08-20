@@ -61,7 +61,7 @@ struct KeysView: View {
 
                 if let revealedPrivateKey {
                     keyValueRow(
-                        title: "nsec",
+                        title: "Recovery Key",
                         value: revealedPrivateKey,
                         actionTitle: "Copy Secret Access Code",
                         action: {

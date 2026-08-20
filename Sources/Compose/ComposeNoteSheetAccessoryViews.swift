@@ -10,10 +10,10 @@ enum ComposeToolbarLayout {
     static let publishButtonFontWeight: Font.Weight = .semibold
     static let cancelButtonFont = Font.subheadline.weight(cancelButtonFontWeight)
     static let publishButtonFont = Font.subheadline.weight(publishButtonFontWeight)
-    static let draftButtonHorizontalPadding: CGFloat = 9
-    static let draftButtonVerticalPadding: CGFloat = 6
-    static let draftButtonBackgroundOpacity = 0.92
-    static let draftButtonBorderOpacity = 0.62
+    static let controlHeight: CGFloat = 40
+    static let cancelButtonHorizontalPadding: CGFloat = 12
+    static let draftButtonHorizontalPadding: CGFloat = 12
+    static let publishButtonHorizontalPadding: CGFloat = 16
 }
 
 /// Keeps composer chrome visually present even when an action is temporarily unavailable.
@@ -42,8 +42,27 @@ enum ComposeSurfaceStyle {
     }
 }
 
+enum ComposeEditorLayout {
+    static let minimumHeight: CGFloat = 180
+    static let topContentPadding: CGFloat = 16
+    static let bottomAccessoryGap: CGFloat = 8
+    static let textViewHorizontalPadding: CGFloat = 8
+    static let textContainerHorizontalInset: CGFloat = 4
+    static let textContainerVerticalInset: CGFloat = 8
+    static let placeholderLeadingPadding = textViewHorizontalPadding + textContainerHorizontalInset
+    static let placeholderTopPadding = textContainerVerticalInset
+
+    static func expandedHeight(in viewportHeight: CGFloat) -> CGFloat {
+        max(
+            minimumHeight,
+            max(0, viewportHeight) - topContentPadding - bottomAccessoryGap
+        )
+    }
+}
+
 struct ComposeDraftLibraryToolbarButton: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     let savedDraftCount: Int
@@ -65,46 +84,117 @@ struct ComposeDraftLibraryToolbarButton: View {
     }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: savedDraftCount > 0 ? "tray.full.fill" : "tray")
-                    .id(savedDraftCount > 0)
-                    .transition(FlowTransitionMotion.iconSwapTransition(reduceMotion: accessibilityReduceMotion))
-                    .foregroundStyle(appSettings.primaryColor)
-
-                if let countText {
-                    Text(countText)
-                        .font(.caption.weight(.semibold))
-                        .monospacedDigit()
-                        .id(countText)
-                        .transition(FlowTransitionMotion.numberPopTransition(reduceMotion: accessibilityReduceMotion))
+        Group {
+            if #available(iOS 26.0, *) {
+                Button(action: action) {
+                    label
                 }
-            }
-            .animation(
-                FlowTransitionMotion.iconSwapAnimation(reduceMotion: accessibilityReduceMotion),
-                value: savedDraftCount > 0
-            )
-            .animation(
-                FlowTransitionMotion.numberPopAnimation(reduceMotion: accessibilityReduceMotion),
-                value: countText
-            )
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(appSettings.themePalette.secondaryForeground)
-            .padding(.horizontal, ComposeToolbarLayout.draftButtonHorizontalPadding)
-            .padding(.vertical, ComposeToolbarLayout.draftButtonVerticalPadding)
-            .background(
-                Capsule()
-                    .fill(appSettings.themePalette.tertiaryFill.opacity(ComposeToolbarLayout.draftButtonBackgroundOpacity))
-            )
-            .overlay {
-                Capsule()
-                    .stroke(
-                        appSettings.themePalette.separator.opacity(ComposeToolbarLayout.draftButtonBorderOpacity),
-                        lineWidth: 0.7
-                    )
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: Capsule(style: .continuous))
+            } else {
+                Button(action: action) {
+                    label
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay {
+                            Capsule()
+                                .stroke(
+                                    ComposeSurfaceStyle.border(for: colorScheme),
+                                    lineWidth: ComposeSurfaceStyle.borderWidth
+                                )
+                        }
+                        .shadow(
+                            color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
+                            radius: ComposeSurfaceStyle.controlShadowRadius,
+                            x: 0,
+                            y: ComposeSurfaceStyle.controlShadowY
+                        )
+                }
+                .buttonStyle(FlowPressScaleButtonStyle())
             }
         }
+        .tint(appSettings.primaryColor)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var label: some View {
+        HStack(spacing: 5) {
+            Image(systemName: savedDraftCount > 0 ? "tray.full.fill" : "tray")
+                .id(savedDraftCount > 0)
+                .transition(FlowTransitionMotion.iconSwapTransition(reduceMotion: accessibilityReduceMotion))
+
+            if let countText {
+                Text(countText)
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+                    .id(countText)
+                    .transition(FlowTransitionMotion.numberPopTransition(reduceMotion: accessibilityReduceMotion))
+            }
+        }
+        .animation(
+            FlowTransitionMotion.iconSwapAnimation(reduceMotion: accessibilityReduceMotion),
+            value: savedDraftCount > 0
+        )
+        .animation(
+            FlowTransitionMotion.numberPopAnimation(reduceMotion: accessibilityReduceMotion),
+            value: countText
+        )
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(appSettings.primaryColor)
+        .padding(.horizontal, ComposeToolbarLayout.draftButtonHorizontalPadding)
+        .frame(minWidth: ComposeToolbarLayout.controlHeight)
+        .frame(height: ComposeToolbarLayout.controlHeight)
+        .contentShape(Capsule())
+    }
+}
+
+struct ComposeCancelToolbarButton: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @EnvironmentObject private var appSettings: AppSettingsStore
+
+    let action: () -> Void
+
+    var body: some View {
+        Group {
+            if #available(iOS 26.0, *) {
+                Button(action: action) {
+                    label
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: Capsule(style: .continuous))
+            } else {
+                Button(action: action) {
+                    label
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay {
+                            Capsule()
+                                .stroke(
+                                    ComposeSurfaceStyle.border(for: colorScheme),
+                                    lineWidth: ComposeSurfaceStyle.borderWidth
+                                )
+                        }
+                        .shadow(
+                            color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
+                            radius: ComposeSurfaceStyle.controlShadowRadius,
+                            x: 0,
+                            y: ComposeSurfaceStyle.controlShadowY
+                        )
+                }
+                .buttonStyle(FlowPressScaleButtonStyle())
+            }
+        }
+        .tint(appSettings.primaryColor)
+        .layoutPriority(1)
+        .accessibilityLabel("Cancel compose")
+    }
+
+    private var label: some View {
+        Text("Cancel")
+            .font(ComposeToolbarLayout.cancelButtonFont)
+            .foregroundStyle(appSettings.primaryColor)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, ComposeToolbarLayout.cancelButtonHorizontalPadding)
+            .frame(height: ComposeToolbarLayout.controlHeight)
+            .contentShape(Capsule())
     }
 }
 
@@ -115,6 +205,7 @@ struct ComposeComposerCardView: View {
     @ObservedObject var viewModel: ComposeNoteViewModel
 
     let mode: ComposeNoteSheetMode
+    let minimumEditorHeight: CGFloat
     @Binding var pollDraft: ComposePollDraft?
     @Binding var isEditorFocused: Bool
     let editorTextUpdateRequest: ComposeTextUpdateRequest
@@ -151,13 +242,16 @@ struct ComposeComposerCardView: View {
         ZStack(alignment: .topLeading) {
             if viewModel.text.isEmpty {
                 Text(mode.placeholderText)
+                    .font(appSettings.appFont(.body))
                     .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 16)
+                    .padding(.leading, ComposeEditorLayout.placeholderLeadingPadding)
+                    .padding(.top, ComposeEditorLayout.placeholderTopPadding)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
 
-            composeTextView(horizontalPadding: 8, verticalPadding: 8)
-                .frame(minHeight: composeEditorMinHeight)
+            composeTextView
+                .frame(minHeight: resolvedComposeEditorMinHeight)
         }
         .overlay(alignment: .topLeading) {
             if shouldShowMentionSuggestions {
@@ -174,17 +268,22 @@ struct ComposeComposerCardView: View {
         .zIndex(shouldShowMentionSuggestions ? 1 : 0)
     }
 
-    private var composeEditorMinHeight: CGFloat {
-        guard shouldShowMentionSuggestions else { return 180 }
-        return max(180, mentionSuggestionPanelTopPadding + ComposeMentionSuggestionPanel.maxHeight + 12)
+    private var resolvedComposeEditorMinHeight: CGFloat {
+        guard shouldShowMentionSuggestions else {
+            return max(ComposeEditorLayout.minimumHeight, minimumEditorHeight)
+        }
+        return max(
+            ComposeEditorLayout.minimumHeight,
+            minimumEditorHeight,
+            mentionSuggestionPanelTopPadding + ComposeMentionSuggestionPanel.maxHeight + 12
+        )
     }
 
     private var mentionSuggestionPanelTopPadding: CGFloat {
         min(max(mentionSuggestionAnchorY + 12, 42), 118)
     }
 
-    @ViewBuilder
-    private func composeTextView(horizontalPadding: CGFloat, verticalPadding: CGFloat) -> some View {
+    private var composeTextView: some View {
         ComposeMultilineTextView(
             text: $viewModel.text,
             isFocused: $isEditorFocused,
@@ -195,8 +294,7 @@ struct ComposeComposerCardView: View {
             mentionColor: UIColor(appSettings.primaryColor),
             onMentionQueryChange: onMentionQueryChange
         )
-        .padding(.horizontal, horizontalPadding)
-        .padding(.vertical, verticalPadding)
+        .padding(.horizontal, ComposeEditorLayout.textViewHorizontalPadding)
     }
 
     private var shouldShowMentionSuggestions: Bool {
@@ -243,42 +341,19 @@ struct ComposeAttachmentToolbarBar: View {
     var body: some View {
         VStack(spacing: 0) {
             Rectangle()
-                .fill(appSettings.themePalette.separator.opacity(0.22))
-                .frame(height: 0.5)
+                .fill(ComposeSurfaceStyle.border(for: colorScheme))
+                .frame(height: ComposeSurfaceStyle.borderWidth)
 
-            HStack(spacing: 12) {
-                PhotosPicker(
-                    selection: $selectedMediaItems,
-                    selectionBehavior: .ordered,
-                    matching: .any(of: [.images, .videos])
-                ) {
-                    toolbarCircle {
-                        if isUploadingMedia {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "photo")
-                                .font(.system(size: 18, weight: .medium))
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(appSettings.primaryColor)
-                .disabled(isUploadingMedia || viewModel.isPublishing)
+            HStack(spacing: 8) {
+                photoAttachmentButton
 
                 cameraAttachmentButton(symbolFont: .system(size: 18, weight: .medium))
 
-                Button(action: onGIFTap) {
-                    Text("GIF")
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(appSettings.themePalette.tertiaryFill)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                gifAttachmentButton
+
+                if canAttachPoll {
+                    pollToolbarButton
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(appSettings.primaryColor)
-                .disabled(isUploadingMedia || viewModel.isPublishing)
 
                 Button(action: onSpeechToggle) {
                     toolbarCircle(isActive: speechTranscriber.isRecording) {
@@ -294,12 +369,8 @@ struct ComposeAttachmentToolbarBar: View {
                         }
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(FlowPressScaleButtonStyle())
                 .disabled(viewModel.isPublishing || isUploadingMedia)
-
-                if canAttachPoll {
-                    pollToolbarButton
-                }
 
                 if speechTranscriber.isRecording {
                     Text(formatVoiceDuration(milliseconds: speechTranscriber.elapsedMs))
@@ -307,7 +378,7 @@ struct ComposeAttachmentToolbarBar: View {
                         .foregroundStyle(appSettings.themePalette.secondaryForeground)
                 }
 
-                Spacer(minLength: 8)
+                Spacer(minLength: 4)
 
                 ComposeCharacterCountRing(
                     characterCount: viewModel.characterCount,
@@ -317,13 +388,71 @@ struct ComposeAttachmentToolbarBar: View {
                 if hasSigningAccess && writeRelayURLs.isEmpty {
                     Label("No connected sources", systemImage: "wifi.slash")
                         .font(.footnote.weight(.semibold))
+                        .labelStyle(.iconOnly)
                         .foregroundStyle(appSettings.themePalette.secondaryForeground)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
             .padding(.vertical, 10)
+
+            Rectangle()
+                .fill(ComposeSurfaceStyle.border(for: colorScheme))
+                .frame(height: ComposeSurfaceStyle.borderWidth)
         }
         .background(ComposeSurfaceStyle.background(for: colorScheme))
+    }
+
+    private var photoAttachmentButton: some View {
+        PhotosPicker(
+            selection: $selectedMediaItems,
+            selectionBehavior: .ordered,
+            matching: .any(of: [.images, .videos])
+        ) {
+            toolbarCircle {
+                if isUploadingMedia {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: 18, weight: .medium))
+                }
+            }
+        }
+        .buttonStyle(FlowPressScaleButtonStyle())
+        .foregroundStyle(appSettings.primaryColor)
+        .disabled(isUploadingMedia || viewModel.isPublishing)
+        .accessibilityLabel("Add photo or video")
+    }
+
+    private var gifAttachmentButton: some View {
+        Button(action: onGIFTap) {
+            Text("GIF")
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 9)
+                .frame(height: 32)
+                .background {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(ComposeSurfaceStyle.background(for: colorScheme))
+                        .shadow(
+                            color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
+                            radius: ComposeSurfaceStyle.controlShadowRadius,
+                            x: 0,
+                            y: ComposeSurfaceStyle.controlShadowY
+                        )
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(
+                            ComposeSurfaceStyle.border(for: colorScheme),
+                            lineWidth: ComposeSurfaceStyle.borderWidth
+                        )
+                }
+                .frame(minHeight: 40)
+        }
+        .buttonStyle(FlowPressScaleButtonStyle())
+        .foregroundStyle(appSettings.primaryColor)
+        .disabled(isUploadingMedia || viewModel.isPublishing)
+        .accessibilityLabel("Add GIF")
     }
 
     private var pollToolbarButton: some View {
@@ -339,7 +468,7 @@ struct ComposeAttachmentToolbarBar: View {
             FlowTransitionMotion.iconSwapAnimation(reduceMotion: accessibilityReduceMotion),
             value: pollDraft != nil
         )
-        .buttonStyle(.plain)
+        .buttonStyle(FlowPressScaleButtonStyle())
         .disabled(viewModel.isPublishing || isUploadingMedia)
         .accessibilityLabel(pollDraft == nil ? "Add poll" : "Edit poll")
     }
@@ -383,7 +512,7 @@ struct ComposeAttachmentToolbarBar: View {
                     .font(symbolFont)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FlowPressScaleButtonStyle())
         .disabled(isUploadingMedia || viewModel.isPublishing || isRequestingCaptureAccess)
         .accessibilityLabel("Capture photo or video")
     }
@@ -411,46 +540,74 @@ struct ComposePublishToolbarButton: View {
     }
 
     var body: some View {
-        Button(action: action) {
-            Group {
-                if isPublishing {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(appSettings.buttonTextColor)
-                } else {
-                    Text(title)
-                }
-            }
-            .font(ComposeToolbarLayout.publishButtonFont)
-            .foregroundStyle(isProminent ? appSettings.buttonTextColor : appSettings.primaryColor)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background {
-                Capsule()
-                    .fill(
-                        isProminent
-                            ? AnyShapeStyle(appSettings.primaryGradient)
-                            : AnyShapeStyle(ComposeSurfaceStyle.background(for: colorScheme))
+        Group {
+            if #available(iOS 26.0, *) {
+                Button(action: action) {
+                    label(
+                        foreground: isProminent
+                            ? appSettings.buttonTextColor
+                            : appSettings.primaryColor
                     )
-                    .shadow(
-                        color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
-                        radius: ComposeSurfaceStyle.controlShadowRadius,
-                        x: 0,
-                        y: ComposeSurfaceStyle.controlShadowY
-                    )
-            }
-            .overlay {
-                if !isProminent {
-                    Capsule()
-                        .stroke(
-                            ComposeSurfaceStyle.border(for: colorScheme),
-                            lineWidth: ComposeSurfaceStyle.borderWidth
-                        )
                 }
+                .buttonStyle(.plain)
+                .glassEffect(
+                    isProminent
+                        ? .regular.tint(appSettings.primaryColor).interactive()
+                        : .regular.interactive(),
+                    in: Capsule(style: .continuous)
+                )
+            } else {
+                Button(action: action) {
+                    label(
+                        foreground: isProminent
+                            ? appSettings.buttonTextColor
+                            : appSettings.primaryColor
+                    )
+                    .background {
+                        Capsule()
+                            .fill(
+                                isProminent
+                                    ? AnyShapeStyle(appSettings.primaryGradient)
+                                    : AnyShapeStyle(.ultraThinMaterial)
+                            )
+                            .shadow(
+                                color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
+                                radius: ComposeSurfaceStyle.controlShadowRadius,
+                                x: 0,
+                                y: ComposeSurfaceStyle.controlShadowY
+                            )
+                    }
+                    .overlay {
+                        Capsule()
+                            .stroke(
+                                ComposeSurfaceStyle.border(for: colorScheme),
+                                lineWidth: ComposeSurfaceStyle.borderWidth
+                            )
+                    }
+                }
+                .buttonStyle(FlowPressScaleButtonStyle())
             }
         }
-        .buttonStyle(.plain)
+        .tint(appSettings.primaryColor)
         .disabled(!isEnabled)
+    }
+
+    private func label(foreground: Color) -> some View {
+        Group {
+            if isPublishing {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(foreground)
+            } else {
+                Text(title)
+            }
+        }
+        .font(ComposeToolbarLayout.publishButtonFont)
+        .foregroundStyle(foreground)
+        .padding(.horizontal, ComposeToolbarLayout.publishButtonHorizontalPadding)
+        .frame(minWidth: 64)
+        .frame(height: ComposeToolbarLayout.controlHeight)
+        .contentShape(Capsule())
     }
 }
 

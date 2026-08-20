@@ -15,6 +15,7 @@ enum FlowCapsuleTabBarStylePreset {
 }
 
 struct FlowCapsuleTabBar<Selection: Hashable>: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
     @Binding private var selection: Selection
@@ -51,6 +52,12 @@ struct FlowCapsuleTabBar<Selection: Hashable>: View {
             }
             .padding(.horizontal, 1)
             .padding(.vertical, 1)
+            .animation(
+                FlowHorizontalPagingBehavior.selectionAnimation(
+                    reduceMotion: accessibilityReduceMotion
+                ),
+                value: selection
+            )
         }
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -61,9 +68,7 @@ struct FlowCapsuleTabBar<Selection: Hashable>: View {
 
         return Button {
             guard selection != item else { return }
-            withAnimation(.snappy(duration: 0.2, extraBounce: 0)) {
-                selection = item
-            }
+            selection = item
         } label: {
             Text(title(item))
                 .font(.system(size: 17, weight: .semibold))

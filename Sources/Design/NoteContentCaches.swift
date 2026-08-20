@@ -1,45 +1,65 @@
 import Foundation
 import NostrSDK
 
+enum NoteRenderEnvelopeSafety {
+    static func normalizedEventID(_ rawValue: String) -> String? {
+        normalizedHex(rawValue, expectedByteCount: 64)
+    }
+
+    static func normalizedPubkey(_ rawValue: String) -> String? {
+        normalizedHex(rawValue, expectedByteCount: 64)
+    }
+
+    private static func normalizedHex(
+        _ rawValue: String,
+        expectedByteCount: Int
+    ) -> String? {
+        let bytes = Array(rawValue.utf8.prefix(expectedByteCount + 1))
+        guard bytes.count == expectedByteCount,
+              bytes.allSatisfy({ byte in
+                  (48...57).contains(byte) ||
+                      (65...70).contains(byte) ||
+                      (97...102).contains(byte)
+              }) else {
+            return nil
+        }
+        return String(decoding: bytes, as: UTF8.self).lowercased()
+    }
+}
+
 final class NoteParsedContentCache {
     static let shared = NoteParsedContentCache()
 
-    private let maxEntries = 2_000
-    private var entries: [String: NoteContentView.ParsedContent] = [:]
-    private var recency: [String] = []
-    private let lock = NSLock()
+    private final class Entry: NSObject {
+        let value: NoteContentView.ParsedContent
+
+        init(_ value: NoteContentView.ParsedContent) {
+            self.value = value
+        }
+    }
+
+    private let entries = NSCache<NSString, Entry>()
+
+    init(maxEntries: Int = 2_000) {
+        entries.countLimit = max(maxEntries, 1)
+    }
 
     func parsedContent(
         for event: NostrEvent,
         builder: () -> NoteContentView.ParsedContent
     ) -> NoteContentView.ParsedContent {
-        let cacheKey = event.id.lowercased()
-
-        lock.lock()
-        if let cached = entries[cacheKey] {
-            touch(cacheKey)
-            lock.unlock()
-            return cached
+        guard let cacheKey = NoteRenderEnvelopeSafety.normalizedEventID(event.id) else {
+            return builder()
         }
-        lock.unlock()
+
+        if let cached = entries.object(forKey: cacheKey as NSString) {
+            return cached.value
+        }
 
         let parsed = builder()
-
-        lock.lock()
-        entries[cacheKey] = parsed
-        touch(cacheKey)
-        if recency.count > maxEntries, let oldest = recency.first {
-            recency.removeFirst()
-            entries[oldest] = nil
-        }
-        lock.unlock()
+        entries.setObject(Entry(parsed), forKey: cacheKey as NSString)
 
         return parsed
-    }
-
-    private func touch(_ key: String) {
-        recency.removeAll(where: { $0 == key })
-        recency.append(key)
     }
 }
 

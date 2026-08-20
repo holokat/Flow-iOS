@@ -7,6 +7,21 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+private struct ComposeImageEditSession: Identifiable {
+    let attachment: ComposeMediaAttachment
+    let sourceImage: UIImage
+
+    var id: UUID { attachment.id }
+}
+
+private enum ComposeImageEditError: LocalizedError {
+    case attachmentUnavailable
+
+    var errorDescription: String? {
+        "That image is no longer attached."
+    }
+}
+
 struct ComposeNoteSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -24,6 +39,8 @@ struct ComposeNoteSheet: View {
     @State private var isShowingCameraCapture = false
     @State private var isRequestingCaptureAccess = false
     @State private var isUploadingMedia = false
+    @State private var preparingEditAttachmentID: UUID?
+    @State private var imageEditSession: ComposeImageEditSession?
     @State private var pollDraft: ComposePollDraft?
     @State private var profileDisplayName = "Account"
     @State private var profileAvatarURL: URL?
@@ -90,6 +107,7 @@ struct ComposeNoteSheet: View {
     var quotedHandleHint: String? = nil
     var quotedAvatarURLHint: URL? = nil
     var savedDraftID: UUID? = nil
+    var onRequestAccountAccess: (() -> Void)? = nil
     var onOptimisticPublished: ((FeedItem) -> Void)? = nil
     var onPublished: (() -> Void)? = nil
 
@@ -100,25 +118,39 @@ struct ComposeNoteSheet: View {
             .navigationTitle(composerNavigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: ComposeToolbarLayout.leadingItemSpacing) {
-                        Button {
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarLeading) {
+                        ComposeCancelToolbarButton {
                             dismiss()
-                        } label: {
-                            Text("Cancel")
-                                .font(ComposeToolbarLayout.cancelButtonFont)
                         }
+                    }
+
+                    ToolbarSpacer(.fixed, placement: .topBarLeading)
+
+                    ToolbarItem(placement: .topBarLeading) {
                         draftLibraryToolbarButton
                     }
-                }
 
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: ComposeToolbarLayout.trailingItemSpacing) {
-                        composeToolbarAvatar
+                    ToolbarItem(placement: .topBarTrailing) {
+                        publishToolbarButton
+                    }
+                } else {
+                    ToolbarItem(placement: .topBarLeading) {
+                        HStack(spacing: ComposeToolbarLayout.leadingItemSpacing) {
+                            ComposeCancelToolbarButton {
+                                dismiss()
+                            }
+                            draftLibraryToolbarButton
+                        }
+                    }
+
+                    ToolbarItem(placement: .topBarTrailing) {
                         publishToolbarButton
                     }
                 }
             }
+            .toolbarBackground(composeSheetBackground, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.hidden)
@@ -193,6 +225,11 @@ struct ComposeNoteSheet: View {
             )
             .ignoresSafeArea()
         }
+        .fullScreenCover(item: $imageEditSession) { session in
+            ImageRemixEditorView(sourceImage: session.sourceImage) { editedImage in
+                try await replaceMediaAttachment(session.attachment, with: editedImage)
+            }
+        }
         .sheet(item: $previewingMediaAttachment) { attachment in
             ComposeMediaAttachmentPreviewSheet(attachment: attachment)
         }
@@ -235,7 +272,8 @@ struct ComposeNoteSheet: View {
     }
 
     private var publishButtonTitle: String {
-        mode.primaryActionTitle(hasSigningAccess: currentNsec != nil)
+        guard currentNsec != nil else { return "Add access" }
+        return mode.primaryActionTitle(hasSigningAccess: true)
     }
 
     private var availableSavedDrafts: [SavedComposeDraft] {
@@ -247,7 +285,7 @@ struct ComposeNoteSheet: View {
     }
 
     private var composeSheetBackground: Color {
-        appSettings.activeTheme == .light ? .white : appSettings.themePalette.groupedBackground
+        ComposeSurfaceStyle.background(for: colorScheme)
     }
 
     private var draftLibraryToolbarButton: some View {
@@ -257,22 +295,34 @@ struct ComposeNoteSheet: View {
     }
 
     private var standardComposerLayout: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if isReplyComposer {
-                    replyTargetPreviewCard
-                } else if isQuoteComposer {
-                    quotePreviewCard
+        VStack(spacing: 0) {
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if currentNsec == nil {
+                            accountAccessCard
+                        }
+
+                        if isReplyComposer {
+                            replyTargetPreviewCard
+                        } else if isQuoteComposer {
+                            quotePreviewCard
+                        }
+                        composeCard(
+                            minimumEditorHeight: ComposeEditorLayout.expandedHeight(
+                                in: proxy.size.height
+                            )
+                        )
+                        statusSection
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.top, ComposeEditorLayout.topContentPadding)
+                    .padding(.bottom, ComposeEditorLayout.bottomAccessoryGap)
                 }
-                composeCard
-                statusSection
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 16)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+
             composeBottomAccessoryBar
         }
     }
@@ -283,8 +333,14 @@ struct ComposeNoteSheet: View {
                 ComposeMediaAttachmentStrip(
                     attachments: mediaAttachments,
                     colorScheme: colorScheme,
+                    preparingEditAttachmentID: preparingEditAttachmentID,
                     onPreview: { attachment in
                         previewingMediaAttachment = attachment
+                    },
+                    onEdit: { attachment in
+                        Task {
+                            await openMediaAttachmentEditor(for: attachment)
+                        }
                     },
                     onRemove: removeMediaAttachment(_:)
                 )
@@ -295,7 +351,7 @@ struct ComposeNoteSheet: View {
 
             composeAttachmentToolbar
         }
-        .background(appSettings.themePalette.background)
+        .background(composeSheetBackground)
     }
 
     private var composeAttachmentToolbar: some View {
@@ -326,26 +382,63 @@ struct ComposeNoteSheet: View {
         ComposePublishToolbarButton(
             title: publishButtonTitle,
             isPublishing: viewModel.isPublishing,
-            isEnabled: canPublish
+            isEnabled: currentNsec == nil || canPublish
         ) {
+            if currentNsec == nil {
+                onRequestAccountAccess?()
+                return
+            }
             Task {
                 await publish()
             }
         }
     }
 
-    private var composeToolbarAvatar: some View {
-        ComposeToolbarAvatarView(
-            avatarURL: profileAvatarURL,
-            fallbackSymbol: profileFallbackSymbol,
-            accessibilityLabel: "\(mode.accessibilityActionLabel) as \(profileDisplayName)"
+    private var accountAccessCard: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "key.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(appSettings.primaryColor)
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Add account access to post")
+                    .font(appSettings.appFont(.headline, weight: .semibold))
+                    .foregroundStyle(appSettings.themePalette.foreground)
+
+                Text("Your draft is safe. Continue when you’re ready to publish.")
+                    .font(appSettings.appFont(.subheadline))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+            }
+
+            Spacer(minLength: 8)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(appSettings.themePalette.sheetCardBackground)
         )
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(appSettings.themePalette.sheetCardBorder, lineWidth: 1)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onRequestAccountAccess?()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            onRequestAccountAccess?()
+        }
+        .flowHierarchyEntrance(index: 0)
     }
 
-    private var composeCard: some View {
+    private func composeCard(minimumEditorHeight: CGFloat) -> some View {
         ComposeComposerCardView(
             viewModel: viewModel,
             mode: mode,
+            minimumEditorHeight: minimumEditorHeight,
             pollDraft: $pollDraft,
             isEditorFocused: $isEditorFocused,
             editorTextUpdateRequest: editorTextUpdateRequest,
@@ -369,7 +462,7 @@ struct ComposeNoteSheet: View {
             feedbackMessage: viewModel.feedbackMessage,
             feedbackIsError: viewModel.feedbackIsError,
             isTranscribingSpeech: speechTranscriber.isTranscribing,
-            missingNsec: currentNsec == nil,
+            missingNsec: false,
             missingPublishSources: writeRelayURLs.isEmpty,
             pollValidationMessage: pollValidationMessage
         )
@@ -960,6 +1053,63 @@ struct ComposeNoteSheet: View {
         mediaAttachments.removeAll { $0.id == attachment.id }
     }
 
+    @MainActor
+    private func openMediaAttachmentEditor(for attachment: ComposeMediaAttachment) async {
+        guard attachment.isImage,
+              !attachment.isGIF,
+              preparingEditAttachmentID == nil else {
+            return
+        }
+
+        preparingEditAttachmentID = attachment.id
+        defer {
+            preparingEditAttachmentID = nil
+        }
+
+        guard let sourceImage = await FlowImageCache.shared.image(for: attachment.url) else {
+            toastCenter.show("Couldn't load that image for editing.", style: .error, duration: 2.8)
+            return
+        }
+        guard mediaAttachments.contains(where: { $0.id == attachment.id }) else { return }
+
+        imageEditSession = ComposeImageEditSession(
+            attachment: attachment,
+            sourceImage: sourceImage
+        )
+    }
+
+    @MainActor
+    private func replaceMediaAttachment(
+        _ attachment: ComposeMediaAttachment,
+        with editedImage: UIImage
+    ) async throws {
+        guard let attachmentIndex = mediaAttachments.firstIndex(where: { $0.id == attachment.id }) else {
+            throw ComposeImageEditError.attachmentUnavailable
+        }
+        guard let normalizedNsec = currentNsec?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !normalizedNsec.isEmpty else {
+            throw MediaUploadError.invalidCredentials
+        }
+
+        isUploadingMedia = true
+        defer {
+            isUploadingMedia = false
+        }
+
+        let replacement = try await mediaAttachmentController.uploadAttachment(
+            fromEditedImage: editedImage,
+            normalizedNsec: normalizedNsec
+        )
+        guard mediaAttachments.indices.contains(attachmentIndex),
+              mediaAttachments[attachmentIndex].id == attachment.id else {
+            throw ComposeImageEditError.attachmentUnavailable
+        }
+
+        mediaAttachments[attachmentIndex] = replacement
+        removeUploadedMediaURLIfPresent(attachment.url)
+        toastCenter.show("Image updated")
+    }
+
     private func removeUploadedMediaURLIfPresent(_ url: URL) {
         let updatedText = mediaAttachmentController.textRemovingUploadedMediaURL(url, from: viewModel.text)
         guard updatedText != viewModel.text else { return }
@@ -1109,9 +1259,7 @@ struct ComposeNoteSheet: View {
             return nil
         }
 
-        return message
-            .replacingOccurrences(of: "relays", with: "connections", options: .caseInsensitive)
-            .replacingOccurrences(of: "relay", with: "connection", options: .caseInsensitive)
+        return UserFacingCopy.sanitizingTechnicalTerms(message)
     }
 
     private func applyInitialDraftIfNeeded() {

@@ -281,7 +281,7 @@ final class HomeFeedViewModel: ObservableObject {
 
     var relayDisplayName: String {
         if readRelayURLs.count > 1 {
-            return "\(readRelayURLs.count) relays"
+            return "\(readRelayURLs.count) sources"
         }
         return relayURL.host() ?? relayURL.absoluteString
     }
@@ -2345,13 +2345,17 @@ final class HomeFeedViewModel: ObservableObject {
         }
 
         do {
-            return try await service.fetchFollowings(
+            let remoteFollowings = try await service.fetchFollowings(
                 relayURLs: relayURLs,
                 pubkey: currentUserPubkey,
                 relayFetchMode: relayFetchMode,
                 relayOnly: true,
                 fallbackToCachedSnapshot: false
             )
+            if remoteFollowings.isEmpty, !followings.isEmpty {
+                return followings
+            }
+            return remoteFollowings
         } catch {
             if !followings.isEmpty {
                 return followings

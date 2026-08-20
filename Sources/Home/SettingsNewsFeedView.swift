@@ -39,18 +39,18 @@ struct SettingsNewsFeedView: View {
                     }
                 }
             } header: {
-                Text("News Relays")
+                Text("News Sources")
             } footer: {
-                Text("The News feed listens to all configured News relays.")
+                Text("The News feed checks every configured News source.")
             }
 
-            Section("Add Relay") {
+            Section("Add Source") {
                 TextField("wss://news.example.com", text: $relayInput)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .onSubmit(addRelay)
 
-                Button("Add Relay") {
+                Button("Add Source") {
                     addRelay()
                 }
                 .buttonStyle(.borderedProminent)
@@ -83,7 +83,7 @@ struct SettingsNewsFeedView: View {
             } header: {
                 Text("People")
             } footer: {
-                Text("Added people will always be blended into the News feed, even if they post on relays outside the News relay list.")
+                Text("Added people are always blended into News, even when they post somewhere outside your News sources.")
             }
 
             Section {

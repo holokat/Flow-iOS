@@ -66,8 +66,9 @@ struct SearchView: View {
                         case .people:
                             if !visibleProfiles.isEmpty {
                                 Section {
-                                    ForEach(visibleProfiles) { profile in
+                                    ForEach(Array(visibleProfiles.enumerated()), id: \.element.id) { index, profile in
                                         profileResultRow(profile)
+                                            .flowHierarchyEntrance(index: index)
                                             .listRowInsets(
                                                 EdgeInsets(
                                                     top: 8,
@@ -81,7 +82,7 @@ struct SearchView: View {
                                             .listRowBackground(Color.clear)
                                     }
                                 } header: {
-                                    Text(viewModel.isSearching ? "People" : "Suggestions")
+                                    Text(viewModel.isSearching ? "People" : "Discover people")
                                         .font(.caption.weight(.semibold))
                                         .foregroundStyle(appSettings.themePalette.secondaryForeground)
                                         .textCase(nil)
@@ -190,15 +191,6 @@ struct SearchView: View {
                         }
                     }
                 }
-                .onChange(of: viewModel.selectedScope) { _, _ in
-                    viewModel.handleSearchScopeChanged()
-                    if viewModel.selectedScope == .people &&
-                        viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Task {
-                            await viewModel.loadIfNeeded()
-                        }
-                    }
-                }
                 .navigationDestination(item: $selectedThreadItem) { item in
                     ThreadDetailView(
                         initialItem: item,
@@ -266,13 +258,13 @@ struct SearchView: View {
                 }
             }
         }
+        .flowInteractiveBackSwipe()
     }
 
     private var searchBar: some View {
         SearchBarSection(
             searchText: $viewModel.searchText,
-            selectedScope: $viewModel.selectedScope,
-            placeholder: viewModel.selectedScope.placeholder
+            placeholder: "Search"
         ) {
             Task {
                 await viewModel.submitSearch()

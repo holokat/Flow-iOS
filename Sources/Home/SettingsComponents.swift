@@ -165,6 +165,7 @@ struct NotificationPreferencesView: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     var navigationTitleText: String = "Notifications"
+    var showsMutedNotifications: Binding<Bool>? = nil
 
     var body: some View {
         ThemedSettingsForm {
@@ -209,7 +210,21 @@ struct NotificationPreferencesView: View {
             } header: {
                 Text("Pulse Alerts")
             } footer: {
-                Text("These controls decide which Pulse events trigger the in-app bell badge and future notification delivery.")
+                Text("These controls decide which activity triggers the in-app bell badge and future notifications.")
+            }
+
+            if let showsMutedNotifications {
+                Section {
+                    Toggle("Show muted activity", isOn: showsMutedNotifications)
+                        .accessibilityHint(
+                            "Shows muted activity as private placeholders without changing your mute settings."
+                        )
+                        .accessibilityIdentifier("pulse-show-muted-notifications")
+                } header: {
+                    Text("Activity visibility")
+                } footer: {
+                    Text("Muted activity stays out of your unread count.")
+                }
             }
         }
         .navigationTitle(navigationTitleText)

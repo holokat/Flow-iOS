@@ -52,10 +52,11 @@ final class LiveReactsCoordinator: ObservableObject {
 
 @MainActor
 final class LiveReactsSubscriptionController: ObservableObject {
-    private let liveSubscriber: NostrLiveFeedSubscriber
+    private let liveSubscriber: any NostrLiveEventSubscribing
     private let relayClient: any NostrRelayEventFetching
     private var liveUpdatesTask: Task<Void, Never>?
     private var catchUpTask: Task<Void, Never>?
+    private var catchUpEmissionTask: Task<Void, Never>?
     private var catchUpToken = 0
     private var subscriptionSignature: String?
     private var currentUserPubkey: String?
@@ -65,25 +66,56 @@ final class LiveReactsSubscriptionController: ObservableObject {
     private var onReaction: ((ActivityReaction) -> Void)?
     private var seenEventIDs = Set<String>()
     private var seenEventOrder: [String] = []
+    private var pendingCatchUpReactions: [ActivityReaction] = []
+    private var latestReactionCreatedAt: Int?
 
-    private let maxTrackedEventIDs = 512
-    private let catchUpMinimumInterval: TimeInterval = 15
-    private let catchUpOverlapSeconds = 30
-    private let catchUpLimit = 120
-    private let catchUpTimeout: TimeInterval = 4
+    private let maxTrackedEventIDs: Int
+    private let catchUpMinimumInterval: TimeInterval
+    private let catchUpDefaultLookbackSeconds: Int
+    private let catchUpMaximumLookbackSeconds: Int
+    private let catchUpCursorOverlapSeconds: Int
+    private let catchUpLimit: Int
+    private let catchUpTimeout: TimeInterval
+    private let catchUpEmissionIntervalNanoseconds: UInt64
+    private let maximumQueuedCatchUpReactions: Int
+    private let now: () -> Date
     private var lastCatchUpByRelaySignature: [String: Date] = [:]
 
     init(
-        liveSubscriber: NostrLiveFeedSubscriber = NostrLiveFeedSubscriber(),
-        relayClient: any NostrRelayEventFetching = NostrRelayClient()
+        liveSubscriber: any NostrLiveEventSubscribing = NostrLiveFeedSubscriber(),
+        relayClient: any NostrRelayEventFetching = NostrRelayClient(),
+        maxTrackedEventIDs: Int = 2_048,
+        catchUpMinimumInterval: TimeInterval = 15,
+        catchUpDefaultLookbackSeconds: Int = 30,
+        catchUpMaximumLookbackSeconds: Int = 300,
+        catchUpCursorOverlapSeconds: Int = 2,
+        catchUpLimit: Int = 120,
+        catchUpTimeout: TimeInterval = 4,
+        catchUpEmissionIntervalNanoseconds: UInt64 = 220_000_000,
+        maximumQueuedCatchUpReactions: Int = 12,
+        now: @escaping () -> Date = Date.init
     ) {
         self.liveSubscriber = liveSubscriber
         self.relayClient = relayClient
+        self.maxTrackedEventIDs = max(maxTrackedEventIDs, 1)
+        self.catchUpMinimumInterval = max(catchUpMinimumInterval, 0)
+        self.catchUpDefaultLookbackSeconds = max(catchUpDefaultLookbackSeconds, 0)
+        self.catchUpMaximumLookbackSeconds = max(
+            catchUpMaximumLookbackSeconds,
+            catchUpDefaultLookbackSeconds
+        )
+        self.catchUpCursorOverlapSeconds = max(catchUpCursorOverlapSeconds, 0)
+        self.catchUpLimit = max(catchUpLimit, 1)
+        self.catchUpTimeout = max(catchUpTimeout, 0.1)
+        self.catchUpEmissionIntervalNanoseconds = catchUpEmissionIntervalNanoseconds
+        self.maximumQueuedCatchUpReactions = max(maximumQueuedCatchUpReactions, 1)
+        self.now = now
     }
 
     deinit {
         liveUpdatesTask?.cancel()
         catchUpTask?.cancel()
+        catchUpEmissionTask?.cancel()
     }
 
     func update(
@@ -123,10 +155,9 @@ final class LiveReactsSubscriptionController: ObservableObject {
             return
         }
 
-        let liveSince = max(Int(Date().timeIntervalSince1970) - 2, 0)
+        let liveSince = recoverySince(timestamp: Int(now().timeIntervalSince1970))
         let filter = NostrFilter(
             kinds: [7],
-            limit: 100,
             since: liveSince,
             tagFilters: ["p": [user]]
         )
@@ -162,7 +193,7 @@ final class LiveReactsSubscriptionController: ObservableObject {
                             onStatus: { [weak self] _ in
                                 guard let self else { return }
                                 await self.scheduleCatchUp(
-                                    relays: [relayURL],
+                                    relays: relays,
                                     filter: filter
                                 )
                             }
@@ -181,6 +212,9 @@ final class LiveReactsSubscriptionController: ObservableObject {
         liveUpdatesTask = nil
         catchUpTask?.cancel()
         catchUpTask = nil
+        catchUpEmissionTask?.cancel()
+        catchUpEmissionTask = nil
+        pendingCatchUpReactions = []
         subscriptionSignature = nil
 
         if resetSeenEvents {
@@ -195,17 +229,17 @@ final class LiveReactsSubscriptionController: ObservableObject {
         force: Bool = false
     ) {
         guard catchUpTask == nil else { return }
-        let now = Date()
+        let currentTime = now()
         let dueRelays = relays.filter { relayURL in
             let signature = relayURL.absoluteString.lowercased()
             guard !force else { return true }
             guard let lastFetch = lastCatchUpByRelaySignature[signature] else { return true }
-            return now.timeIntervalSince(lastFetch) >= catchUpMinimumInterval
+            return currentTime.timeIntervalSince(lastFetch) >= catchUpMinimumInterval
         }
         guard !dueRelays.isEmpty else { return }
 
         dueRelays.forEach { relayURL in
-            lastCatchUpByRelaySignature[relayURL.absoluteString.lowercased()] = now
+            lastCatchUpByRelaySignature[relayURL.absoluteString.lowercased()] = currentTime
         }
 
         catchUpToken &+= 1
@@ -223,15 +257,17 @@ final class LiveReactsSubscriptionController: ObservableObject {
     private func performCatchUp(relays: [URL], filter: NostrFilter) async {
         guard !relays.isEmpty else { return }
 
-        let catchUpSince = max(Int(Date().timeIntervalSince1970) - catchUpOverlapSeconds, 0)
+        let catchUpUntil = Int(now().timeIntervalSince1970)
+        let catchUpSince = recoverySince(timestamp: catchUpUntil)
         let relayClient = relayClient
         let timeout = catchUpTimeout
         var catchUpFilter = filter
         catchUpFilter.since = catchUpSince
-        catchUpFilter.until = nil
+        catchUpFilter.until = catchUpUntil
         catchUpFilter.limit = max(catchUpFilter.limit ?? 0, catchUpLimit)
         let fetchFilter = catchUpFilter
 
+        var recoveredEvents: [NostrEvent] = []
         await withTaskGroup(of: [NostrEvent].self) { group in
             for relayURL in relays {
                 group.addTask {
@@ -249,25 +285,89 @@ final class LiveReactsSubscriptionController: ObservableObject {
 
             for await events in group {
                 guard !Task.isCancelled else { return }
-                for event in events {
-                    await handleIncomingReactionEvent(event)
+                recoveredEvents.append(contentsOf: events)
+            }
+        }
+
+        guard !Task.isCancelled else { return }
+        recoveredEvents.sort {
+            if $0.createdAt != $1.createdAt {
+                return $0.createdAt < $1.createdAt
+            }
+            return $0.id < $1.id
+        }
+
+        var reactions: [ActivityReaction] = []
+        for event in recoveredEvents {
+            if let reaction = registerReactionEvent(event) {
+                reactions.append(reaction)
+            }
+        }
+        enqueueCatchUpReactions(reactions)
+    }
+
+    private func handleIncomingReactionEvent(_ event: NostrEvent) async {
+        guard let reaction = registerReactionEvent(event) else { return }
+        onReaction?(reaction)
+    }
+
+    private func registerReactionEvent(_ event: NostrEvent) -> ActivityReaction? {
+        guard event.kind == 7 else { return nil }
+        guard let user = currentUserPubkey, !user.isEmpty else { return nil }
+        guard event.mentionedPubkeys.contains(where: { $0.lowercased() == user }) else { return nil }
+        guard normalizePubkey(event.pubkey) != user else { return nil }
+
+        let normalizedEventID = event.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedEventID.isEmpty else { return nil }
+        guard registerSeenEventID(normalizedEventID) else { return nil }
+
+        guard let reaction = event.activityAction?.reaction else { return nil }
+        latestReactionCreatedAt = max(latestReactionCreatedAt ?? 0, event.createdAt)
+        return reaction
+    }
+
+    private func enqueueCatchUpReactions(_ reactions: [ActivityReaction]) {
+        guard !reactions.isEmpty else { return }
+
+        pendingCatchUpReactions.append(contentsOf: reactions)
+        if pendingCatchUpReactions.count > maximumQueuedCatchUpReactions {
+            pendingCatchUpReactions.removeFirst(
+                pendingCatchUpReactions.count - maximumQueuedCatchUpReactions
+            )
+        }
+        guard catchUpEmissionTask == nil else { return }
+
+        catchUpEmissionTask = Task { [weak self] in
+            guard let self else { return }
+
+            while !Task.isCancelled, !self.pendingCatchUpReactions.isEmpty {
+                let reaction = self.pendingCatchUpReactions.removeFirst()
+                self.onReaction?(reaction)
+
+                if !self.pendingCatchUpReactions.isEmpty {
+                    try? await Task.sleep(
+                        nanoseconds: self.catchUpEmissionIntervalNanoseconds
+                    )
                 }
+            }
+
+            if !Task.isCancelled {
+                self.catchUpEmissionTask = nil
             }
         }
     }
 
-    private func handleIncomingReactionEvent(_ event: NostrEvent) async {
-        guard event.kind == 7 else { return }
-        guard let user = currentUserPubkey, !user.isEmpty else { return }
-        guard event.mentionedPubkeys.contains(where: { $0.lowercased() == user }) else { return }
-        guard normalizePubkey(event.pubkey) != user else { return }
+    private func recoverySince(timestamp: Int) -> Int {
+        let maximumLookbackFloor = max(timestamp - catchUpMaximumLookbackSeconds, 0)
+        guard let latestReactionCreatedAt else {
+            return max(timestamp - catchUpDefaultLookbackSeconds, 0)
+        }
 
-        let normalizedEventID = event.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalizedEventID.isEmpty else { return }
-        guard registerSeenEventID(normalizedEventID) else { return }
-
-        guard let reaction = event.activityAction?.reaction else { return }
-        onReaction?(reaction)
+        let cursor = min(
+            max(latestReactionCreatedAt - catchUpCursorOverlapSeconds, 0),
+            timestamp
+        )
+        return max(cursor, maximumLookbackFloor)
     }
 
     private func registerSeenEventID(_ eventID: String) -> Bool {
@@ -285,6 +385,7 @@ final class LiveReactsSubscriptionController: ObservableObject {
     private func resetSeenEventTracking() {
         seenEventIDs = []
         seenEventOrder = []
+        latestReactionCreatedAt = nil
     }
 
     private func normalizePubkey(_ value: String?) -> String? {

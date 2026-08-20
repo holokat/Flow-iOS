@@ -2,41 +2,34 @@ import SwiftUI
 
 enum SideMenuTransitionLayout {
     static let menuWidthFraction: CGFloat = 0.78
-    static let menuClosedOffsetFraction: CGFloat = 1.08
-    static let menuClosedOpacity: Double = 0
-    static let primaryContentOpenScale: CGFloat = 0.965
-    static let primaryContentOpenOffsetFraction: CGFloat = 0.045
-    static let primaryContentOpenOffsetMaximum: CGFloat = 18
-    static let primaryContentOpenCornerRadius: CGFloat = 26
-    static let menuTrailingCornerRadius: CGFloat = 30
-    static let backdropOpacity: Double = 0.24
-    static let backdropBlurRadius: CGFloat = 3
-    static let rowStaggerDelay: TimeInterval = 0.045
-    static let rowClosedXOffset: CGFloat = -10
+    static let menuClosedOffsetFraction: CGFloat = 0.08
+    static let menuClosedOpacity: Double = 0.82
+    static let primaryContentOpenScale: CGFloat = 1
+    static let primaryContentOpenCornerRadius: CGFloat = 44
+    static let backdropOpacity: Double = 0.42
+    static let rowStaggerProgress: CGFloat = 0.045
+    static let rowClosedXOffset: CGFloat = -12
     static let rowClosedYOffset: CGFloat = 0
     static let rowClosedOpacity: Double = 0
-    static let profileBannerHeight: CGFloat = 204
-    static let profileBannerFadeHeight: CGFloat = 120
-    static let profileBannerLoadedImageOpacity: Double = 0.68
-    static let profileBannerLoadedImageSaturation: Double = 0.92
-    static let profileHeaderAvatarSize: CGFloat = 76
-    static let profileHeaderContentBottomPadding: CGFloat = 8
-    static let profileHeaderLinksTopSpacing: CGFloat = 22
+    static let profileHeaderAvatarSize: CGFloat = 52
+    static let profileHeaderLinksTopSpacing: CGFloat = 20
     static let logoutTopSpacing: CGFloat = 18
     static let profileHeaderPrimaryFillOpacity: Double = 0
     static let menuButtonBackgroundOpacity: Double = 0
     static let menuIconBackgroundOpacity: Double = 0
     static let menuControlStrokeOpacity: Double = 0.28
-    static let primaryContentZIndex: Double = 0
-    static let backdropZIndex: Double = 1
-    static let menuZIndex: Double = 2
+    static let dragMinimumDistance: CGFloat = 10
+    static let dragAxisDominanceRatio: CGFloat = 1.15
+    static let projectedOpenThreshold: CGFloat = 0.5
+    static let menuZIndex: Double = 0
+    static let primaryContentZIndex: Double = 1
     static let usesParentZStack = true
-    static let keepsMenuBehindPrimaryContent = false
+    static let keepsMenuBehindPrimaryContent = true
     static let menuFillsFullContainerHeight = true
 
     static func animation(reduceMotion: Bool) -> Animation? {
         guard !reduceMotion else { return nil }
-        return .spring(response: 0.4, dampingFraction: 0.82)
+        return .spring(response: 0.38, dampingFraction: 0.88)
     }
 
     static func menuWidth(for containerWidth: CGFloat) -> CGFloat {
@@ -52,51 +45,134 @@ enum SideMenuTransitionLayout {
         return max(0, geometryTopSafeAreaInset)
     }
 
-    static func primaryContentOpenOffset(for containerWidth: CGFloat) -> CGFloat {
-        max(0, min(containerWidth * primaryContentOpenOffsetFraction, primaryContentOpenOffsetMaximum))
+    static func clampedContentOffset(
+        isOpen: Bool,
+        dragTranslation: CGFloat,
+        openOffset: CGFloat
+    ) -> CGFloat {
+        let restingOffset = isOpen ? openOffset : 0
+        return min(max(restingOffset + dragTranslation, 0), max(0, openOffset))
+    }
+
+    static func presentationProgress(contentOffset: CGFloat, openOffset: CGFloat) -> CGFloat {
+        guard openOffset > 0 else { return 0 }
+        return min(max(contentOffset / openOffset, 0), 1)
+    }
+
+    static func isHorizontallyDominant(_ translation: CGSize) -> Bool {
+        abs(translation.width) > abs(translation.height) * dragAxisDominanceRatio
+    }
+
+    static func isVerticallyDominant(_ translation: CGSize) -> Bool {
+        abs(translation.height) > abs(translation.width) * dragAxisDominanceRatio
+    }
+
+    static func shouldOpen(
+        isOpen: Bool,
+        predictedEndTranslation: CGFloat,
+        openOffset: CGFloat
+    ) -> Bool {
+        let projectedOffset = clampedContentOffset(
+            isOpen: isOpen,
+            dragTranslation: predictedEndTranslation,
+            openOffset: openOffset
+        )
+        return projectedOffset >= openOffset * projectedOpenThreshold
+    }
+
+    static func canTrackMenuDrag(
+        isOpen: Bool,
+        allowsOpeningGesture: Bool,
+        horizontalTranslation: CGFloat
+    ) -> Bool {
+        isOpen || (allowsOpeningGesture && horizontalTranslation > 0)
+    }
+
+    static func rowPresentationProgress(menuProgress: CGFloat, index: Int) -> CGFloat {
+        let stagger = min(CGFloat(max(0, index)) * rowStaggerProgress, 0.4)
+        guard stagger < 1 else { return menuProgress >= 1 ? 1 : 0 }
+        return min(max((menuProgress - stagger) / (1 - stagger), 0), 1)
     }
 }
 
 struct SideMenuContainer<Content: View, Menu: View>: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Binding private var isOpen: Bool
+    @State private var dragTranslation: CGFloat = 0
+    @State private var dragAxis: DragAxis?
+    @State private var isTrackingMenuDrag = false
 
     private let content: Content
     private let menu: Menu
+    private let menuBackground: Color
     private let topSafeAreaInset: CGFloat
+    private let allowsOpeningGesture: Bool
 
     init(
         isOpen: Binding<Bool>,
         topSafeAreaInset: CGFloat = 0,
+        menuBackground: Color = .clear,
+        allowsOpeningGesture: Bool = true,
         @ViewBuilder menu: () -> Menu,
         @ViewBuilder content: () -> Content
     ) {
         _isOpen = isOpen
         self.topSafeAreaInset = topSafeAreaInset
+        self.menuBackground = menuBackground
+        self.allowsOpeningGesture = allowsOpeningGesture
         self.menu = menu()
         self.content = content()
     }
 
     var body: some View {
         GeometryReader { geometry in
-            let contentOffset = SideMenuTransitionLayout.primaryContentOpenOffset(
-                for: geometry.size.width
+            let menuWidth = SideMenuTransitionLayout.menuWidth(for: geometry.size.width)
+            let contentOffset = SideMenuTransitionLayout.clampedContentOffset(
+                isOpen: isOpen,
+                dragTranslation: dragTranslation,
+                openOffset: menuWidth
+            )
+            let presentationProgress = SideMenuTransitionLayout.presentationProgress(
+                contentOffset: contentOffset,
+                openOffset: menuWidth
             )
             let resolvedTopSafeArea = SideMenuTransitionLayout.resolvedTopSafeArea(
                 explicitTopSafeAreaInset: topSafeAreaInset,
                 geometryTopSafeAreaInset: geometry.safeAreaInsets.top
             )
             let bottomSafeArea = max(0, geometry.safeAreaInsets.bottom)
+            let windowSafeAreaInsets = activeWindowSafeAreaInsets
+            let menuTopSafeArea = max(resolvedTopSafeArea, windowSafeAreaInsets.top)
+            let menuBottomSafeArea = max(bottomSafeArea, windowSafeAreaInsets.bottom)
 
             ZStack(alignment: .topLeading) {
-                primaryContentLayer(offset: contentOffset)
+                menuBackground
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+
+                menuLayer(
+                    width: menuWidth,
+                    height: geometry.size.height,
+                    progress: presentationProgress,
+                    safeAreaInsets: EdgeInsets(
+                        top: menuTopSafeArea,
+                        leading: 0,
+                        bottom: menuBottomSafeArea,
+                        trailing: 0
+                    )
+                )
+                    .zIndex(SideMenuTransitionLayout.menuZIndex)
+
+                primaryContentLayer(
+                    offset: contentOffset,
+                    progress: presentationProgress,
+                    openOffset: menuWidth
+                )
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .zIndex(SideMenuTransitionLayout.primaryContentZIndex)
-
-                menuComposition(topSafeArea: resolvedTopSafeArea, bottomSafeArea: bottomSafeArea)
-                    .ignoresSafeArea()
-                    .zIndex(SideMenuTransitionLayout.menuZIndex)
             }
+            .ignoresSafeArea()
             .animation(
                 SideMenuTransitionLayout.animation(reduceMotion: accessibilityReduceMotion),
                 value: isOpen
@@ -104,120 +180,179 @@ struct SideMenuContainer<Content: View, Menu: View>: View {
         }
     }
 
-    // Rendered edge-to-edge (under the status bar and home indicator) so the
-    // drawer and scrim cover the full screen. The safe-area insets are resolved
-    // in the outer geometry (the expanded one reports zero) and handed to the
-    // menu content through the environment.
-    private func menuComposition(topSafeArea: CGFloat, bottomSafeArea: CGFloat) -> some View {
-        GeometryReader { geometry in
-            let menuWidth = SideMenuTransitionLayout.menuWidth(for: geometry.size.width)
-
-            ZStack(alignment: .topLeading) {
-                if isOpen {
-                    backdropLayer()
-                        .zIndex(SideMenuTransitionLayout.backdropZIndex)
-                        .transition(.opacity)
-                }
-
-                menuLayer(
-                    width: menuWidth,
-                    height: geometry.size.height,
-                    safeAreaInsets: EdgeInsets(
-                        top: topSafeArea,
-                        leading: 0,
-                        bottom: bottomSafeArea,
-                        trailing: 0
-                    )
-                )
-                    .zIndex(SideMenuTransitionLayout.menuZIndex)
-            }
+    private var activeWindowSafeAreaInsets: EdgeInsets {
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }),
+              let window = windowScene.windows.first(where: \.isKeyWindow) else {
+            return EdgeInsets()
         }
+
+        let insets = window.safeAreaInsets
+        return EdgeInsets(
+            top: max(0, insets.top),
+            leading: max(0, insets.left),
+            bottom: max(0, insets.bottom),
+            trailing: max(0, insets.right)
+        )
     }
 
-    private func menuLayer(width: CGFloat, height: CGFloat, safeAreaInsets: EdgeInsets) -> some View {
+    private func menuLayer(
+        width: CGFloat,
+        height: CGFloat,
+        progress: CGFloat,
+        safeAreaInsets: EdgeInsets
+    ) -> some View {
         menu
             .environment(\.sideMenuPresentationIsOpen, isOpen)
+            .environment(\.sideMenuPresentationProgress, progress)
             .environment(\.sideMenuSafeAreaInsets, safeAreaInsets)
             .frame(width: width, height: height, alignment: .topLeading)
-            .clipShape(SideMenuTrailingRoundedShape(radius: SideMenuTransitionLayout.menuTrailingCornerRadius))
-            .contentShape(SideMenuTrailingRoundedShape(radius: SideMenuTransitionLayout.menuTrailingCornerRadius))
-            .shadow(color: .black.opacity(isOpen ? 0.18 : 0), radius: isOpen ? 22 : 0, x: 10, y: 16)
-            .offset(x: isOpen ? 0 : -width * SideMenuTransitionLayout.menuClosedOffsetFraction)
-            .opacity(isOpen ? 1 : SideMenuTransitionLayout.menuClosedOpacity)
+            .contentShape(Rectangle())
+            .offset(
+                x: -width
+                    * SideMenuTransitionLayout.menuClosedOffsetFraction
+                    * (1 - progress)
+            )
+            .opacity(
+                SideMenuTransitionLayout.menuClosedOpacity
+                    + ((1 - SideMenuTransitionLayout.menuClosedOpacity) * Double(progress))
+            )
             .allowsHitTesting(isOpen)
             .accessibilityHidden(!isOpen)
     }
 
-    private func primaryContentLayer(offset: CGFloat) -> some View {
-        content
-            .disabled(isOpen)
+    private func primaryContentLayer(
+        offset: CGFloat,
+        progress: CGFloat,
+        openOffset: CGFloat
+    ) -> some View {
+        let cornerRadius = SideMenuTransitionLayout.primaryContentOpenCornerRadius * progress
+        let panelShape = UnevenRoundedRectangle(
+            topLeadingRadius: cornerRadius,
+            bottomLeadingRadius: cornerRadius,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: 0,
+            style: .continuous
+        )
+
+        return ZStack {
+            content
+                .disabled(isOpen)
+                .accessibilityHidden(isOpen)
+
+            dismissBackdrop(progress: progress)
+        }
+            .contentShape(panelShape)
             .scaleEffect(
-                isOpen ? SideMenuTransitionLayout.primaryContentOpenScale : 1,
+                1 - ((1 - SideMenuTransitionLayout.primaryContentOpenScale) * progress),
                 anchor: .center
             )
-            .offset(x: isOpen ? offset : 0)
-            .blur(radius: isOpen ? SideMenuTransitionLayout.backdropBlurRadius : 0)
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: isOpen ? SideMenuTransitionLayout.primaryContentOpenCornerRadius : 0,
-                    style: .continuous
-                )
+            .clipShape(panelShape)
+            .shadow(
+                color: .black.opacity(0.28 * Double(progress)),
+                radius: 18 * progress,
+                x: -8 * progress,
+                y: 0
             )
-            .shadow(color: .black.opacity(isOpen ? 0.22 : 0), radius: isOpen ? 20 : 0, x: -8, y: 14)
+            .offset(x: offset)
+            .simultaneousGesture(sideMenuDragGesture(openOffset: openOffset), including: .all)
     }
 
-    private func backdropLayer() -> some View {
+    private func dismissBackdrop(progress: CGFloat) -> some View {
         Button {
             closeMenu()
         } label: {
             Rectangle()
-                .fill(Color.black.opacity(SideMenuTransitionLayout.backdropOpacity))
+                .fill(
+                    Color.black.opacity(
+                        SideMenuTransitionLayout.backdropOpacity * Double(progress)
+                    )
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Dismiss side menu")
         .accessibilityAddTraits(.isButton)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(isOpen)
+        .accessibilityHidden(!isOpen)
+    }
+
+    private func sideMenuDragGesture(openOffset: CGFloat) -> some Gesture {
+        DragGesture(
+            minimumDistance: SideMenuTransitionLayout.dragMinimumDistance,
+            coordinateSpace: .local
+        )
+        .onChanged { value in
+            if dragAxis == nil {
+                if SideMenuTransitionLayout.isHorizontallyDominant(value.translation) {
+                    dragAxis = .horizontal
+                } else if SideMenuTransitionLayout.isVerticallyDominant(value.translation) {
+                    dragAxis = .vertical
+                }
+            }
+
+            guard dragAxis == .horizontal else { return }
+            guard SideMenuTransitionLayout.canTrackMenuDrag(
+                isOpen: isOpen,
+                allowsOpeningGesture: allowsOpeningGesture,
+                horizontalTranslation: value.translation.width
+            ) else {
+                return
+            }
+            isTrackingMenuDrag = true
+            dragTranslation = value.translation.width
+        }
+        .onEnded { value in
+            defer {
+                dragAxis = nil
+                isTrackingMenuDrag = false
+            }
+            guard dragAxis == .horizontal, isTrackingMenuDrag else {
+                dragTranslation = 0
+                return
+            }
+
+            let shouldOpen = SideMenuTransitionLayout.shouldOpen(
+                isOpen: isOpen,
+                predictedEndTranslation: value.predictedEndTranslation.width,
+                openOffset: openOffset
+            )
+            settleMenu(open: shouldOpen)
+        }
+    }
+
+    private func settleMenu(open: Bool) {
+        if let animation = SideMenuTransitionLayout.animation(reduceMotion: accessibilityReduceMotion) {
+            withAnimation(animation) {
+                dragTranslation = 0
+                isOpen = open
+            }
+        } else {
+            dragTranslation = 0
+            isOpen = open
+        }
     }
 
     private func closeMenu() {
-        if let animation = SideMenuTransitionLayout.animation(reduceMotion: accessibilityReduceMotion) {
-            withAnimation(animation) {
-                isOpen = false
-            }
-        } else {
-            isOpen = false
-        }
+        settleMenu(open: false)
     }
 }
 
-private struct SideMenuTrailingRoundedShape: Shape {
-    let radius: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let clippedRadius = max(0, min(radius, rect.width / 2, rect.height / 2))
-        var path = Path()
-
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX - clippedRadius, y: rect.minY))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.maxX, y: rect.minY + clippedRadius),
-            control: CGPoint(x: rect.maxX, y: rect.minY)
-        )
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - clippedRadius))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.maxX - clippedRadius, y: rect.maxY),
-            control: CGPoint(x: rect.maxX, y: rect.maxY)
-        )
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.closeSubpath()
-
-        return path
+private extension SideMenuContainer {
+    enum DragAxis {
+        case horizontal
+        case vertical
     }
 }
 
 private struct SideMenuPresentationIsOpenKey: EnvironmentKey {
     static let defaultValue = false
+}
+
+private struct SideMenuPresentationProgressKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
 }
 
 private struct SideMenuSafeAreaInsetsKey: EnvironmentKey {
@@ -228,6 +363,11 @@ extension EnvironmentValues {
     var sideMenuPresentationIsOpen: Bool {
         get { self[SideMenuPresentationIsOpenKey.self] }
         set { self[SideMenuPresentationIsOpenKey.self] = newValue }
+    }
+
+    var sideMenuPresentationProgress: CGFloat {
+        get { self[SideMenuPresentationProgressKey.self] }
+        set { self[SideMenuPresentationProgressKey.self] = newValue }
     }
 
     /// Screen safe-area insets the full-bleed side menu ignores; menu content

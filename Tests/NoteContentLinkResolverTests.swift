@@ -1,8 +1,91 @@
 import XCTest
 import NostrSDK
+import UIKit
 @testable import Flow
 
 final class NoteContentLinkResolverTests: XCTestCase {
+    func testReportedNIP89HandlerParsesAsApplicationMetadata() throws {
+        let event = NostrEvent(
+            id: "e14c76b35415e66e78bcb46eecbe54385b5b9ecef74f6da000625f3c1cbe27e8",
+            pubkey: "d133ecb09963a7f7a705bf250324a226fcacbf51eba6f0b1b97df8c09338a4c8",
+            createdAt: 1_783_261_857,
+            kind: 31_990,
+            tags: [
+                ["d", "5ijupcvs"],
+                ["alt", "NIP-89 handler: Vector"],
+                ["k", "0"],
+                ["k", "1059"],
+                ["t", "messaging"],
+                ["t", "social"],
+                ["t", "media"]
+            ],
+            content: "{\"name\":\"Vector\",\"about\":\"A private messenger.\",\"picture\":\"https://cdn.example.com/vector.png\",\"website\":\"vectorapp.io\"}",
+            sig: String(repeating: "f", count: 128)
+        )
+
+        let metadata = try XCTUnwrap(NostrAppHandlerMetadata(event: event))
+
+        XCTAssertEqual(metadata.name, "Vector")
+        XCTAssertEqual(metadata.about, "A private messenger.")
+        XCTAssertEqual(metadata.pictureURL?.absoluteString, "https://cdn.example.com/vector.png")
+        XCTAssertEqual(metadata.websiteURL?.absoluteString, "https://vectorapp.io")
+        XCTAssertEqual(metadata.supportedKinds, [0, 1_059])
+        XCTAssertEqual(metadata.categories, ["messaging", "social", "media"])
+    }
+
+    func testNIP89HandlerFallsBackToAltNameWithoutValidMetadataJSON() throws {
+        let event = NostrEvent(
+            id: String(repeating: "1", count: 64),
+            pubkey: String(repeating: "a", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 31_990,
+            tags: [["alt", "NIP-89 handler: Relay Tools"], ["k", "1"]],
+            content: "not-json",
+            sig: String(repeating: "f", count: 128)
+        )
+
+        let metadata = try XCTUnwrap(NostrAppHandlerMetadata(event: event))
+
+        XCTAssertEqual(metadata.name, "Relay Tools")
+        XCTAssertNil(metadata.about)
+        XCTAssertEqual(metadata.supportedKinds, [1])
+    }
+
+    func testReportedGenericRepostNeventDecodesAsEventReference() throws {
+        let identifier = "nevent1qqsddkzsl726q3smr7muc4e8ma5tqqcv2jer5g7puul9j98mmulk0jgpz4mhxue69uhhyetvv9ujuerpd46hxtnfduhsz9mhwden5te0wfjkccte9ec8y6tdv9kzumn9wshsygqyv87tanzvxd6y8xfj66u0zynfendhejtn44a9pt3k9kcntfr5m5psgqqqqqgqpl8jy0"
+
+        let reference = try XCTUnwrap(NoteContentParser.eventReferencePointer(from: identifier))
+
+        XCTAssertEqual(reference.eventID, "d6d850ff95a0461b1fb7cc5727df68b0030c54b23a23c1e73e5914fbdf3f67c9")
+        XCTAssertEqual(reference.authorPubkey, "0461fcbecc4c3374439932d6b8f11269ccdb7cc973ad7a50ae362db135a474dd")
+        XCTAssertEqual(
+            reference.relayHints.map(\.absoluteString),
+            ["wss://relay.damus.io/", "wss://relay.primal.net/"]
+        )
+    }
+
+    func testEmptyContentEventUsesTitleAndDescriptionTagsForFallbackSummary() {
+        let event = NostrEvent(
+            id: String(repeating: "1", count: 64),
+            pubkey: String(repeating: "a", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 35_128,
+            tags: [
+                ["d", "accordion"],
+                ["title", "Accordion"],
+                ["description", "A Concord community app built using applesauce"]
+            ],
+            content: "",
+            sig: String(repeating: "f", count: 128)
+        )
+
+        let summary = NoteContentView.taggedEventSummary(for: event)
+
+        XCTAssertEqual(summary.title, "Accordion")
+        XCTAssertEqual(summary.description, "A Concord community app built using applesauce")
+        XCTAssertEqual(summary.kind, 35_128)
+    }
+
     func testBareDomainURLUsesHTTPSLinkTarget() throws {
         let token = NoteContentToken(type: .url, value: "google.com")
 
@@ -27,6 +110,298 @@ final class NoteContentLinkResolverTests: XCTestCase {
         )
 
         XCTAssertEqual(url.absoluteString, "https://google.com")
+    }
+
+    func testOversizedWebURLIsRejectedBeforeTrailingPunctuationWork() {
+        let oversizedURL = "https://example.com/photo.jpg" + String(repeating: ")", count: 10_000)
+
+        XCTAssertNil(NoteContentParser.webURL(from: oversizedURL))
+    }
+
+    func testOversizedImetaURLIsNotAddedAsFeedMedia() {
+        let oversizedURL = "https://example.com/photo.jpg" + String(repeating: "a", count: 10_000)
+        let event = makeEvent(
+            content: "A normal note",
+            tags: [["imeta", "url \(oversizedURL)", "m image/png"]]
+        )
+
+        let tokens = NoteContentParser.tokenize(event: event)
+
+        XCTAssertEqual(tokens, [NoteContentToken(type: .text, value: "A normal note")])
+    }
+
+    func testUntrustedContentTokenizationHasAWorkAndOutputBudget() {
+        let content = String(repeating: "#spam ", count: 10_000) + "unreachable-tail"
+
+        let tokens = NoteContentParser.tokenize(content: content)
+        let renderedContent = tokens.map(\.value).joined()
+
+        XCTAssertEqual(tokens.filter { $0.type == .hashtag }.count, 512)
+        XCTAssertTrue(renderedContent.hasSuffix("[Note shortened for performance]"))
+        XCTAssertFalse(renderedContent.contains("unreachable-tail"))
+        XCTAssertLessThan(renderedContent.utf8.count, 33_000)
+    }
+
+    func testImetaMediaFanoutIsBounded() {
+        let tags = (0..<100).map { index in
+            ["imeta", "url https://example.com/image-\(index).png", "m image/png"]
+        }
+        let event = makeEvent(content: "A normal note", tags: tags)
+
+        let tokens = NoteContentParser.tokenize(event: event)
+
+        XCTAssertEqual(tokens.filter { $0.type == .image }.count, 12)
+    }
+
+    func testNonWebImetaURLIsNotAddedAsFeedMedia() {
+        let blossomReference = "blossom:54278520e215570f95e24400a9a48ffc8646d599570df2e5ca1312c55c43e08e.png?xs=cdn.hzrd149.com&sz=18236"
+        let event = makeEvent(
+            content: "A normal note",
+            tags: [["imeta", "url \(blossomReference)", "m image/png"]]
+        )
+
+        let tokens = NoteContentParser.tokenize(event: event)
+
+        XCTAssertEqual(tokens, [NoteContentToken(type: .text, value: "A normal note")])
+    }
+
+    func testRenderPartsAdvancePastRejectedImageToken() {
+        let rejectedImage = NoteContentToken(
+            type: .image,
+            value: "blossom:54278520e215570f95e24400a9a48ffc8646d599570df2e5ca1312c55c43e08e.png?xs=cdn.hzrd149.com&sz=18236"
+        )
+        let trailingText = NoteContentToken(type: .text, value: "Still renders")
+
+        let parts = NoteContentView.buildRenderParts(tokens: [rejectedImage, trailingText])
+
+        XCTAssertEqual(parts.count, 1)
+        guard case .inlineTokens(let tokens) = parts[0] else {
+            return XCTFail("Expected trailing text after rejected image token")
+        }
+        XCTAssertEqual(tokens, [trailingText])
+    }
+
+    func testBoundedRenderEventCapsContentTagsElementsAndValueBytes() throws {
+        let oversizedName = String(repeating: "n", count: 100)
+        let tagWithManyElements = [oversizedName] + (0..<40).map { "field-\($0)" }
+        let oversizedValue = String(repeating: "v", count: 9_000)
+        let tags = [tagWithManyElements, ["alt", oversizedValue]] +
+            (0..<600).map { ["t", "topic-\($0)"] }
+        let event = makeEvent(
+            content: String(repeating: "c", count: 65_537),
+            tags: tags
+        )
+
+        let bounded = NoteContentView.boundedRenderEvent(event)
+
+        XCTAssertEqual(bounded.content.utf8.count, 65_536)
+        XCTAssertEqual(bounded.tags.count, 512)
+        XCTAssertEqual(bounded.tags[0].count, 33)
+        XCTAssertEqual(bounded.tags[0][0].utf8.count, 32)
+        XCTAssertEqual(bounded.tags[0].last, "field-31")
+        XCTAssertFalse(bounded.tags[0].contains("field-32"))
+        XCTAssertEqual(bounded.tags[1][1].utf8.count, 8_192)
+        XCTAssertEqual(bounded.id, event.id)
+        XCTAssertEqual(bounded.pubkey, event.pubkey)
+        XCTAssertEqual(bounded.createdAt, event.createdAt)
+        XCTAssertEqual(bounded.kind, event.kind)
+        XCTAssertEqual(bounded.sig, event.sig)
+    }
+
+    func testBoundedRenderEventDoesNotExceedBudgetsAtSplitUTF8Scalar() {
+        let contentPrefix = String(repeating: "c", count: 65_535)
+        let tagValuePrefix = String(repeating: "v", count: 8_191)
+        let event = makeEvent(
+            content: contentPrefix + "😀",
+            tags: [["alt", tagValuePrefix + "😀"]]
+        )
+
+        let bounded = NoteContentView.boundedRenderEvent(event)
+
+        XCTAssertLessThanOrEqual(bounded.content.utf8.count, 65_536)
+        XCTAssertLessThanOrEqual(bounded.tags[0][1].utf8.count, 8_192)
+        XCTAssertEqual(bounded.content, contentPrefix)
+        XCTAssertEqual(bounded.tags[0][1], tagValuePrefix)
+        XCTAssertFalse(bounded.content.contains("\u{FFFD}"))
+        XCTAssertFalse(bounded.tags[0][1].contains("\u{FFFD}"))
+    }
+
+    func testBoundedRenderEventCapsAggregateTagBytes() {
+        let tags = (0..<20).map { _ in
+            ["imeta", String(repeating: "x", count: 8_192)]
+        }
+        let bounded = NoteContentView.boundedRenderEvent(
+            makeEvent(content: "A normal note", tags: tags)
+        )
+        let totalTagBytes = bounded.tags.reduce(into: 0) { total, tag in
+            total += tag.reduce(into: 0) { $0 += $1.utf8.count }
+        }
+
+        XCTAssertEqual(totalTagBytes, 65_536)
+        XCTAssertLessThan(bounded.tags.count, tags.count)
+    }
+
+    func testRenderEnvelopeSafetyAcceptsOnlyBoundedNostrHexIdentities() {
+        XCTAssertEqual(
+            NoteRenderEnvelopeSafety.normalizedEventID(String(repeating: "A", count: 64)),
+            String(repeating: "a", count: 64)
+        )
+        XCTAssertEqual(
+            NoteRenderEnvelopeSafety.normalizedPubkey(String(repeating: "F", count: 64)),
+            String(repeating: "f", count: 64)
+        )
+        XCTAssertNil(
+            NoteRenderEnvelopeSafety.normalizedEventID(String(repeating: "a", count: 65))
+        )
+        XCTAssertNil(
+            NoteRenderEnvelopeSafety.normalizedPubkey(String(repeating: "p", count: 64))
+        )
+        XCTAssertNil(
+            NoteRenderEnvelopeSafety.normalizedEventID(String(repeating: "a", count: 100_000))
+        )
+    }
+
+    func testParsedContentCacheCachesPreparedRenderMetadataForValidEventID() {
+        let event = makeEvent(content: "A normal note")
+        let cache = NoteParsedContentCache(maxEntries: 2)
+        var builderCallCount = 0
+
+        _ = cache.parsedContent(for: event) {
+            builderCallCount += 1
+            return makeParsedContent(for: event)
+        }
+        let cached = cache.parsedContent(for: event) {
+            builderCallCount += 1
+            return makeParsedContent(for: event)
+        }
+
+        XCTAssertEqual(builderCallCount, 1)
+        XCTAssertEqual(cached.renderEvent, event)
+    }
+
+    func testParsedContentCacheDoesNotCacheOversizedInvalidEventID() {
+        let event = Flow.NostrEvent(
+            id: String(repeating: "a", count: 100_000),
+            pubkey: String(repeating: "b", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 1,
+            tags: [],
+            content: "A normal note",
+            sig: String(repeating: "f", count: 128)
+        )
+        let cache = NoteParsedContentCache(maxEntries: 2)
+        var builderCallCount = 0
+
+        for _ in 0..<2 {
+            _ = cache.parsedContent(for: event) {
+                builderCallCount += 1
+                return makeParsedContent(for: event)
+            }
+        }
+
+        XCTAssertEqual(builderCallCount, 2)
+    }
+
+    func testPreparedRenderEventBoundsDecodedRepost() throws {
+        let embeddedObject: [String: Any] = [
+            "id": String(repeating: "2", count: 64),
+            "pubkey": String(repeating: "b", count: 64),
+            "created_at": 1_700_000_001,
+            "kind": 1,
+            "tags": (0..<600).map { ["t", "topic-\($0)"] },
+            "content": String(repeating: "r", count: 70_000),
+            "sig": String(repeating: "e", count: 128)
+        ]
+        let embeddedData = try JSONSerialization.data(withJSONObject: embeddedObject)
+        let repost = Flow.NostrEvent(
+            id: String(repeating: "1", count: 64),
+            pubkey: String(repeating: "a", count: 64),
+            createdAt: 1_700_000_002,
+            kind: 6,
+            tags: [],
+            content: String(decoding: embeddedData, as: UTF8.self),
+            sig: String(repeating: "f", count: 128)
+        )
+
+        let prepared = NoteContentView.preparedRenderEvent(for: repost)
+
+        XCTAssertEqual(prepared.kind, 1)
+        XCTAssertEqual(prepared.id, String(repeating: "2", count: 64))
+        XCTAssertEqual(prepared.content.utf8.count, 65_536)
+        XCTAssertEqual(prepared.tags.count, 512)
+    }
+
+    func testImetaUsesFirstURLAndMIMEFields() {
+        let firstURL = "https://example.com/asset"
+        let event = makeEvent(
+            content: "A normal note",
+            tags: [[
+                "imeta",
+                "url \(firstURL)",
+                "m image/png",
+                "url https://example.com/asset.mp4",
+                "m video/mp4"
+            ]]
+        )
+
+        let mediaTokens = NoteContentParser.tokenize(event: event).filter { $0.type != .text }
+
+        XCTAssertEqual(mediaTokens, [NoteContentToken(type: .image, value: firstURL)])
+    }
+
+    func testImetaDoesNotFallThroughAfterRejectedFirstURLField() {
+        let oversizedURL = "https://example.com/" + String(repeating: "a", count: 9_000)
+        let event = makeEvent(
+            content: "A normal note",
+            tags: [[
+                "imeta",
+                "url \(oversizedURL)",
+                "url https://example.com/valid.png",
+                "m image/png"
+            ]]
+        )
+
+        XCTAssertEqual(
+            NoteContentParser.tokenize(event: event),
+            [NoteContentToken(type: .text, value: "A normal note")]
+        )
+    }
+
+    func testImetaDoesNotFallThroughAfterRejectedFirstMIMEField() {
+        let extensionlessURL = "https://example.com/asset"
+        let oversizedMIME = "m " + String(repeating: "a", count: 300)
+        let event = makeEvent(
+            content: "A normal note",
+            tags: [[
+                "imeta",
+                "url \(extensionlessURL)",
+                oversizedMIME,
+                "m image/png"
+            ]]
+        )
+
+        let mediaTokens = NoteContentParser.tokenize(event: event).filter { $0.type != .text }
+
+        XCTAssertEqual(mediaTokens, [NoteContentToken(type: .url, value: extensionlessURL)])
+    }
+
+    func testImetaInspectionStopsAfterThirtyTwoRecognizedTags() {
+        let rejectedTags = (0..<32).map { index in
+            ["imeta", "url blossom:rejected-\(index)", "m image/png"]
+        }
+        let event = makeEvent(
+            content: "A normal note",
+            tags: rejectedTags + [[
+                "imeta",
+                "url https://example.com/should-not-render.png",
+                "m image/png"
+            ]]
+        )
+
+        XCTAssertEqual(
+            NoteContentParser.tokenize(event: event),
+            [NoteContentToken(type: .text, value: "A normal note")]
+        )
     }
 
     func testBareDomainTokenKeepsDisplayValueButGetsClickableTarget() throws {
@@ -201,7 +576,7 @@ final class NoteContentLinkResolverTests: XCTestCase {
         let relayURL = try XCTUnwrap(URL(string: "wss://relay.damus.io"))
         let route = try XCTUnwrap(RelayRoute(relayURL: relayURL))
 
-        XCTAssertEqual(route.displayName, "Damus Relay")
+        XCTAssertEqual(route.displayName, "Damus Source")
         XCTAssertEqual(route.relayURL.absoluteString, "wss://relay.damus.io/")
     }
 
@@ -472,6 +847,56 @@ final class NoteContentLinkResolverTests: XCTestCase {
         XCTAssertEqual(hints["https://example.com/photo.jpg"] ?? 0, 1200.0 / 900.0, accuracy: 0.001)
     }
 
+    func testSingleImageAspectRatioPreservesPanoramicMedia() throws {
+        let panoramicRatio: CGFloat = 8
+
+        XCTAssertEqual(
+            try XCTUnwrap(NoteImageLayoutGuide.normalizedSingleImageAspectRatio(panoramicRatio)),
+            panoramicRatio,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            NoteImageLayoutGuide.singleImageHeight(width: 320, aspectRatio: panoramicRatio),
+            40,
+            accuracy: 0.001
+        )
+    }
+
+    func testSingleImageImetaHintPreservesPanoramicDimensions() {
+        let url = URL(string: "https://example.com/panorama.png")!
+        let hints = NoteImageLayoutGuide.imageAspectRatioHints(from: [[
+            "imeta",
+            "url https://example.com/panorama.png",
+            "m image/png",
+            "dim 2400x300"
+        ]])
+
+        XCTAssertEqual(
+            NoteImageLayoutGuide.singleImageAspectRatioHint(for: url, in: hints) ?? 0,
+            8,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            NoteImageLayoutGuide.aspectRatioHint(for: url, in: hints) ?? 0,
+            3.2,
+            accuracy: 0.001
+        )
+    }
+
+    func testMediaAspectRatioCacheBoundsPanoramicGeometryForGenericConsumers() throws {
+        let url = try XCTUnwrap(
+            URL(string: "https://example.com/panorama-\(UUID().uuidString).png")
+        )
+
+        FlowMediaAspectRatioCache.shared.insert(8, for: url)
+
+        XCTAssertEqual(
+            try XCTUnwrap(FlowMediaAspectRatioCache.shared.ratio(for: url)),
+            3.2,
+            accuracy: 0.001
+        )
+    }
+
     func testBucketedSingleImageAspectRatioUsesNearestLayoutBucket() {
         XCTAssertEqual(
             NoteImageLayoutGuide.bucketedSingleImageAspectRatio(for: 1.72),
@@ -482,6 +907,40 @@ final class NoteContentLinkResolverTests: XCTestCase {
             NoteImageLayoutGuide.bucketedSingleImageAspectRatio(for: 0.78),
             4.0 / 5.0,
             accuracy: 0.001
+        )
+    }
+
+    private func makeEvent(
+        content: String,
+        tags: [[String]] = []
+    ) -> Flow.NostrEvent {
+        Flow.NostrEvent(
+            id: String(repeating: "1", count: 64),
+            pubkey: String(repeating: "a", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 1,
+            tags: tags,
+            content: content,
+            sig: String(repeating: "f", count: 128)
+        )
+    }
+
+    private func makeParsedContent(for event: Flow.NostrEvent) -> NoteContentView.ParsedContent {
+        NoteContentView.ParsedContent(
+            renderEvent: event,
+            articleMetadata: nil,
+            zapReceiptMetadata: nil,
+            appHandlerMetadata: nil,
+            unsupportedEventMetadata: nil,
+            pollMetadata: nil,
+            tokens: [],
+            parts: [],
+            websitePreviewURL: nil,
+            mentionIdentifiers: [],
+            emojiTagURLs: [:],
+            mediaAspectRatioHints: [:],
+            gifLikeVideoURLKeys: [],
+            taggedEventSummary: NoteContentView.taggedEventSummary(for: event)
         )
     }
 }

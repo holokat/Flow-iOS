@@ -46,6 +46,8 @@ struct ProfileView: View {
     @State private var isShowingConnectionsSheet = false
     @State private var isShowingProfileQR = false
     @State private var isShowingAvatarViewer = false
+    @State private var muteReasonEditorMode: MuteReasonEditorMode?
+    @State private var isCompactProfileHeaderVisible = false
     @State private var shouldAutoFocusReplyInThread = false
 
     private var profileHeaderContent: ProfileHeaderContent {
@@ -59,7 +61,6 @@ struct ProfileView: View {
             websiteDisplayText: viewModel.websiteURL.map(websiteDisplayText(for:)),
             followsCurrentUser: viewModel.followsCurrentUser,
             followingCountText: profileFollowingCountText,
-            followStatusIconName: profileFollowStatusIconName,
             knownFollowers: isOwnProfile ? [] : viewModel.knownFollowers,
             actionMessage: actionMessage
         )
@@ -67,7 +68,7 @@ struct ProfileView: View {
 
     private var primaryActionDisabled: Bool {
         if isOwnProfile {
-            return viewModel.isSavingProfile || auth.currentNsec == nil
+            return viewModel.isSavingProfile
         }
         return false
     }
@@ -78,13 +79,13 @@ struct ProfileView: View {
 
     private var actionMessage: String? {
         if let profileSaveError = viewModel.profileSaveError, !profileSaveError.isEmpty, !isShowingProfileEditor {
-            return profileSaveError
+            return UserFacingCopy.sanitizingTechnicalTerms(profileSaveError)
         }
         if let muteError = muteStore.lastPublishError, !muteError.isEmpty {
-            return muteError
+            return UserFacingCopy.sanitizingTechnicalTerms(muteError)
         }
         if let followError = followStore.lastPublishError, !followError.isEmpty {
-            return followError
+            return UserFacingCopy.sanitizingTechnicalTerms(followError)
         }
         return nil
     }
@@ -123,15 +124,16 @@ struct ProfileView: View {
         appSettings.themePalette.profileActionStyle?.bannerBackground ?? appSettings.themePalette.modalBackground
     }
 
-    private var profileFollowStatusIconName: String? {
-        guard !isOwnProfile else { return nil }
-        return followStore.isFollowing(viewModel.pubkey)
-            ? "checkmark.circle.fill"
-            : "plus.circle.fill"
-    }
-
     private var isProfileMuted: Bool {
         muteStore.isMuted(viewModel.pubkey)
+    }
+
+    private var profileMuteReason: String? {
+        muteStore.muteReason(for: viewModel.pubkey)
+    }
+
+    private var profileMuteButtonTitle: String {
+        isProfileMuted ? "Muted" : "Mute"
     }
 
     private var profileMuteActionTitle: String {
@@ -143,7 +145,7 @@ struct ProfileView: View {
     }
 
     private var profileMuteActionDisabled: Bool {
-        muteStore.isPublishing || auth.currentNsec == nil
+        muteStore.isPublishing
     }
 
     private var isProfileMarkedSpam: Bool {
@@ -208,7 +210,7 @@ struct ProfileView: View {
             let safeAreaBottom = max(0, proxy.safeAreaInsets.bottom)
             let bottomScrollClearance = profileBottomScrollClearance(safeAreaBottom: safeAreaBottom)
 
-            ZStack {
+            ZStack(alignment: .top) {
                 AppThemeBackgroundView()
                     .ignoresSafeArea()
 
@@ -254,6 +256,27 @@ struct ProfileView: View {
                         )
                     )
                     .listRowBackground(Color.clear)
+
+                    if isProfileMuted && !isOwnProfile {
+                        Section {
+                            MutedProfileReasonCard(
+                                reason: profileMuteReason,
+                                onEdit: {
+                                    muteReasonEditorMode = .edit
+                                }
+                            )
+                        }
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 10,
+                                leading: Self.feedHorizontalInset,
+                                bottom: 6,
+                                trailing: Self.feedHorizontalInset
+                            )
+                        )
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                    }
 
                     Section {
                         VStack(alignment: .leading, spacing: 10) {
@@ -415,13 +438,41 @@ struct ProfileView: View {
                     ProfileScrollChromeModifier(
                         scrollChromeStore: flowScrollChromeStore,
                         bottomTabBarHeight: flowBottomTabBarHeight,
-                        safeAreaBottom: safeAreaBottom
+                        safeAreaBottom: safeAreaBottom,
+                        compactHeaderThreshold: max(
+                            120,
+                            ProfileHeaderBannerMetrics.height - topSafeAreaInset - 72
+                        ),
+                        onCompactHeaderVisibilityChange: { isVisible in
+                            isCompactProfileHeaderVisible = isVisible
+                        }
                     )
                 )
+
+                if isCompactProfileHeaderVisible {
+                    compactProfileHeader(topSafeAreaInset: topSafeAreaInset)
+                        .transition(
+                            accessibilityReduceMotion
+                                ? .identity
+                                : .opacity.combined(with: .move(edge: .top))
+                        )
+                        .zIndex(3)
+                }
             }
+            .animation(
+                accessibilityReduceMotion
+                    ? nil
+                    : .spring(response: 0.38, dampingFraction: 0.88),
+                value: isCompactProfileHeaderVisible
+            )
+            .flowHorizontalPaging(
+                selection: $viewModel.mode,
+                items: FeedMode.allCases
+            )
         }
         .navigationTitle("")
         .toolbar(.hidden, for: .navigationBar)
+        .flowInteractiveBackSwipe()
         .task {
             configureStores()
             await loadInitialProfileScreenData()
@@ -459,6 +510,15 @@ struct ProfileView: View {
                     )
                 }
             )
+        }
+        .sheet(item: $muteReasonEditorMode) { mode in
+            MuteReasonSheetView(
+                displayName: viewModel.displayName,
+                initialReason: mode == .edit ? profileMuteReason : nil,
+                mode: mode
+            ) { reason in
+                completeProfileMuteReason(mode: mode, reason: reason)
+            }
         }
         .sheet(isPresented: $isShowingConnectionsSheet) {
             ProfileConnectionsSheet(
@@ -580,6 +640,59 @@ struct ProfileView: View {
         .accessibilityLabel("Back")
     }
 
+    private func compactProfileHeader(topSafeAreaInset: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            Spacer()
+                .frame(height: topSafeAreaInset)
+
+            HStack(spacing: 10) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(appSettings.themePalette.foreground)
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(FlowPressScaleButtonStyle())
+                .accessibilityLabel("Back")
+
+                AvatarView(
+                    url: viewModel.avatarURL,
+                    fallback: viewModel.displayName,
+                    size: 32
+                )
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(viewModel.displayName)
+                        .font(appSettings.appFont(.subheadline, weight: .semibold))
+                        .foregroundStyle(appSettings.themePalette.foreground)
+                        .lineLimit(1)
+
+                    Text(viewModel.handle)
+                        .font(appSettings.appFont(.caption1))
+                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                profileMenuButton
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 54)
+        }
+        .frame(maxWidth: .infinity)
+        .background(appSettings.themePalette.background)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(appSettings.themePalette.separator.opacity(0.7))
+                .frame(height: 0.7)
+        }
+        .ignoresSafeArea(edges: .top)
+    }
+
     private var actionRow: some View {
         HStack(spacing: 8) {
             if isOwnProfile {
@@ -599,9 +712,15 @@ struct ProfileView: View {
         ProfileActionIconButton(
             systemImage: "bubble.left.and.bubble.right",
             isPrimary: false,
-            isDisabled: true,
+            isDisabled: false,
             accessibilityLabel: "Direct Message",
-            action: {}
+            action: {
+                NotificationCenter.default.post(
+                    name: .flowOpenHaloLinkConversation,
+                    object: nil,
+                    userInfo: ["pubkey": viewModel.pubkey]
+                )
+            }
         )
     }
 
@@ -618,11 +737,12 @@ struct ProfileView: View {
     }
 
     private var muteActionButton: some View {
-        ProfileActionIconButton(
-            systemImage: profileMuteActionSystemImage,
+        ProfileActionTextButton(
+            title: profileMuteButtonTitle,
+            minimumWidth: 40,
             isPrimary: false,
+            isSelected: isProfileMuted,
             isDisabled: profileMuteActionDisabled,
-            accessibilityLabel: profileMuteActionTitle,
             action: {
                 toggleProfileMute()
             }
@@ -640,12 +760,19 @@ struct ProfileView: View {
     }
 
     private var followActionButton: some View {
-        ProfileActionIconButton(
-            systemImage: followStore.isFollowing(viewModel.pubkey) ? "person.crop.circle.badge.checkmark" : "plus",
-            isPrimary: !followStore.isFollowing(viewModel.pubkey),
+        let isFollowing = followStore.isFollowing(viewModel.pubkey)
+
+        return ProfileActionTextButton(
+            title: isFollowing ? "Following" : "Follow",
+            minimumWidth: 60,
+            isPrimary: !isFollowing,
+            isSelected: isFollowing,
             isDisabled: false,
-            accessibilityLabel: followStore.isFollowing(viewModel.pubkey) ? "Following" : "Follow",
             action: primaryAction
+        )
+        .followCelebration(
+            trigger: followStore.followCelebrationToken(for: viewModel.pubkey),
+            accentColor: appSettings.primaryColor
         )
     }
 
@@ -653,13 +780,13 @@ struct ProfileView: View {
         Menu {
             if isOwnProfile {
                 Button {
-                    isShowingProfileEditor = true
+                    primaryAction()
                 } label: {
                     ProfileMenuOptionLabel(title: "Edit Profile", systemImage: "square.and.pencil")
                 }
             } else {
                 Button {
-                    followStore.toggleFollow(viewModel.pubkey)
+                    toggleProfileFollow()
                 } label: {
                     ProfileMenuOptionLabel(
                         title: followStore.isFollowing(viewModel.pubkey) ? "Unfollow" : "Follow",
@@ -719,7 +846,38 @@ struct ProfileView: View {
     }
 
     private func toggleProfileMute() {
-        muteStore.toggleMute(viewModel.pubkey)
+        guard auth.currentNsec != nil else {
+            requestAccountAccess()
+            return
+        }
+
+        if isProfileMuted {
+            muteStore.toggleMute(viewModel.pubkey)
+        } else {
+            muteReasonEditorMode = .mute
+        }
+    }
+
+    private func completeProfileMuteReason(
+        mode: MuteReasonEditorMode,
+        reason: String?
+    ) {
+        switch mode {
+        case .mute:
+            guard !muteStore.isMuted(viewModel.pubkey) else { return }
+            muteStore.toggleMute(viewModel.pubkey, reason: reason)
+        case .edit:
+            guard muteStore.isMuted(viewModel.pubkey) else { return }
+            muteStore.setMuteReason(reason, for: viewModel.pubkey)
+        }
+    }
+
+    private func toggleProfileFollow() {
+        guard auth.currentNsec != nil else {
+            requestAccountAccess()
+            return
+        }
+        followStore.toggleFollow(viewModel.pubkey)
     }
 
     private func toggleProfileSpamMark() {
@@ -734,10 +892,18 @@ struct ProfileView: View {
 
     private func primaryAction() {
         if isOwnProfile {
+            guard auth.currentNsec != nil else {
+                requestAccountAccess()
+                return
+            }
             isShowingProfileEditor = true
         } else {
-            followStore.toggleFollow(viewModel.pubkey)
+            toggleProfileFollow()
         }
+    }
+
+    private func requestAccountAccess() {
+        NotificationCenter.default.post(name: .flowRequestAccountAccess, object: nil)
     }
 
     private func copyNpubToPasteboard() {
@@ -876,22 +1042,22 @@ private enum ProfileConnectionSourceTab: String, CaseIterable, Identifiable {
     var emptyTitle: String {
         switch self {
         case .receive:
-            return "No receive relays found"
+            return "No reading sources found"
         case .publish:
-            return "No publish relays found"
+            return "No publishing sources found"
         case .messages:
-            return "No message relays found"
+            return "No messaging sources found"
         }
     }
 
     var emptySubtitle: String {
         switch self {
         case .receive:
-            return "This user has not published receive relays yet."
+            return "This person hasn’t shared where they read from."
         case .publish:
-            return "This user has not published publishing relays yet."
+            return "This person hasn’t shared where they publish."
         case .messages:
-            return "This user has not published message relays yet."
+            return "This person hasn’t shared their messaging sources."
         }
     }
 
@@ -928,7 +1094,7 @@ private struct ProfileConnectionsSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Relays for \(displayName)")
+                    Text("Sources for \(displayName)")
                         .font(appSettings.appFont(.title2, weight: .bold))
                         .foregroundStyle(appSettings.themePalette.foreground)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1025,7 +1191,7 @@ private struct ProfileConnectionsSheet: View {
     private var loadingState: some View {
         HStack(spacing: 12) {
             ProgressView()
-            Text("Checking relays...")
+            Text("Checking sources...")
                 .font(appSettings.appFont(.body, weight: .medium))
                 .foregroundStyle(appSettings.themePalette.secondaryForeground)
         }
@@ -1100,7 +1266,10 @@ private struct ProfileScrollChromeModifier: ViewModifier {
     let scrollChromeStore: ScrollChromeStore?
     let bottomTabBarHeight: CGFloat
     let safeAreaBottom: CGFloat
+    let compactHeaderThreshold: CGFloat
+    let onCompactHeaderVisibilityChange: (Bool) -> Void
     @State private var scrollChromeTracker = ScrollChromeTracker()
+    @State private var isCompactHeaderVisible = false
 
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *), let scrollChromeStore {
@@ -1108,6 +1277,12 @@ private struct ProfileScrollChromeModifier: ViewModifier {
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     max(0, geometry.contentOffset.y + geometry.contentInsets.top)
                 } action: { _, scrollY in
+                    let shouldShowCompactHeader = scrollY >= compactHeaderThreshold
+                    if shouldShowCompactHeader != isCompactHeaderVisible {
+                        isCompactHeaderVisible = shouldShowCompactHeader
+                        onCompactHeaderVisibilityChange(shouldShowCompactHeader)
+                    }
+
                     let updated = scrollChromeTracker.offsetsByApplyingScroll(
                         currentScrollY: scrollY,
                         currentVisualOffsets: scrollChromeStore.offsets,
@@ -1150,13 +1325,13 @@ private struct ProfileConnectionRelayRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Open \(relayName)")
+            .accessibilityLabel("Open source \(relayName)")
 
             if isAdded {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(appSettings.primaryColor)
-                    .accessibilityLabel("\(relayName) added")
+                    .accessibilityLabel("Source \(relayName) added")
             } else {
                 Button(action: onAdd) {
                     Image(systemName: "plus.circle.fill")
@@ -1166,7 +1341,7 @@ private struct ProfileConnectionRelayRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Add \(relayName)")
+                .accessibilityLabel("Add source \(relayName)")
             }
         }
         .padding(.horizontal, 14)

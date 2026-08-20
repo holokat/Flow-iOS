@@ -59,7 +59,7 @@ struct NoteReportSheetView: View {
                 } header: {
                     Text("Reason")
                 } footer: {
-                    Text("Reports are sent as a moderation event that apps and sources can interpret using NIP-56.")
+                    Text("Reports help compatible apps and sources review harmful content.")
                 }
 
                 Section("Additional Details") {

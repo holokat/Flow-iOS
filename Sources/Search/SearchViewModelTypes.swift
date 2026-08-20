@@ -4,38 +4,9 @@ import NostrSDK
 private struct SearchQueryMetadataDecoder: MetadataCoding {}
 
 extension SearchViewModel {
-    enum SearchScope: String, CaseIterable, Identifiable {
+    enum SearchScope: String {
         case people
         case notes
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .people:
-                return "People"
-            case .notes:
-                return "Notes"
-            }
-        }
-
-        var iconName: String {
-            switch self {
-            case .people:
-                return "person.fill"
-            case .notes:
-                return "note.text"
-            }
-        }
-
-        var placeholder: String {
-            switch self {
-            case .people:
-                return "Search people"
-            case .notes:
-                return "Search notes"
-            }
-        }
     }
 
     struct SearchQueryDescriptor: Equatable {

@@ -1,12 +1,6 @@
 import NostrSDK
 import SwiftUI
 
-enum SettingsPrimaryColorSwatchSelectionIndicator {
-    static let selectedSystemImageName: String? = nil
-    static let selectedBorderWidth: CGFloat = 2.5
-    static let defaultBorderWidth: CGFloat = 1
-}
-
 struct SettingsAppearanceView: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
 
@@ -22,11 +16,6 @@ struct SettingsAppearanceView: View {
                         themeOptionCard(for: option)
                     }
                 }
-                .padding(.vertical, 2)
-            }
-
-            Section("Primary Color") {
-                primaryColorSection
                 .padding(.vertical, 2)
             }
 
@@ -180,75 +169,6 @@ struct SettingsAppearanceView: View {
         }
         .buttonStyle(.plain)
         .disabled(!option.isEnabled)
-    }
-
-    private var primaryColorSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ColorPicker(
-                selection: primaryColorBinding,
-                supportsOpacity: false
-            ) {
-                HStack(spacing: 10) {
-                    Image(systemName: "eyedropper.halffull")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(appSettings.primaryColor)
-
-                    Text("Custom Color")
-                        .font(.subheadline.weight(.semibold))
-                }
-            }
-            .tint(appSettings.primaryColor)
-
-            HStack(spacing: 10) {
-                ForEach(AppSettingsStore.availablePrimaryColorOptions) { option in
-                    primaryColorOptionCard(for: option)
-                }
-                Spacer(minLength: 0)
-            }
-
-            Text("Buttons, links, and selected states all use the same primary color.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var primaryColorBinding: Binding<Color> {
-        Binding(
-            get: { appSettings.primaryColor },
-            set: { appSettings.primaryColor = $0 }
-        )
-    }
-
-    private func primaryColorOptionCard(for option: AppPrimaryColorOption) -> some View {
-        let isSelected = appSettings.selectedPrimaryColorOption == option
-
-        return Button {
-            appSettings.primaryColor = option.color
-        } label: {
-            Circle()
-                .fill(option.color)
-                .frame(width: 26, height: 26)
-                .overlay {
-                    Circle()
-                        .stroke(Color.white.opacity(0.32), lineWidth: 1)
-                }
-                .padding(5)
-                .background(
-                    Circle()
-                        .fill(appSettings.themePalette.secondaryBackground)
-                )
-                .overlay {
-                    Circle()
-                        .stroke(
-                            isSelected ? appSettings.linkColor : appSettings.themeSeparator(defaultOpacity: 0.18),
-                            lineWidth: isSelected
-                                ? SettingsPrimaryColorSwatchSelectionIndicator.selectedBorderWidth
-                                : SettingsPrimaryColorSwatchSelectionIndicator.defaultBorderWidth
-                        )
-                }
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Primary color \(option.hexCode)")
     }
 
     private func themePreviewFill(for option: AppThemeOption) -> LinearGradient {

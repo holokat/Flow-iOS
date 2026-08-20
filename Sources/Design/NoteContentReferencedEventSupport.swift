@@ -777,8 +777,8 @@ struct NostrUnsupportedEventMetadata: Equatable {
         kind = event.kind
     }
 
-    var title: String { "Unsupported Nostr event" }
-    var message: String { "Halo doesn’t recognize this kind of Nostr event yet." }
+    var title: String { "Unsupported shared item" }
+    var message: String { "Halo can’t display this shared item yet." }
     var kindLabel: String { "Kind \(kind)" }
 }
 
@@ -828,7 +828,7 @@ struct NostrUnsupportedEventCardView: View {
                 .stroke(appSettings.themePalette.linkPreviewBorder, lineWidth: 0.7)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Unsupported Nostr event. Halo doesn’t recognize kind \(metadata.kind) yet.")
+        .accessibilityLabel("Unsupported shared item. Halo can’t display it yet.")
     }
 }
 

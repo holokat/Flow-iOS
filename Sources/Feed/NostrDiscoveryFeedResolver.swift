@@ -138,12 +138,6 @@ struct NostrDiscoveryFeedResolver: Sendable {
 
         let timelineEvents = Array(
             deduplicateEvents(fetchedEvents)
-                .sorted(by: { lhs, rhs in
-                    if lhs.createdAt == rhs.createdAt {
-                        return lhs.id > rhs.id
-                    }
-                    return lhs.createdAt > rhs.createdAt
-                })
                 .prefix(limit)
         )
         return await buildFeedItems(relayURLs, timelineEvents, hydrationMode, moderationSnapshot)
@@ -297,12 +291,13 @@ struct NostrDiscoveryFeedResolver: Sendable {
         guard !normalizedHashtag.isEmpty else {
             return []
         }
+        let relayHashtagValues = NostrEvent.relayHashtagQueryValues(hashtag)
 
         let filter = NostrFilter(
             kinds: kinds,
             limit: fetchLimit,
             until: until,
-            tagFilters: ["t": [normalizedHashtag]]
+            tagFilters: ["t": relayHashtagValues]
         )
 
         let kindsSet = Set(kinds)
@@ -313,7 +308,9 @@ struct NostrDiscoveryFeedResolver: Sendable {
             useCache: false,
             relayFetchMode: relayFetchMode
         )
-            .filter { kindsSet.contains($0.kind) }
+            .filter {
+                kindsSet.contains($0.kind) && $0.containsHashtag(normalizedHashtag)
+            }
         let visibleEvents = filterVisibleEvents(fetchedEvents, moderationSnapshot: moderationSnapshot)
         let timelineEvents = Array(
             deduplicateEvents(visibleEvents)
@@ -379,20 +376,19 @@ struct NostrDiscoveryFeedResolver: Sendable {
         guard limit > 0 else { return [] }
         let fetchLimit = expandedTimelineLimit(for: limit, moderationSnapshot: moderationSnapshot)
 
-        let normalizedHashtags = Array(
-            Set(
-                hashtags
-                    .map(NostrEvent.normalizedHashtagValue)
-                    .filter { !$0.isEmpty }
-            )
-        )
+        let normalizedHashtags = Array(Set(hashtags.map(NostrEvent.normalizedHashtagValue).filter { !$0.isEmpty }))
         guard !normalizedHashtags.isEmpty else { return [] }
+        let relayHashtagValues = hashtags.flatMap(NostrEvent.relayHashtagQueryValues)
+            .reduce(into: [String]()) { values, candidate in
+                guard !values.contains(candidate) else { return }
+                values.append(candidate)
+            }
 
         let filter = NostrFilter(
             kinds: kinds,
             limit: fetchLimit,
             until: until,
-            tagFilters: ["t": normalizedHashtags]
+            tagFilters: ["t": relayHashtagValues]
         )
 
         let kindsSet = Set(kinds)

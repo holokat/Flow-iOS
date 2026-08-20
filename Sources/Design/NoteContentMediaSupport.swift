@@ -48,9 +48,13 @@ enum NoteMediaScaling {
 struct NoteMediaAssetContentView: View {
     let asset: NoteMediaAsset
     let scaling: NoteMediaScaling
+    var preservesNaturalAspectRatio = false
 
     private var boundedAspectRatio: CGFloat? {
-        FlowLayoutGuardrails.clampedAspectRatio(asset.aspectRatio)
+        if preservesNaturalAspectRatio {
+            return NoteImageLayoutGuide.normalizedSingleImageAspectRatio(asset.aspectRatio)
+        }
+        return FlowLayoutGuardrails.clampedAspectRatio(asset.aspectRatio)
     }
 
     var body: some View {
@@ -77,6 +81,7 @@ struct NoteMediaAssetContentView: View {
 enum NoteImageLayoutGuide {
     static let defaultSingleImageAspectRatio: CGFloat = 4.0 / 3.0
     static let defaultVideoAspectRatio: CGFloat = 16.0 / 9.0
+    private static let maximumSingleImageAspectRatio: CGFloat = 24
 
     private static let aspectRatioBuckets: [CGFloat] = [
         9.0 / 16.0,
@@ -93,11 +98,16 @@ enum NoteImageLayoutGuide {
         return min(max(ratio, 0.28), 3.2)
     }
 
+    static func normalizedSingleImageAspectRatio(_ ratio: CGFloat?) -> CGFloat? {
+        guard let ratio, ratio.isFinite, ratio > 0 else { return nil }
+        return min(max(ratio, 0.28), maximumSingleImageAspectRatio)
+    }
+
     static func reservedSingleImageAspectRatio(
         exactHint: CGFloat?,
         cachedExactRatio: CGFloat?
     ) -> CGFloat {
-        normalizedAspectRatio(exactHint ?? cachedExactRatio) ?? defaultSingleImageAspectRatio
+        normalizedSingleImageAspectRatio(exactHint ?? cachedExactRatio) ?? defaultSingleImageAspectRatio
     }
 
     static func reservedVideoAspectRatio(
@@ -131,6 +141,21 @@ enum NoteImageLayoutGuide {
             }
         }
         return nil
+    }
+
+    static func singleImageAspectRatioHint(for url: URL, in hints: [String: CGFloat]) -> CGFloat? {
+        for key in aspectRatioHintKeys(for: url) {
+            if let ratio = normalizedSingleImageAspectRatio(hints[key]) {
+                return ratio
+            }
+        }
+        return nil
+    }
+
+    static func singleImageHeight(width: CGFloat, aspectRatio: CGFloat?) -> CGFloat {
+        let safeWidth = width.isFinite && width > 0 ? width : 1
+        let ratio = normalizedSingleImageAspectRatio(aspectRatio) ?? defaultSingleImageAspectRatio
+        return safeWidth / ratio
     }
 
     static func naturalHeight(
@@ -175,7 +200,7 @@ enum NoteImageLayoutGuide {
                 continue
             }
             guard let pixelSize,
-                  let aspectRatio = normalizedAspectRatio(pixelSize.width / max(pixelSize.height, 1)) else {
+                  let aspectRatio = normalizedSingleImageAspectRatio(pixelSize.width / max(pixelSize.height, 1)) else {
                 continue
             }
 
@@ -238,13 +263,16 @@ enum NoteImageLayoutGuide {
 
 struct NoteZoomableFullscreenImageView: View {
     let url: URL
+    var kind: FlowImageCacheRequestKind = .fullscreen
     let chromeForegroundColor: Color
     let onZoomStateChange: (Bool) -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     var body: some View {
         NoteRemoteMediaView(
             url: url,
-            kind: .fullscreen,
+            kind: kind,
             enforceNetworkByteLimit: false,
             allowsLargeGIFAutoplay: true
         ) { asset in
@@ -252,6 +280,7 @@ struct NoteZoomableFullscreenImageView: View {
             case .still:
                 NoteZoomableImageView(
                     asset: asset,
+                    reduceMotion: accessibilityReduceMotion,
                     onZoomStateChange: onZoomStateChange
                 )
                 .padding(16)
@@ -370,10 +399,14 @@ struct NoteRemoteMediaView<Content: View, Placeholder: View, Failure: View>: Vie
 
 private struct NoteZoomableImageView: UIViewRepresentable {
     let asset: NoteMediaAsset
+    let reduceMotion: Bool
     let onZoomStateChange: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onZoomStateChange: onZoomStateChange)
+        Coordinator(
+            reduceMotion: reduceMotion,
+            onZoomStateChange: onZoomStateChange
+        )
     }
 
     func makeUIView(context: Context) -> UIScrollView {
@@ -409,6 +442,7 @@ private struct NoteZoomableImageView: UIViewRepresentable {
     }
 
     func updateUIView(_ scrollView: UIScrollView, context: Context) {
+        context.coordinator.reduceMotion = reduceMotion
         context.coordinator.onZoomStateChange = onZoomStateChange
         context.coordinator.updateAsset(asset, in: scrollView)
     }
@@ -425,6 +459,7 @@ private struct NoteZoomableImageView: UIViewRepresentable {
         let imageView = UIImageView()
         weak var scrollView: UIScrollView?
         weak var doubleTapRecognizer: UITapGestureRecognizer?
+        var reduceMotion: Bool
         var onZoomStateChange: (Bool) -> Void
 
         private var currentAsset: NoteMediaAsset?
@@ -432,7 +467,11 @@ private struct NoteZoomableImageView: UIViewRepresentable {
         private var lastReportedZoomedState = false
         private var lastBoundsSize: CGSize = .zero
 
-        init(onZoomStateChange: @escaping (Bool) -> Void) {
+        init(
+            reduceMotion: Bool,
+            onZoomStateChange: @escaping (Bool) -> Void
+        ) {
+            self.reduceMotion = reduceMotion
             self.onZoomStateChange = onZoomStateChange
         }
 
@@ -492,7 +531,10 @@ private struct NoteZoomableImageView: UIViewRepresentable {
             guard let scrollView else { return }
 
             if scrollView.zoomScale > scrollView.minimumZoomScale + 0.01 {
-                scrollView.setZoomScale(scrollView.minimumZoomScale, animated: true)
+                scrollView.setZoomScale(
+                    scrollView.minimumZoomScale,
+                    animated: !reduceMotion
+                )
                 return
             }
 
@@ -503,7 +545,7 @@ private struct NoteZoomableImageView: UIViewRepresentable {
                 centeredAt: tapPoint,
                 in: scrollView
             )
-            scrollView.zoom(to: zoomRect, animated: true)
+            scrollView.zoom(to: zoomRect, animated: !reduceMotion)
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {

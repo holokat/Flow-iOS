@@ -7,7 +7,7 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-struct PreparedUploadMedia {
+struct PreparedUploadMedia: @unchecked Sendable {
     let data: Data
     let mimeType: String
     let fileExtension: String

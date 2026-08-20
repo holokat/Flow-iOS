@@ -18,11 +18,11 @@ enum RelaySettingsError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidRelayURL:
-            return "Enter a valid relay URL (wss://...)."
+            return "Enter a valid source address."
         case .readRelayRequired:
-            return "Keep at least one read relay."
+            return "Keep at least one reading source."
         case .writeRelayRequired:
-            return "Keep at least one write relay."
+            return "Keep at least one publishing source."
         }
     }
 }
@@ -271,7 +271,7 @@ final class RelaySettingsStore: ObservableObject {
         guard let accountPubkey, let nsec else { return }
         guard let keypair = Keypair(nsec: nsec.lowercased()) else {
             guard self.accountPubkey == accountPubkey else { return }
-            lastPublishError = "Couldn't sign relay settings. Please sign in again."
+            lastPublishError = "Couldn’t update Connection settings. Please sign in again."
             return
         }
 
@@ -289,7 +289,7 @@ final class RelaySettingsStore: ObservableObject {
 
             let eventData = try JSONEncoder().encode(event)
             guard let eventObject = try JSONSerialization.jsonObject(with: eventData) as? [String: Any] else {
-                throw RelayClientError.publishRejected("Malformed relay metadata event")
+                throw RelayClientError.publishRejected("Couldn’t prepare Connection settings")
             }
 
             let targets: [String]
@@ -319,7 +319,7 @@ final class RelaySettingsStore: ObservableObject {
             if successfulPublishes > 0 {
                 lastPublishError = nil
             } else {
-                lastPublishError = "Couldn't publish relay settings right now."
+                lastPublishError = "Couldn’t update Connection settings right now."
             }
         } catch {
             guard self.accountPubkey == accountPubkey else { return }
@@ -351,7 +351,7 @@ final class RelaySettingsStore: ObservableObject {
         guard !inboxRelays.isEmpty else { return }
         guard let keypair = Keypair(nsec: nsec.lowercased()) else {
             guard self.accountPubkey == accountPubkey else { return }
-            lastPublishError = "Couldn't sign inbox relay settings. Please sign in again."
+            lastPublishError = "Couldn’t update messaging sources. Please sign in again."
             return
         }
 
@@ -366,7 +366,7 @@ final class RelaySettingsStore: ObservableObject {
 
             let eventData = try JSONEncoder().encode(event)
             guard let eventObject = try JSONSerialization.jsonObject(with: eventData) as? [String: Any] else {
-                throw RelayClientError.publishRejected("Malformed inbox relay event")
+                throw RelayClientError.publishRejected("Couldn’t prepare messaging sources")
             }
 
             let targets = normalizeRelayList(writeRelays + inboxRelays + Self.bootstrapPublishRelayURLs)
@@ -386,7 +386,7 @@ final class RelaySettingsStore: ObservableObject {
             }
 
             guard self.accountPubkey == accountPubkey else { return }
-            lastPublishError = successfulPublishes > 0 ? nil : "Couldn't publish inbox relay settings right now."
+            lastPublishError = successfulPublishes > 0 ? nil : "Couldn’t update messaging sources right now."
         } catch {
             guard self.accountPubkey == accountPubkey else { return }
             lastPublishError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

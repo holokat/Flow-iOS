@@ -40,28 +40,32 @@ struct NostrReferenceResolver: Sendable {
         relayFetchMode: RelayFetchMode = .firstRelayWithEvents,
         moderationSnapshot: MuteFilterSnapshot? = nil
     ) async -> FeedItem? {
-        let relayTargets = await referencedFeedItemRelayTargets(
+        let directRelayTargets = await referenceRelayTargets(
             for: reference,
             baseRelayURLs: relayURLs
         )
-        guard !relayTargets.isEmpty else { return nil }
+        var relayTargets = directRelayTargets
+        var event = await fetchReferencedEvent(
+            reference,
+            relayURLs: directRelayTargets,
+            fetchTimeout: fetchTimeout,
+            relayFetchMode: relayFetchMode
+        )
 
-        let event: NostrEvent?
-        switch reference.target {
-        case .eventID(let eventID):
-            event = await fetchReferencedEventByID(
-                eventID,
-                relayURLs: relayTargets,
+        // Relay hints are the fastest and most precise path for a NIP-19
+        // reference. Resolve the author's outbox only after those hints and
+        // the user's configured read relays miss.
+        if event == nil, reference.targetPubkey != nil {
+            let outboxBackedTargets = await referencedFeedItemRelayTargets(
+                for: reference,
+                baseRelayURLs: relayURLs
+            )
+            relayTargets = outboxBackedTargets
+            event = await fetchReferencedEvent(
+                reference,
+                relayURLs: outboxBackedTargets,
                 fetchTimeout: fetchTimeout,
                 relayFetchMode: relayFetchMode
-            )
-        case .replaceable(let kind, let pubkey, let identifier):
-            event = await fetchReplaceableReferencedEvent(
-                kind: kind,
-                pubkey: pubkey,
-                identifier: identifier,
-                relayURLs: relayTargets,
-                fetchTimeout: fetchTimeout
             )
         }
 
@@ -75,6 +79,33 @@ struct NostrReferenceResolver: Sendable {
             moderationSnapshot
         )
         return items.first
+    }
+
+    private func fetchReferencedEvent(
+        _ reference: NostrEventReferencePointer,
+        relayURLs: [URL],
+        fetchTimeout: TimeInterval,
+        relayFetchMode: RelayFetchMode
+    ) async -> NostrEvent? {
+        guard !relayURLs.isEmpty else { return nil }
+
+        switch reference.target {
+        case .eventID(let eventID):
+            return await fetchReferencedEventByID(
+                eventID,
+                relayURLs: relayURLs,
+                fetchTimeout: fetchTimeout,
+                relayFetchMode: relayFetchMode
+            )
+        case .replaceable(let kind, let pubkey, let identifier):
+            return await fetchReplaceableReferencedEvent(
+                kind: kind,
+                pubkey: pubkey,
+                identifier: identifier,
+                relayURLs: relayURLs,
+                fetchTimeout: fetchTimeout
+            )
+        }
     }
 
     func fetchReferencedEvents(
@@ -459,7 +490,15 @@ struct NostrReferenceResolver: Sendable {
         targetEventID: String,
         sourceEvent: NostrEvent
     ) -> NostrEventReferencePointer {
-        NostrEventReferencePointer(
+        // NIP-18 generic reposts use an `a` tag when the target is a
+        // replaceable event. Resolve that address instead of treating the
+        // accompanying `e` tag as the only source of truth: relays may no
+        // longer retain that exact historical version.
+        if let addressReference = genericRepostAddressReference(in: sourceEvent) {
+            return addressReference
+        }
+
+        return NostrEventReferencePointer(
             normalizedIdentifier: targetEventID,
             target: .eventID(targetEventID),
             relayHints: relayHintsForEventReference(
@@ -469,6 +508,47 @@ struct NostrReferenceResolver: Sendable {
             ),
             authorPubkey: repostTargetAuthorHint(in: sourceEvent)
         )
+    }
+
+    private func genericRepostAddressReference(
+        in event: NostrEvent
+    ) -> NostrEventReferencePointer? {
+        guard event.kind == 16 else { return nil }
+
+        for tag in event.tags {
+            guard tag.count > 1, tag[0].lowercased() == "a" else { continue }
+
+            let rawCoordinate = tag[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            let components = rawCoordinate.split(
+                separator: ":",
+                maxSplits: 2,
+                omittingEmptySubsequences: false
+            )
+            guard components.count == 3,
+                  let kind = Int(components[0]),
+                  kind >= 0 else {
+                continue
+            }
+
+            let pubkey = normalizePubkey(String(components[1]))
+            let identifier = String(components[2]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard pubkey.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+                  !identifier.isEmpty else {
+                continue
+            }
+
+            return NostrEventReferencePointer(
+                normalizedIdentifier: rawCoordinate,
+                target: .replaceable(kind: kind, pubkey: pubkey, identifier: identifier),
+                relayHints: RelayURLSupport.normalizedRelayURLs(
+                    [tag.count > 2 ? RelayURLSupport.normalizedURL(from: tag[2]) : nil]
+                        .compactMap { $0 }
+                ),
+                authorPubkey: pubkey
+            )
+        }
+
+        return nil
     }
 
     func referencePointerForReplyTarget(

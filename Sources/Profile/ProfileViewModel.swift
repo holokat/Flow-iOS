@@ -130,7 +130,7 @@ final class ProfileViewModel: ObservableObject {
 
     var relayLabel: String {
         if readRelayURLs.count > 1 {
-            return "\(readRelayURLs.count) relays"
+            return "\(readRelayURLs.count) sources"
         }
         return relayURL.host() ?? relayURL.absoluteString
     }
@@ -988,7 +988,7 @@ actor ProfileMediaUploadService {
                 throw ProfileMediaUploadError.uploadFailed(statusCode: statusCode)
             case .blossomFallbackFailed(let primaryDescription, let fallbackDescription):
                 throw ProfileMediaUploadError.uploadFailedWithMessage(
-                    "Blossom failed: \(primaryDescription) Tried Nostr.Build too: \(fallbackDescription)"
+                    "Primary upload failed: \(primaryDescription) Backup upload also failed: \(fallbackDescription)"
                 )
             case .unsupportedBlossomPayment, .missingFileData:
                 throw uploadError

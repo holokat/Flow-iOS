@@ -4,6 +4,15 @@ import Security
 @testable import Flow
 
 final class AuthManagerTests: XCTestCase {
+    func testNpubIdentifierEncodesHexPublicKeyForCopying() throws {
+        let expectedNpub = "npub1law6z3s3nnaxtlk39xuq9k0ckjax9878rflfaj5524ahnxjemyyq4e53fm"
+        let pubkey = try XCTUnwrap(PublicKey(npub: expectedNpub)?.hex)
+
+        XCTAssertEqual(npubIdentifier(for: pubkey), expectedNpub)
+        XCTAssertEqual(npubIdentifier(for: "  \(pubkey.uppercased())\n"), expectedNpub)
+        XCTAssertNil(npubIdentifier(for: "not-a-public-key"))
+    }
+
     @MainActor
     func testLoggingInWithSecondPrivateKeyAppendsAccountList() throws {
         let suiteName = #function

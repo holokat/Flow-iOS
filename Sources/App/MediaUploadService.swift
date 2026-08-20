@@ -14,7 +14,7 @@ enum MediaUploadProvider: String, CaseIterable, Codable, Identifiable, Hashable,
         case .blossom:
             return "Blossom"
         case .nostrBuild:
-            return "Nostr.Build"
+            return "Backup Upload"
         }
     }
 }
@@ -48,13 +48,13 @@ enum MediaUploadError: LocalizedError {
         case .blossomUploadFailed(let statusCode):
             return "Blossom upload failed (\(statusCode))."
         case .nip96UploadFailed(let statusCode):
-            return "NIP-96 upload failed (\(statusCode))."
+            return "Media upload failed (\(statusCode))."
         case .invalidUploadResponse:
             return "Upload completed, but the response was invalid."
         case .missingUploadedURL:
             return "Upload completed, but no media URL was returned."
         case .blossomFallbackFailed(let primaryDescription, let fallbackDescription):
-            return "Blossom failed: \(primaryDescription) Tried Nostr.Build too: \(fallbackDescription)"
+            return "Primary upload failed: \(primaryDescription) Backup upload also failed: \(fallbackDescription)"
         }
     }
 }
@@ -64,6 +64,7 @@ actor MediaUploadService {
 
     private let nostrBuildServiceURL = URL(string: "https://nostr.build")!
     private let relayClient = NostrRelayClient()
+    private let uploadSession: URLSession
     private let blossomServerListKind = 10_063
     private let blossomServerListCacheTTL: TimeInterval = 60 * 10
     private let blossomServerCandidates: [URL] = [
@@ -74,6 +75,18 @@ actor MediaUploadService {
 
     private var nip96UploadURLByService: [String: URL] = [:]
     private var blossomServerCacheByPubkey: [String: (urls: [URL], storedAt: Date)] = [:]
+
+    init(uploadSession: URLSession = MediaUploadService.makeUploadSession()) {
+        self.uploadSession = uploadSession
+    }
+
+    private nonisolated static func makeUploadSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 300
+        configuration.waitsForConnectivity = true
+        return URLSession(configuration: configuration)
+    }
 
     func uploadMedia(
         data: Data,
@@ -180,7 +193,6 @@ actor MediaUploadService {
 
         var uploadRequest = URLRequest(url: uploadURL)
         uploadRequest.httpMethod = "PUT"
-        uploadRequest.httpBody = data
         uploadRequest.setValue(sha256Hex, forHTTPHeaderField: "X-SHA-256")
         uploadRequest.setValue(mimeType, forHTTPHeaderField: "Content-Type")
 
@@ -192,7 +204,10 @@ actor MediaUploadService {
             uploadRequest.setValue(authHeader, forHTTPHeaderField: "Authorization")
         }
 
-        var (responseData, response) = try await URLSession.shared.data(for: uploadRequest)
+        var (responseData, response) = try await uploadSession.upload(
+            for: uploadRequest,
+            from: data
+        )
         var statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
 
         if statusCode == 401 && !shouldSendAuth {
@@ -202,7 +217,10 @@ actor MediaUploadService {
             )
 
             uploadRequest.setValue(authHeader, forHTTPHeaderField: "Authorization")
-            let retried = try await URLSession.shared.data(for: uploadRequest)
+            let retried = try await uploadSession.upload(
+                for: uploadRequest,
+                from: data
+            )
             responseData = retried.0
             response = retried.1
             statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
@@ -261,7 +279,7 @@ actor MediaUploadService {
         request.setValue(String(size), forHTTPHeaderField: "X-Content-Length")
         request.setValue(mimeType, forHTTPHeaderField: "X-Content-Type")
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await uploadSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw MediaUploadError.invalidUploadResponse
         }
@@ -279,20 +297,25 @@ actor MediaUploadService {
         let uploadURL = try await resolveNIP96UploadURL(for: serviceURL)
         let authHeader = try makeNIP98AuthHeader(uploadURL: uploadURL, keypair: keypair)
         let boundary = "Boundary-\(UUID().uuidString)"
-        let body = makeMultipartBody(
+        let multipartFileURL = try makeMultipartBodyFile(
             boundary: boundary,
             fileData: data,
             filename: filename,
             mimeType: mimeType
         )
+        defer {
+            try? FileManager.default.removeItem(at: multipartFileURL)
+        }
 
         var request = URLRequest(url: uploadURL)
         request.httpMethod = "POST"
-        request.httpBody = body
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")
 
-        let (responseData, response) = try await URLSession.shared.data(for: request)
+        let (responseData, response) = try await uploadSession.upload(
+            for: request,
+            fromFile: multipartFileURL
+        )
         guard let httpResponse = response as? HTTPURLResponse else {
             throw MediaUploadError.invalidUploadResponse
         }
@@ -329,7 +352,7 @@ actor MediaUploadService {
             .appendingPathComponent(".well-known", isDirectory: true)
             .appendingPathComponent("nostr", isDirectory: true)
             .appendingPathComponent("nip96.json", isDirectory: false)
-        let (data, response) = try await URLSession.shared.data(from: configURL)
+        let (data, response) = try await uploadSession.data(from: configURL)
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
             throw MediaUploadError.invalidUploadService
@@ -412,35 +435,43 @@ actor MediaUploadService {
         return (mediaURL, imetaComponents)
     }
 
-    private func makeMultipartBody(
+    private func makeMultipartBodyFile(
         boundary: String,
         fileData: Data,
         filename: String,
         mimeType: String
-    ) -> Data {
+    ) throws -> URL {
         let lineBreak = "\r\n"
-        var body = Data()
+        let safeFilename = filename
+            .replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+            .replacingOccurrences(of: "\"", with: "'")
+        let header = """
+        --\(boundary)\(lineBreak)Content-Disposition: form-data; name="file"; filename="\(safeFilename)"\(lineBreak)Content-Type: \(mimeType)\(lineBreak)\(lineBreak)
+        """
+        let footer = "\(lineBreak)--\(boundary)--\(lineBreak)"
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("halo-upload-\(UUID().uuidString)")
+            .appendingPathExtension("multipart")
 
-        if let prefix = "--\(boundary)\(lineBreak)".data(using: .utf8) {
-            body.append(prefix)
-        }
-        if let disposition = "Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\(lineBreak)".data(using: .utf8) {
-            body.append(disposition)
-        }
-        if let contentType = "Content-Type: \(mimeType)\(lineBreak)\(lineBreak)".data(using: .utf8) {
-            body.append(contentType)
-        }
-
-        body.append(fileData)
-
-        if let lineBreakData = lineBreak.data(using: .utf8) {
-            body.append(lineBreakData)
-        }
-        if let closing = "--\(boundary)--\(lineBreak)".data(using: .utf8) {
-            body.append(closing)
+        guard FileManager.default.createFile(atPath: fileURL.path, contents: nil) else {
+            throw MediaUploadError.missingFileData
         }
 
-        return body
+        do {
+            let fileHandle = try FileHandle(forWritingTo: fileURL)
+            defer {
+                try? fileHandle.close()
+            }
+
+            try fileHandle.write(contentsOf: Data(header.utf8))
+            try fileHandle.write(contentsOf: fileData)
+            try fileHandle.write(contentsOf: Data(footer.utf8))
+            return fileURL
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL)
+            throw MediaUploadError.missingFileData
+        }
     }
 
     private func decodeSDKTag(from raw: [String]) -> NostrSDK.Tag? {

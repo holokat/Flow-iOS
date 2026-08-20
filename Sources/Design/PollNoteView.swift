@@ -258,7 +258,7 @@ struct PollNoteView: View {
         .buttonStyle(.plain)
         .disabled(isLoadingResults)
         .accessibilityLabel("Refresh poll results")
-        .accessibilityHint("Fetch the latest votes from the poll's relays.")
+        .accessibilityHint("Fetch the latest votes from the poll’s sources.")
     }
 
     private func statusBadge(

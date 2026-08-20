@@ -1206,11 +1206,11 @@ enum AppSettingsError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidNewsRelayURL:
-            return "Enter a valid News relay URL (wss://...)."
+            return "Enter a valid News source address."
         case .newsRelayRequired:
-            return "Keep at least one News relay."
+            return "Keep at least one News source."
         case .invalidNewsAuthorIdentifier:
-            return "Enter a valid hex pubkey, npub, or nprofile for News people."
+            return "Enter a valid account address for News people."
         case .invalidNewsHashtag:
             return "Enter a valid hashtag for the News feed."
         case .invalidCustomFeedName:
@@ -1228,7 +1228,24 @@ final class AppSettingsStore: ObservableObject {
     nonisolated static let defaultNewsRelayURLs = [URL(string: "wss://news.utxo.one")!]
     nonisolated static let availablePrimaryColorOptions = AppPrimaryColorOption.all
     nonisolated static var defaultPrimaryColor: Color {
-        AppPrimaryColorOption.defaultOption.color
+        Color(
+            UIColor { traits in
+                if traits.userInterfaceStyle == .dark {
+                    return UIColor(
+                        red: 63.0 / 255.0,
+                        green: 142.0 / 255.0,
+                        blue: 247.0 / 255.0,
+                        alpha: 1
+                    )
+                }
+                return UIColor(
+                    red: 40.0 / 255.0,
+                    green: 95.0 / 255.0,
+                    blue: 244.0 / 255.0,
+                    alpha: 1
+                )
+            }
+        )
     }
     nonisolated static var defaultButtonTextColor: Color {
         Color.white
@@ -1362,15 +1379,6 @@ final class AppSettingsStore: ObservableObject {
             let decodedTheme = (try? container.decode(AppThemeOption.self, forKey: .theme)) ?? .system
             theme = decodedTheme.normalizedSelection
 
-            let decodedMinimalPrimaryColor = try container.decodeIfPresent(
-                StoredColor.self,
-                forKey: .minimalPrimaryColor
-            )
-            let decodedLegacyPrimaryColor = try container.decodeIfPresent(
-                StoredColor.self,
-                forKey: .primaryColor
-            )
-            let decodedPrimaryColor = decodedMinimalPrimaryColor ?? decodedLegacyPrimaryColor
             buttonGradientOption = try container.decodeIfPresent(HolographicGradientOption.self, forKey: .buttonGradientOption)
             generatedButtonGradient = try container.decodeIfPresent(GeneratedButtonGradient.self, forKey: .generatedButtonGradient)
             buttonTextColor = try container.decodeIfPresent(StoredColor.self, forKey: .buttonTextColor)
@@ -1399,23 +1407,7 @@ final class AppSettingsStore: ObservableObject {
                 decodedLinkColorIndex,
                 count: expressiveGradientOption.linkColors.count
             )
-            let decodedVisualAccentMode = try container.decodeIfPresent(AppVisualAccentMode.self, forKey: .visualAccentMode)
-
-            let migratedPrimaryColor: Color
-            if let decodedPrimaryColor {
-                migratedPrimaryColor = decodedPrimaryColor.color
-            } else if let legacyPrimaryColor = AppSettingsStore.legacyPrimaryColor(
-                buttonGradientOption: buttonGradientOption,
-                generatedButtonGradient: generatedButtonGradient,
-                expressiveGradientOption: expressiveGradientOption,
-                expressiveLinkColorIndex: expressiveLinkColorIndex,
-                visualAccentMode: decodedVisualAccentMode
-            ) {
-                migratedPrimaryColor = AppSettingsStore.normalizedPrimaryColorOption(for: legacyPrimaryColor).color
-            } else {
-                migratedPrimaryColor = AppSettingsStore.defaultPrimaryColor
-            }
-            let storedPrimaryColor = StoredColor(color: AppSettingsStore.opaquePrimaryColor(from: migratedPrimaryColor))
+            let storedPrimaryColor = StoredColor(color: AppSettingsStore.defaultPrimaryColor)
             primaryColor = storedPrimaryColor
             minimalPrimaryColor = storedPrimaryColor
             visualAccentMode = .minimal
@@ -1609,13 +1601,15 @@ final class AppSettingsStore: ObservableObject {
 
     var primaryColor: Color {
         get {
-            persistedSettings.minimalPrimaryColor?.color ?? persistedSettings.primaryColor?.color ?? Self.defaultPrimaryColor
+            Self.defaultPrimaryColor
         }
-        set {
-            let storedColor = StoredColor(color: Self.opaquePrimaryColor(from: newValue))
+        set { // Compatibility sink for older callers; the app accent is no longer customizable.
+            let storedColor = StoredColor(color: Self.opaquePrimaryColor(from: Self.defaultPrimaryColor))
             persistedSettings.visualAccentMode = .minimal
             persistedSettings.primaryColor = storedColor
             persistedSettings.minimalPrimaryColor = storedColor
+            persistedSettings.buttonGradientOption = nil
+            persistedSettings.generatedButtonGradient = nil
             persistedSettings.buttonTextColor = nil
             persist()
         }
@@ -2259,7 +2253,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var canCustomizePrimaryColor: Bool {
-        true
+        false
     }
 
     func canBeginThemePreview(_ theme: AppThemeOption) -> Bool {
@@ -2468,8 +2462,8 @@ final class AppSettingsStore: ObservableObject {
         return expressiveGradientOption.linkColor(at: expressiveLinkColorIndex)
     }
 
-    private static func primaryGradient(for settings: PersistedSettings) -> LinearGradient {
-        let color = settings.minimalPrimaryColor?.color ?? settings.primaryColor?.color ?? defaultPrimaryColor
+    private static func primaryGradient(for _: PersistedSettings) -> LinearGradient {
+        let color = defaultPrimaryColor
         return LinearGradient(
             colors: [color, color],
             startPoint: .topLeading,
@@ -2477,9 +2471,8 @@ final class AppSettingsStore: ObservableObject {
         )
     }
 
-    private static func buttonTextColor(for settings: PersistedSettings) -> Color {
-        let color = settings.minimalPrimaryColor?.color ?? settings.primaryColor?.color ?? defaultPrimaryColor
-        return contrastingForegroundColor(for: color)
+    private static func buttonTextColor(for _: PersistedSettings) -> Color {
+        defaultButtonTextColor
     }
 
     nonisolated static func averageColor(from colors: [Color]) -> Color {

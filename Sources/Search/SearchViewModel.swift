@@ -39,7 +39,6 @@ final class SearchViewModel: ObservableObject {
     private let supportsContentSearch: Bool
     private let vertexSearchService = VertexProfileSearchService.shared
     private let pageSize: Int
-    private let assetPrefetchItemCount = 18
 
     private var mutedConversationIDs = Set<String>() {
         didSet {
@@ -48,6 +47,7 @@ final class SearchViewModel: ObservableObject {
         }
     }
     private var searchTask: Task<Void, Never>?
+    private var searchHydrationTask: Task<Void, Never>?
     private var latestSearchRequestID = UUID()
     private var trendingNotesRevision = 0
     private var searchedNotesRevision = 0
@@ -57,6 +57,7 @@ final class SearchViewModel: ObservableObject {
     private var followedAuthorPubkeys: [String] = []
     private var currentAccountPubkey: String?
     private var currentNsec: String?
+    private var discoveredSearchRelayURLs: [URL]?
 
     private(set) var readRelayURLs: [URL]
     private(set) var relayURL: URL
@@ -92,8 +93,8 @@ final class SearchViewModel: ObservableObject {
     private static let searchFeedKinds = [1, 6, 20, 21, 22, 1063, 1222, 30023, 1111, 1244]
     private static let noteSearchFetchTimeout: TimeInterval = 5
     private static let profileSearchFetchTimeout: TimeInterval = 6
-    private static let noteSearchRelayFetchMode: RelayFetchMode = .allRelays
-    private static let profileSearchRelayFetchMode: RelayFetchMode = .allRelays
+    private static let noteSearchRelayFetchMode: RelayFetchMode = .firstNonEmptyRelay
+    private static let profileSearchRelayFetchMode: RelayFetchMode = .firstNonEmptyRelay
 
     init(
         relayURL: URL,
@@ -116,6 +117,7 @@ final class SearchViewModel: ObservableObject {
 
     deinit {
         searchTask?.cancel()
+        searchHydrationTask?.cancel()
     }
 
     var visibleItems: [FeedItem] {
@@ -185,6 +187,9 @@ final class SearchViewModel: ObservableObject {
             self.currentNsec != nextNsec ||
             self.followedAuthorPubkeys != nextFollowedPubkeys
 
+        if self.currentAccountPubkey != nextAccountPubkey {
+            discoveredSearchRelayURLs = nil
+        }
         self.currentAccountPubkey = nextAccountPubkey
         self.currentNsec = nextNsec
         self.followedAuthorPubkeys = nextFollowedPubkeys
@@ -196,6 +201,11 @@ final class SearchViewModel: ObservableObject {
 
     func handleSearchTextChanged() {
         searchTask?.cancel()
+        searchHydrationTask?.cancel()
+
+        // Typing is the lightweight people-suggestion mode. Submitting the
+        // field is the deliberate transition to full NIP-50 note results.
+        selectedScope = .people
 
         let query = searchQuery
         guard !query.isEmpty else {
@@ -208,37 +218,16 @@ final class SearchViewModel: ObservableObject {
             return
         }
 
-        switch selectedScope {
-        case .people:
-            activeContentSearch = nil
-            searchedNotes = []
-            profileMatches = []
-        case .notes:
-            profileMatches = []
-            searchedNotes = []
-        }
+        activeContentSearch = nil
+        searchedNotes = []
+        profileMatches = []
 
         errorMessage = nil
-
-        switch selectedScope {
-        case .people:
-            searchTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 320_000_000)
-                guard !Task.isCancelled else { return }
-                await self?.performProfileSearch()
-            }
-        case .notes:
-            guard contentSearchKindForCurrentMode() != nil else {
-                activeContentSearch = nil
-                isLoading = false
-                return
-            }
-            isLoading = true
-            searchTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 320_000_000)
-                guard !Task.isCancelled else { return }
-                await self?.activateSuggestedContentSearch()
-            }
+        isLoading = true
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 320_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.performProfileSearch()
         }
     }
 
@@ -252,6 +241,7 @@ final class SearchViewModel: ObservableObject {
 
         readRelayURLs = normalized
         relayURL = normalized[0]
+        discoveredSearchRelayURLs = nil
 
         if isSearching {
             handleSearchTextChanged()
@@ -315,36 +305,36 @@ final class SearchViewModel: ObservableObject {
 
     func submitSearch() async {
         searchTask?.cancel()
+        searchHydrationTask?.cancel()
 
-        switch selectedScope {
-        case .people:
+        guard !searchQuery.isEmpty else {
+            selectedScope = .people
+            await refreshPopularProfiles()
+            return
+        }
+
+        guard supportsContentSearch else {
             await performProfileSearch()
-        case .notes:
-            await activateSuggestedContentSearch()
-        }
-    }
-
-    func handleSearchScopeChanged() {
-        searchTask?.cancel()
-        errorMessage = nil
-
-        switch selectedScope {
-        case .people:
-            activeContentSearch = nil
-            searchedNotes = []
-        case .notes:
-            profileMatches = []
+            return
         }
 
-        handleSearchTextChanged()
+        selectedScope = .notes
+        profileMatches = []
+        await activateSuggestedContentSearch()
     }
 
     private func refreshPopularProfiles() async {
         guard !isLoading else { return }
 
+        let requestQueryText = searchQuery.trimmed
         isLoading = true
         errorMessage = nil
         let requestRelayURLs = readRelayURLs
+        defer {
+            if searchQuery.trimmed == requestQueryText, selectedScope == .people {
+                isLoading = false
+            }
+        }
 
         let cachedFollowedSuggestions = await buildFollowedSuggestions(
             relayURLs: requestRelayURLs,
@@ -357,8 +347,10 @@ final class SearchViewModel: ObservableObject {
             limit: 10,
             allowProfileFetch: false
         )
+        guard !Task.isCancelled else { return }
+        guard searchQuery.trimmed == requestQueryText, selectedScope == .people else { return }
         popularProfiles = mergeProfileMatches(
-            [cachedFollowedSuggestions, cachedSecondDegreeSuggestions],
+            [cachedSecondDegreeSuggestions, cachedFollowedSuggestions],
             limit: 24
         )
 
@@ -371,14 +363,12 @@ final class SearchViewModel: ObservableObject {
             relayURLs: requestRelayURLs,
             limit: 10
         )
+        guard !Task.isCancelled else { return }
+        guard searchQuery.trimmed == requestQueryText, selectedScope == .people else { return }
         popularProfiles = mergeProfileMatches(
-            [followedSuggestions, secondDegreeSuggestions],
+            [secondDegreeSuggestions, followedSuggestions],
             limit: 24
         )
-
-        defer {
-            isLoading = false
-        }
 
         do {
             let fetched = try await trendingNotesLoader(
@@ -392,16 +382,19 @@ final class SearchViewModel: ObservableObject {
             guard requestRelayURLs == readRelayURLs else { return }
             let merged = deduplicateAndSort([fetched])
             trendingNotes = merged
-            scheduleAssetPrefetch(for: merged)
             let trendingProfiles = await buildPopularProfiles(from: merged, relayURLs: requestRelayURLs)
+            guard !Task.isCancelled else { return }
+            guard requestRelayURLs == readRelayURLs else { return }
+            guard searchQuery.trimmed == requestQueryText, selectedScope == .people else { return }
             popularProfiles = mergeProfileMatches(
-                [followedSuggestions, secondDegreeSuggestions, trendingProfiles],
+                [secondDegreeSuggestions, trendingProfiles, followedSuggestions],
                 limit: 24
             )
         } catch {
             guard requestRelayURLs == readRelayURLs else { return }
+            guard searchQuery.trimmed == requestQueryText, selectedScope == .people else { return }
             popularProfiles = mergeProfileMatches(
-                [followedSuggestions, secondDegreeSuggestions],
+                [secondDegreeSuggestions, followedSuggestions],
                 limit: 24
             )
             errorMessage = popularProfiles.isEmpty
@@ -484,29 +477,30 @@ final class SearchViewModel: ObservableObject {
                 .prefix(20)
         )
 
-        let remoteProfileMatches = await remoteProfileMatchesResult
+        let localProfileMatches = await localProfileMatchesResult
+        let exactProfile = await exactProfileResult
 
         guard latestSearchRequestID == requestID else { return }
         guard searchQuery.trimmed == query.trimmed else { return }
 
-        let vertexFirstProfiles = mergeProfileMatches(
+        let localFirstProfiles = mergeProfileMatches(
             [
                 currentAccountProfile.map {
                     [ProfileMatch(pubkey: $0.pubkey, profile: $0.profile)]
                 } ?? [],
                 followedProfileMatches,
-                remoteProfileMatches.items.map { ProfileMatch(pubkey: $0.pubkey, profile: $0.profile) }
+                exactProfile.map { [ProfileMatch(pubkey: $0.pubkey, profile: $0.profile)] } ?? [],
+                localProfileMatches.map { ProfileMatch(pubkey: $0.pubkey, profile: $0.profile) }
             ],
             limit: 60
         )
 
         self.profileMatches = Array(
-            rankedProfileMatches(query: normalizedProfileQuery, matches: vertexFirstProfiles)
+            rankedProfileMatches(query: normalizedProfileQuery, matches: localFirstProfiles)
                 .prefix(20)
         )
 
-        let localProfileMatches = await localProfileMatchesResult
-        let exactProfile = await exactProfileResult
+        let remoteProfileMatches = await remoteProfileMatchesResult
 
         guard latestSearchRequestID == requestID else { return }
         guard searchQuery.trimmed == query.trimmed else { return }
@@ -517,9 +511,9 @@ final class SearchViewModel: ObservableObject {
                     [ProfileMatch(pubkey: $0.pubkey, profile: $0.profile)]
                 } ?? [],
                 followedProfileMatches,
-                remoteProfileMatches.items.map { ProfileMatch(pubkey: $0.pubkey, profile: $0.profile) },
+                exactProfile.map { [ProfileMatch(pubkey: $0.pubkey, profile: $0.profile)] } ?? [],
                 localProfileMatches.map { ProfileMatch(pubkey: $0.pubkey, profile: $0.profile) },
-                exactProfile.map { [ProfileMatch(pubkey: $0.pubkey, profile: $0.profile)] } ?? []
+                remoteProfileMatches.items.map { ProfileMatch(pubkey: $0.pubkey, profile: $0.profile) }
             ],
             limit: 60
         )
@@ -548,8 +542,27 @@ final class SearchViewModel: ObservableObject {
         primaryRelayURLs: [URL],
         fallbackRelayURLs: [URL]
     ) async -> FeedFetchResult {
-        let relayURLs = Self.normalizedRelayURLs(primaryRelayURLs + fallbackRelayURLs)
-        return await performKeywordNoteSearch(query: query, relayURLs: relayURLs)
+        let primaryRelayURLs = Self.normalizedRelayURLs(primaryRelayURLs)
+        let primaryResult = await performKeywordNoteSearch(
+            query: query,
+            relayURLs: primaryRelayURLs
+        )
+        guard primaryResult.items.isEmpty else { return primaryResult }
+
+        let primaryKeys = Set(primaryRelayURLs.map { $0.absoluteString.lowercased() })
+        let fallbackRelayURLs = Self.normalizedRelayURLs(fallbackRelayURLs).filter {
+            !primaryKeys.contains($0.absoluteString.lowercased())
+        }
+        guard !fallbackRelayURLs.isEmpty else { return primaryResult }
+
+        let fallbackResult = await performKeywordNoteSearch(
+            query: query,
+            relayURLs: fallbackRelayURLs
+        )
+        return FeedFetchResult(
+            items: fallbackResult.items,
+            failed: primaryResult.failed && fallbackResult.failed
+        )
     }
 
     private func fetchLocalKeywordNotes(query: String) async -> FeedFetchResult {
@@ -588,7 +601,7 @@ final class SearchViewModel: ObservableObject {
                 query: query,
                 kinds: Self.searchFeedKinds,
                 limit: pageSize,
-                hydrationMode: .full,
+                hydrationMode: .cachedProfilesOnly,
                 fetchTimeout: Self.noteSearchFetchTimeout,
                 relayFetchMode: Self.noteSearchRelayFetchMode,
                 moderationSnapshot: muteFilterSnapshot
@@ -609,7 +622,7 @@ final class SearchViewModel: ObservableObject {
                 kinds: Self.searchFeedKinds,
                 limit: pageSize,
                 until: nil,
-                hydrationMode: .full,
+                hydrationMode: .cachedProfilesOnly,
                 fetchTimeout: Self.noteSearchFetchTimeout,
                 relayFetchMode: Self.noteSearchRelayFetchMode,
                 moderationSnapshot: muteFilterSnapshot
@@ -669,8 +682,6 @@ final class SearchViewModel: ObservableObject {
         errorMessage = nil
         searchedNotes = []
 
-        let keywordRelayURLs = keywordSearchRelayTargets()
-        let keywordFallbackRelayURLs = fallbackKeywordSearchRelayTargets()
         let hashtagRelayURLs = hashtagSearchRelayTargets()
         let profileRelayURLs = profileSearchRelayTargets()
         let exactPubkey = query.resolvedProfilePubkey
@@ -685,10 +696,16 @@ final class SearchViewModel: ObservableObject {
             guard searchQuery.trimmed == query.trimmed else { return false }
             guard activeContentSearch == target else { return false }
 
-            let mergedNotes = deduplicateAndSort([searchedNotes, result.items])
-            let prefetchedNotes = Array(mergedNotes.prefix(pageSize))
-            searchedNotes = prefetchedNotes
-            scheduleAssetPrefetch(for: prefetchedNotes)
+            let mergedNotes: [FeedItem]
+            switch target.kind {
+            case .notes:
+                // The incoming NIP-50 page is already relevance-ranked. Put
+                // it ahead of cached results without re-sorting by timestamp.
+                mergedNotes = deduplicatePreservingOrder([result.items, searchedNotes])
+            case .hashtag, .eventReference:
+                mergedNotes = deduplicateAndSort([searchedNotes, result.items])
+            }
+            searchedNotes = Array(mergedNotes.prefix(pageSize))
             errorMessage = nil
             return true
         }
@@ -697,6 +714,9 @@ final class SearchViewModel: ObservableObject {
         case .notes(let notesQuery):
             let localKeywordNotes = await fetchLocalKeywordNotes(query: notesQuery)
             guard apply(localKeywordNotes) else { return }
+
+            let keywordRelayURLs = await resolvedKeywordSearchRelayTargets()
+            let keywordFallbackRelayURLs = fallbackKeywordSearchRelayTargets()
 
             async let exactAuthorNotesResult = fetchExactAuthorNotes(
                 pubkey: exactPubkey,
@@ -723,6 +743,13 @@ final class SearchViewModel: ObservableObject {
 
             let remoteKeywordNotes = await remoteKeywordNotesResult
             guard apply(remoteKeywordNotes) else { return }
+            scheduleSearchHydration(
+                for: remoteKeywordNotes.items,
+                relayURLs: Self.normalizedRelayURLs(keywordRelayURLs + keywordFallbackRelayURLs),
+                requestID: requestID,
+                target: target,
+                query: query
+            )
 
         case .hashtag(let hashtag):
             let localHashtagNotes = await fetchLocalHashtagNotes(hashtag: hashtag)
@@ -730,6 +757,13 @@ final class SearchViewModel: ObservableObject {
 
             let remoteHashtagNotes = await fetchHashtagNotes(hashtag: hashtag, relayURLs: hashtagRelayURLs)
             guard apply(remoteHashtagNotes) else { return }
+            scheduleSearchHydration(
+                for: remoteHashtagNotes.items,
+                relayURLs: hashtagRelayURLs,
+                requestID: requestID,
+                target: target,
+                query: query
+            )
         case .eventReference(let reference):
             let referencedNote = await fetchReferencedNote(reference: reference)
             guard apply(referencedNote) else { return }
@@ -861,19 +895,6 @@ final class SearchViewModel: ObservableObject {
         }
     }
 
-    private func scheduleAssetPrefetch(for items: [FeedItem]) {
-        let urls = Array(
-            items
-                .prefix(assetPrefetchItemCount)
-                .flatMap(\.prefetchImageURLs)
-        )
-        guard !urls.isEmpty else { return }
-
-        Task(priority: .utility) {
-            await FlowImageCache.shared.prefetch(urls: urls)
-        }
-    }
-
     private func clearVisibleItemsCache() {
         visibleItemsCacheKey = nil
         visibleItemsCache = []
@@ -894,6 +915,56 @@ final class SearchViewModel: ObservableObject {
             }
             return $0.event.createdAt > $1.event.createdAt
         })
+    }
+
+    private func deduplicatePreservingOrder(_ groups: [[FeedItem]]) -> [FeedItem] {
+        var seen = Set<String>()
+        var ordered: [FeedItem] = []
+
+        for group in groups {
+            for item in group {
+                let normalizedID = item.id.lowercased()
+                guard seen.insert(normalizedID).inserted else { continue }
+                ordered.append(item)
+            }
+        }
+
+        return pruneMutedItems(ordered)
+    }
+
+    private func scheduleSearchHydration(
+        for items: [FeedItem],
+        relayURLs: [URL],
+        requestID: UUID,
+        target: SuggestedContentSearch,
+        query: SearchQueryDescriptor
+    ) {
+        let events = items.prefix(24).map(\.event)
+        guard !events.isEmpty else { return }
+
+        searchHydrationTask?.cancel()
+        searchHydrationTask = Task { [weak self] in
+            guard let self else { return }
+            let hydratedItems = await service.buildFeedItems(
+                relayURLs: relayURLs,
+                events: events,
+                hydrationMode: .full,
+                moderationSnapshot: muteFilterSnapshot
+            )
+            guard !Task.isCancelled else { return }
+            guard latestSearchRequestID == requestID else { return }
+            guard searchQuery.trimmed == query.trimmed else { return }
+            guard activeContentSearch == target else { return }
+
+            let hydratedByID = Dictionary(
+                hydratedItems.map { ($0.id.lowercased(), $0) },
+                uniquingKeysWith: { _, newer in newer }
+            )
+            guard !hydratedByID.isEmpty else { return }
+            searchedNotes = searchedNotes.map { item in
+                hydratedByID[item.id.lowercased()] ?? item
+            }
+        }
     }
 
     private func buildPopularProfiles(from items: [FeedItem], relayURLs: [URL]) async -> [ProfileMatch] {
@@ -1116,11 +1187,29 @@ final class SearchViewModel: ObservableObject {
     }
 
     private func keywordSearchRelayTargets() -> [URL] {
-        Self.noteSearchRelayURLs
+        guard let discoveredSearchRelayURLs, !discoveredSearchRelayURLs.isEmpty else {
+            return Self.noteSearchRelayURLs
+        }
+        return Self.normalizedRelayURLs(discoveredSearchRelayURLs)
+    }
+
+    private func resolvedKeywordSearchRelayTargets() async -> [URL] {
+        if discoveredSearchRelayURLs == nil {
+            if let currentAccountPubkey {
+                discoveredSearchRelayURLs = await service.fetchSearchRelayURLs(
+                    relayURLs: readRelayURLs,
+                    pubkey: currentAccountPubkey
+                )
+            } else {
+                discoveredSearchRelayURLs = []
+            }
+        }
+        return keywordSearchRelayTargets()
     }
 
     private func fallbackKeywordSearchRelayTargets() -> [URL] {
-        []
+        guard discoveredSearchRelayURLs?.isEmpty == false else { return [] }
+        return Self.noteSearchRelayURLs
     }
 
     func keywordSearchRelayTargetsForTesting() -> [URL] {

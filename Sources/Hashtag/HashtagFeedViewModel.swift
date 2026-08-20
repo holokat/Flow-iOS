@@ -27,6 +27,7 @@ final class HashtagFeedViewModel: ObservableObject {
     let relayURL: URL
     let readRelayURLs: [URL]
     let normalizedHashtag: String
+    private let relayHashtag: String
 
     private let pageSize: Int
     private let service: NostrFeedService
@@ -66,7 +67,12 @@ final class HashtagFeedViewModel: ObservableObject {
 
         self.readRelayURLs = normalizedReadRelays.isEmpty ? [relayURL] : normalizedReadRelays
         self.relayURL = self.readRelayURLs.first ?? relayURL
-        self.normalizedHashtag = NostrEvent.normalizedHashtagValue(hashtag)
+        let normalizedHashtag = NostrEvent.normalizedHashtagValue(hashtag)
+        self.normalizedHashtag = normalizedHashtag
+        self.relayHashtag = Self.exactHashtagValue(
+            matching: normalizedHashtag,
+            in: seedItems
+        ) ?? hashtag
         self.pageSize = pageSize
         self.service = service
         self.items = Self.sortedNewestFirst(
@@ -81,7 +87,7 @@ final class HashtagFeedViewModel: ObservableObject {
 
     var relayLabel: String {
         if readRelayURLs.count > 1 {
-            return "\(readRelayURLs.count) relays"
+            return "\(readRelayURLs.count) sources"
         }
         return relayURL.host() ?? relayURL.absoluteString
     }
@@ -155,6 +161,7 @@ final class HashtagFeedViewModel: ObservableObject {
             } else if !initialItems.isEmpty {
                 mergeKeepingNewest(itemsToMerge: initialItems)
             }
+            scheduleItemHydration(for: initialItems)
             if initialPage.fetchedFullPage {
                 oldestCreatedAt = initialItems.last?.event.createdAt
                 hasReachedEnd = FeedPaginationHeuristic.shouldStopPaging(
@@ -165,6 +172,7 @@ final class HashtagFeedViewModel: ObservableObject {
                     let expandedItems = pruneMutedItems(try await fetchExpandedHashtagPage())
                     if !expandedItems.isEmpty {
                         mergeKeepingNewest(itemsToMerge: expandedItems)
+                        scheduleItemHydration(for: items)
                         oldestCreatedAt = expandedItems.last?.event.createdAt
                         hasReachedEnd = FeedPaginationHeuristic.shouldStopPaging(
                             afterFetchedCount: expandedItems.count
@@ -205,11 +213,11 @@ final class HashtagFeedViewModel: ObservableObject {
         do {
             let fetched = try await service.fetchHashtagFeed(
                 relayURLs: hashtagRelayURLs,
-                hashtag: normalizedHashtag,
+                hashtag: relayHashtag,
                 kinds: requestKinds,
                 limit: pageSize,
                 until: until,
-                hydrationMode: .full,
+                hydrationMode: .cachedProfilesOnly,
                 fetchTimeout: Self.fullHashtagFetchTimeout,
                 relayFetchMode: .allRelays,
                 moderationSnapshot: muteFilterSnapshot
@@ -223,6 +231,7 @@ final class HashtagFeedViewModel: ObservableObject {
             oldestCreatedAt = fetched.last?.event.createdAt
             hasReachedEnd = FeedPaginationHeuristic.shouldStopPaging(afterFetchedCount: fetched.count)
             mergeKeepingNewest(itemsToMerge: fetched)
+            scheduleItemHydration(for: fetched)
         } catch {
             errorMessage = "Couldn't load more posts."
         }
@@ -292,24 +301,25 @@ final class HashtagFeedViewModel: ObservableObject {
 
         itemHydrationTask = Task { [weak self] in
             guard let self else { return }
-            _ = await self.service.buildFeedItems(
+            let hydratedItems = await self.service.buildFeedItems(
                 relayURLs: relayTargets,
                 events: events,
                 hydrationMode: .full,
                 moderationSnapshot: self.muteFilterSnapshot
             )
             guard !Task.isCancelled else { return }
+            self.mergeKeepingNewest(itemsToMerge: hydratedItems)
         }
     }
 
     private func fetchInitialHashtagPage() async throws -> InitialHashtagPageResult {
         let fastFetched = try await service.fetchHashtagFeed(
             relayURLs: fastHashtagRelayURLs,
-            hashtag: normalizedHashtag,
+            hashtag: relayHashtag,
             kinds: requestKinds,
             limit: min(pageSize, Self.fastInitialPageSize),
             until: nil,
-            hydrationMode: .full,
+            hydrationMode: .cachedProfilesOnly,
             fetchTimeout: Self.fastHashtagFetchTimeout,
             relayFetchMode: Self.fastHashtagRelayFetchMode,
             moderationSnapshot: muteFilterSnapshot
@@ -321,11 +331,11 @@ final class HashtagFeedViewModel: ObservableObject {
 
         let fullFetched = try await service.fetchHashtagFeed(
             relayURLs: hashtagRelayURLs,
-            hashtag: normalizedHashtag,
+            hashtag: relayHashtag,
             kinds: requestKinds,
             limit: pageSize,
             until: nil,
-            hydrationMode: .full,
+            hydrationMode: .cachedProfilesOnly,
             fetchTimeout: Self.fullHashtagFetchTimeout,
             relayFetchMode: .allRelays,
             moderationSnapshot: muteFilterSnapshot
@@ -336,11 +346,11 @@ final class HashtagFeedViewModel: ObservableObject {
     private func fetchExpandedHashtagPage() async throws -> [FeedItem] {
         try await service.fetchHashtagFeed(
             relayURLs: hashtagRelayURLs,
-            hashtag: normalizedHashtag,
+            hashtag: relayHashtag,
             kinds: requestKinds,
             limit: pageSize,
             until: nil,
-            hydrationMode: .full,
+            hydrationMode: .cachedProfilesOnly,
             fetchTimeout: Self.fullHashtagFetchTimeout,
             relayFetchMode: .allRelays,
             moderationSnapshot: muteFilterSnapshot
@@ -356,11 +366,11 @@ final class HashtagFeedViewModel: ObservableObject {
 
             let expanded = try? await self.service.fetchHashtagFeed(
                 relayURLs: self.hashtagRelayURLs,
-                hashtag: self.normalizedHashtag,
+                hashtag: self.relayHashtag,
                 kinds: self.requestKinds,
                 limit: self.pageSize,
                 until: nil,
-                hydrationMode: .full,
+                hydrationMode: .cachedProfilesOnly,
                 fetchTimeout: Self.fullHashtagFetchTimeout,
                 relayFetchMode: .allRelays,
                 moderationSnapshot: self.muteFilterSnapshot
@@ -377,6 +387,21 @@ final class HashtagFeedViewModel: ObservableObject {
                 )
             }
         }
+    }
+
+    private static func exactHashtagValue(
+        matching normalizedHashtag: String,
+        in seedItems: [FeedItem]
+    ) -> String? {
+        for item in seedItems {
+            for tag in item.displayEvent.tags where tag.count > 1 && tag[0].lowercased() == "t" {
+                let value = tag[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                if NostrEvent.normalizedHashtagValue(value) == normalizedHashtag {
+                    return value
+                }
+            }
+        }
+        return nil
     }
 
     private var hashtagRelayURLs: [URL] {

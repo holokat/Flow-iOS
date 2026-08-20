@@ -4,6 +4,134 @@ import Foundation
 import UIKit
 @testable import Flow
 
+final class UserFacingCopyTests: XCTestCase {
+    func testTechnicalAccountAndMessagingTermsAreRemoved() {
+        let message = "An nsec is required to decrypt this NIP-17 gift wrap from the relay."
+        let sanitized = UserFacingCopy.sanitizingTechnicalTerms(message).lowercased()
+
+        for forbiddenTerm in ["nsec", "nip", "gift wrap", "relay"] {
+            XCTAssertFalse(sanitized.contains(forbiddenTerm))
+        }
+        XCTAssertTrue(sanitized.contains("account access"))
+        XCTAssertTrue(sanitized.contains("source"))
+    }
+
+    func testTechnicalAddressTermsBecomeAccountAddress() {
+        let message = "Paste an npub, nprofile, or pubkey."
+        let sanitized = UserFacingCopy.sanitizingTechnicalTerms(message).lowercased()
+
+        for forbiddenTerm in ["npub", "nprofile", "pubkey"] {
+            XCTAssertFalse(sanitized.contains(forbiddenTerm))
+        }
+        XCTAssertTrue(sanitized.contains("account address"))
+    }
+}
+
+final class FollowCelebrationMotionTests: XCTestCase {
+    func testRefollowAlwaysCreatesANewCelebrationTrigger() {
+        var trigger = 0
+
+        trigger = FollowCelebrationMotion.nextTrigger(
+            current: trigger,
+            didFollow: true,
+            didChange: true
+        )
+        XCTAssertEqual(trigger, 1)
+
+        trigger = FollowCelebrationMotion.nextTrigger(
+            current: trigger,
+            didFollow: false,
+            didChange: true
+        )
+        XCTAssertEqual(trigger, 1)
+
+        trigger = FollowCelebrationMotion.nextTrigger(
+            current: trigger,
+            didFollow: true,
+            didChange: true
+        )
+        XCTAssertEqual(trigger, 2)
+    }
+
+    func testIdempotentFollowDoesNotCreateACelebrationTrigger() {
+        XCTAssertEqual(
+            FollowCelebrationMotion.nextTrigger(
+                current: 4,
+                didFollow: true,
+                didChange: false
+            ),
+            4
+        )
+    }
+
+    func testBurstStaysLocalButVisible() {
+        XCTAssertEqual(FollowCelebrationMotion.particleCount, 8)
+    }
+}
+
+final class ProfileAvatarSwipeDismissBehaviorTests: XCTestCase {
+    func testDismissGestureBeginsOnlyForIntentionalDownwardMovement() {
+        XCTAssertTrue(
+            ProfileAvatarSwipeDismissBehavior.shouldBegin(
+                translation: CGSize(width: 4, height: 24)
+            )
+        )
+        XCTAssertFalse(
+            ProfileAvatarSwipeDismissBehavior.shouldBegin(
+                translation: CGSize(width: 24, height: 4)
+            )
+        )
+        XCTAssertFalse(
+            ProfileAvatarSwipeDismissBehavior.shouldBegin(
+                translation: CGSize(width: 0, height: -24)
+            )
+        )
+    }
+
+    func testDismissesForDistanceOrProjectedFlick() {
+        XCTAssertTrue(
+            ProfileAvatarSwipeDismissBehavior.shouldDismiss(
+                translation: 210,
+                predictedEndTranslation: 225,
+                containerHeight: 800
+            )
+        )
+        XCTAssertTrue(
+            ProfileAvatarSwipeDismissBehavior.shouldDismiss(
+                translation: 80,
+                predictedEndTranslation: 240,
+                containerHeight: 800
+            )
+        )
+        XCTAssertFalse(
+            ProfileAvatarSwipeDismissBehavior.shouldDismiss(
+                translation: 80,
+                predictedEndTranslation: 150,
+                containerHeight: 800
+            )
+        )
+    }
+
+    func testReducedMotionKeepsFingerTrackingWithoutScaling() {
+        XCTAssertEqual(
+            ProfileAvatarSwipeDismissBehavior.scale(
+                offset: 180,
+                containerHeight: 800,
+                reduceMotion: true
+            ),
+            1
+        )
+        XCTAssertLessThan(
+            ProfileAvatarSwipeDismissBehavior.scale(
+                offset: 180,
+                containerHeight: 800,
+                reduceMotion: false
+            ),
+            1
+        )
+    }
+}
+
 final class FlowLayoutGuardrailsTests: XCTestCase {
     func testReportedPodcastZapReceiptRendersValidatedAmountAndEpisodeLink() throws {
         let zapRequest = """
@@ -86,8 +214,8 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
 
         let metadata = try XCTUnwrap(NostrUnsupportedEventMetadata(event: event))
 
-        XCTAssertEqual(metadata.title, "Unsupported Nostr event")
-        XCTAssertEqual(metadata.message, "Halo doesn’t recognize this kind of Nostr event yet.")
+        XCTAssertEqual(metadata.title, "Unsupported shared item")
+        XCTAssertEqual(metadata.message, "Halo can’t display this shared item yet.")
         XCTAssertEqual(metadata.kindLabel, "Kind 35128")
         XCTAssertFalse(metadata.title.contains(rawJSON))
         XCTAssertFalse(metadata.message.contains(rawJSON))
@@ -297,22 +425,22 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         )
     }
 
-    func testProfileHeaderBannerUsesMoreImmersiveHeight() {
-        XCTAssertEqual(ProfileHeaderBannerMetrics.height, LongFormArticleReaderLayout.heroMinHeight)
-        XCTAssertEqual(
-            ProfileHeaderBannerMetrics.fadeHeight,
-            ProfileHeaderBannerMetrics.height * 0.21,
-            accuracy: 0.0001
-        )
-        XCTAssertLessThan(ProfileHeaderBannerMetrics.fadeHeight, ProfileHeaderBannerMetrics.height * 0.24)
+    func testProfileHeaderBannerKeepsIdentityAndPostsWithinReach() {
+        XCTAssertEqual(ProfileHeaderBannerMetrics.height, 220)
+        XCTAssertLessThan(ProfileHeaderBannerMetrics.height, LongFormArticleReaderLayout.heroMinHeight)
         XCTAssertLessThan(ProfileHeaderBannerMetrics.topScrimOpacity, 0.06)
-        XCTAssertLessThanOrEqual(ProfileHeaderBannerMetrics.bottomFadeMidOpacity, 0.1)
-        XCTAssertLessThanOrEqual(ProfileHeaderBannerMetrics.bottomFadeStrongOpacity, 0.5)
+        XCTAssertEqual(ProfileHeaderBannerMetrics.edgeOpacity, 0.10, accuracy: 0.0001)
     }
 
-    func testLoadedProfileBannerImagesStayClearAboveBottomFade() {
+    func testLoadedProfileBannerImagesStayClearAndCrisplyClipped() throws {
+        let source = try Self.sourceText(at: "Sources/Profile/ProfileHeaderSection.swift")
+
         XCTAssertGreaterThanOrEqual(ProfileHeaderBannerMetrics.loadedImageOpacity, 0.94)
         XCTAssertEqual(ProfileHeaderBannerMetrics.loadedImageSaturation, 1, accuracy: 0.0001)
+        XCTAssertFalse(source.contains("bottomFadeMidOpacity"))
+        XCTAssertFalse(source.contains("bottomFadeStrongOpacity"))
+        XCTAssertFalse(source.contains("fadeHeight"))
+        XCTAssertTrue(source.contains(".frame(height: 1)"))
     }
 
     func testProfileHeaderTopControlsRespectTopSafeArea() {
@@ -365,10 +493,37 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
     func testComposeToolbarUsesCompactThemeAwareControls() {
         XCTAssertEqual(ComposeToolbarLayout.cancelButtonFontWeight, ComposeToolbarLayout.publishButtonFontWeight)
         XCTAssertEqual(ComposeToolbarLayout.cancelButtonFontWeight, .semibold)
+        XCTAssertEqual(ComposeToolbarLayout.controlHeight, 40)
+        XCTAssertGreaterThanOrEqual(ComposeToolbarLayout.cancelButtonHorizontalPadding, 12)
+        XCTAssertGreaterThanOrEqual(ComposeToolbarLayout.draftButtonHorizontalPadding, 12)
+        XCTAssertGreaterThanOrEqual(ComposeToolbarLayout.publishButtonHorizontalPadding, 16)
         XCTAssertLessThanOrEqual(ComposeToolbarLayout.leadingItemSpacing, 8)
         XCTAssertLessThanOrEqual(ComposeToolbarLayout.trailingItemSpacing, 8)
-        XCTAssertGreaterThan(ComposeToolbarLayout.draftButtonBackgroundOpacity, 0)
-        XCTAssertLessThanOrEqual(ComposeToolbarLayout.draftButtonBackgroundOpacity, 1)
+    }
+
+    func testComposeToolbarUsesIndependentNativeGlassControls() throws {
+        let sheetSource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheet.swift")
+        let accessorySource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheetAccessoryViews.swift")
+
+        XCTAssertTrue(sheetSource.contains("ToolbarSpacer(.fixed, placement: .topBarLeading)"))
+        XCTAssertTrue(accessorySource.contains(".glassEffect("))
+        XCTAssertFalse(accessorySource.contains(".buttonStyle(.glass)"))
+        XCTAssertFalse(accessorySource.contains(".buttonStyle(.glassProminent)"))
+        XCTAssertTrue(accessorySource.contains(".background(.ultraThinMaterial, in: Capsule())"))
+    }
+
+    func testComposePlaceholderUsesTheTextViewFontAndInsets() throws {
+        let accessorySource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheetAccessoryViews.swift")
+
+        XCTAssertEqual(
+            ComposeEditorLayout.placeholderLeadingPadding,
+            ComposeEditorLayout.textViewHorizontalPadding + ComposeEditorLayout.textContainerHorizontalInset
+        )
+        XCTAssertEqual(
+            ComposeEditorLayout.placeholderTopPadding,
+            ComposeEditorLayout.textContainerVerticalInset
+        )
+        XCTAssertTrue(accessorySource.contains(".font(appSettings.appFont(.body))"))
     }
 
     func testComposeMediaAttachmentsSitAboveBottomToolbarOutsideEditorCard() throws {
@@ -406,6 +561,196 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertEqual(FlowTransitionMotion.duration(.numberPop, reduceMotion: true), 0, accuracy: 0.0001)
     }
 
+    func testHorizontalPagingTracksIntentAndCommitsToAdjacentTabs() {
+        XCTAssertTrue(
+            FlowHorizontalPagingBehavior.isHorizontallyDominant(
+                CGSize(width: 92, height: 18)
+            )
+        )
+        XCTAssertTrue(
+            FlowHorizontalPagingBehavior.isVerticallyDominant(
+                CGSize(width: 14, height: 88)
+            )
+        )
+        XCTAssertTrue(
+            FlowHorizontalPagingBehavior.reservesGestureForBackNavigation(
+                startX: 12,
+                translation: 64
+            )
+        )
+        XCTAssertFalse(
+            FlowHorizontalPagingBehavior.reservesGestureForBackNavigation(
+                startX: 80,
+                translation: 64
+            )
+        )
+        XCTAssertFalse(
+            FlowHorizontalPagingBehavior.reservesGestureForBackNavigation(
+                startX: 12,
+                translation: -64
+            )
+        )
+        XCTAssertEqual(
+            FlowHorizontalPagingBehavior.targetIndex(
+                currentIndex: 0,
+                itemCount: 3,
+                translation: -72,
+                predictedEndTranslation: -86
+            ),
+            1
+        )
+        XCTAssertEqual(
+            FlowHorizontalPagingBehavior.targetIndex(
+                currentIndex: 2,
+                itemCount: 3,
+                translation: 68,
+                predictedEndTranslation: 82
+            ),
+            1
+        )
+        XCTAssertEqual(
+            FlowHorizontalPagingBehavior.targetIndex(
+                currentIndex: 0,
+                itemCount: 3,
+                translation: -24,
+                predictedEndTranslation: -120
+            ),
+            1
+        )
+        XCTAssertNil(
+            FlowHorizontalPagingBehavior.targetIndex(
+                currentIndex: 0,
+                itemCount: 3,
+                translation: 90,
+                predictedEndTranslation: 120
+            )
+        )
+        XCTAssertNil(
+            FlowHorizontalPagingBehavior.targetIndex(
+                currentIndex: 1,
+                itemCount: 3,
+                translation: 24,
+                predictedEndTranslation: 40
+            )
+        )
+        XCTAssertFalse(
+            FlowHorizontalPagingBehavior.shouldBeginPaging(
+                currentIndex: 1,
+                itemCount: 3,
+                startX: 12,
+                horizontalDirection: 80,
+                handsLeadingBoundaryToParent: false
+            ),
+            "The native leading-edge back gesture must own this swipe."
+        )
+        XCTAssertFalse(
+            FlowHorizontalPagingBehavior.shouldBeginPaging(
+                currentIndex: 0,
+                itemCount: 3,
+                startX: 120,
+                horizontalDirection: 80,
+                handsLeadingBoundaryToParent: true
+            ),
+            "The side-menu gesture must own a right swipe from the first tab."
+        )
+        XCTAssertTrue(
+            FlowHorizontalPagingBehavior.shouldBeginPaging(
+                currentIndex: 0,
+                itemCount: 3,
+                startX: 120,
+                horizontalDirection: -80,
+                handsLeadingBoundaryToParent: true
+            )
+        )
+        XCTAssertTrue(
+            FlowHorizontalPagingBehavior.shouldBeginPaging(
+                currentIndex: 1,
+                itemCount: 3,
+                startX: 120,
+                horizontalDirection: 80,
+                handsLeadingBoundaryToParent: true
+            )
+        )
+    }
+
+    func testHorizontalPagingKeepsTheHostScreenStationary() throws {
+        let source = try Self.sourceText(at: "Sources/App/FlowTransitionMotion.swift")
+        let modifierStart = try XCTUnwrap(
+            source.range(of: "private struct FlowHorizontalPagingModifier")
+        )
+        let modifierEnd = try XCTUnwrap(
+            source.range(
+                of: "private struct FlowPeerTabContentModifier",
+                range: modifierStart.upperBound..<source.endIndex
+            )
+        )
+        let modifierSource = source[modifierStart.lowerBound..<modifierEnd.lowerBound]
+
+        XCTAssertFalse(modifierSource.contains(".offset("))
+        XCTAssertFalse(modifierSource.contains("dragTranslation"))
+        XCTAssertFalse(modifierSource.contains(".simultaneousGesture("))
+        XCTAssertTrue(modifierSource.contains("UIPanGestureRecognizer"))
+        XCTAssertTrue(modifierSource.contains("gestureRecognizerShouldBegin"))
+        XCTAssertNil(FlowHorizontalPagingBehavior.selectionAnimation(reduceMotion: true))
+        XCTAssertNotNil(FlowHorizontalPagingBehavior.selectionAnimation(reduceMotion: false))
+        XCTAssertNil(FlowHorizontalPagingBehavior.contentAnimation(reduceMotion: true))
+        XCTAssertNotNil(FlowHorizontalPagingBehavior.contentAnimation(reduceMotion: false))
+    }
+
+    func testPrimaryTabbedViewsUseSharedHorizontalPagingAndBackSwipe() throws {
+        let homeSource = try Self.sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let profileSource = try Self.sourceText(at: "Sources/Profile/ProfileView.swift")
+        let threadSource = try Self.sourceText(at: "Sources/Thread/ThreadDetailView.swift")
+        let activitySource = try Self.sourceText(at: "Sources/Activity/ActivityView.swift")
+        let messageSource = try Self.sourceText(at: "Sources/DMs/DMsView.swift")
+
+        for source in [homeSource, profileSource, threadSource, activitySource, messageSource] {
+            XCTAssertTrue(source.contains(".flowHorizontalPaging("))
+        }
+        for source in [homeSource, profileSource, threadSource, activitySource, messageSource] {
+            XCTAssertTrue(source.contains(".flowInteractiveBackSwipe()"))
+        }
+    }
+
+    func testInteractiveBackSwipeUsesAStackAwareRetainedDelegate() throws {
+        let source = try Self.sourceText(at: "Sources/App/FlowTransitionMotion.swift")
+        let resolverStart = try XCTUnwrap(
+            source.range(of: "private struct FlowInteractiveBackSwipeResolver")
+        )
+        let resolverEnd = try XCTUnwrap(
+            source.range(
+                of: "extension View {",
+                range: resolverStart.upperBound..<source.endIndex
+            )
+        )
+        let resolverSource = source[resolverStart.lowerBound..<resolverEnd.lowerBound]
+
+        XCTAssertTrue(resolverSource.contains("recognizer.delegate = self"))
+        XCTAssertTrue(
+            resolverSource.contains("navigationController.viewControllers.count > 1")
+        )
+        XCTAssertTrue(
+            resolverSource.contains("navigationController.transitionCoordinator == nil")
+        )
+        XCTAssertFalse(resolverSource.contains("recognizer.delegate = nil\n                recognizer.isEnabled = true"))
+    }
+
+    func testBoundedTabContentUsesContentOnlyTransitions() throws {
+        let threadSource = try Self.sourceText(at: "Sources/Thread/ThreadDetailComponents.swift")
+        let messageSource = try Self.sourceText(at: "Sources/DMs/DMsView.swift")
+
+        XCTAssertTrue(
+            threadSource.contains(
+                ".flowPeerTabContentTransition(selection: selectedContentTab)"
+            )
+        )
+        XCTAssertTrue(
+            messageSource.contains(
+                ".flowPeerTabContentTransition(selection: activeTab)"
+            )
+        )
+    }
+
     func testHomeFeedModeTabsUseNotificationCapsuleTabSelectionStyling() {
         XCTAssertNil(FlowCapsuleTabBarStylePreset.NotificationTabs.selectedBackground)
         XCTAssertNil(FlowCapsuleTabBarStylePreset.NotificationTabs.selectedForeground)
@@ -413,6 +758,26 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertNil(FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedBackground)
         XCTAssertNil(FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedForeground)
         XCTAssertNil(FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedStroke)
+    }
+
+    func testFollowingEmptyStateActionsUseOneVerticalEqualWidthStack() throws {
+        let source = try Self.sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let start = try XCTUnwrap(source.range(of: "else if viewModel.followingFeedHasNoFollowings"))
+        let end = try XCTUnwrap(
+            source.range(
+                of: "else if viewModel.feedSource == .articles",
+                range: start.upperBound..<source.endIndex
+            )
+        )
+        let emptyFollowingBranch = String(source[start.lowerBound..<end.lowerBound])
+
+        XCTAssertTrue(emptyFollowingBranch.contains("VStack(spacing: 10)"))
+        XCTAssertFalse(emptyFollowingBranch.contains("HStack(spacing: 10)"))
+        XCTAssertEqual(
+            emptyFollowingBranch.components(separatedBy: "fillsAvailableWidth: true").count - 1,
+            2
+        )
+        XCTAssertTrue(emptyFollowingBranch.contains(".frame(maxWidth: 260)"))
     }
 
     func testSettingsNavigationChromeDoesNotSwitchSystemBarVisibilityDuringDetailPush() {
@@ -424,9 +789,15 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertEqual(SettingsDetailNavigationLayout.headerBackgroundRole, .form)
     }
 
-    func testPrimaryColorSelectionUsesBorderOnlyIndicator() {
-        XCTAssertNil(SettingsPrimaryColorSwatchSelectionIndicator.selectedSystemImageName)
-        XCTAssertEqual(SettingsPrimaryColorSwatchSelectionIndicator.selectedBorderWidth, 2.5, accuracy: 0.0001)
+    func testAppearanceDoesNotOfferPrimaryColorCustomization() throws {
+        let appearanceSource = try Self.sourceText(at: "Sources/Home/SettingsAppearanceView.swift")
+        let authSource = try Self.sourceText(at: "Sources/Auth/AuthSheetView.swift")
+
+        XCTAssertFalse(appearanceSource.contains("Section(\"Primary Color\")"))
+        XCTAssertFalse(appearanceSource.contains("ColorPicker("))
+        XCTAssertFalse(appearanceSource.contains("Custom Color"))
+        XCTAssertTrue(authSource.contains("private var signInAccentColor: Color {\n        appSettings.primaryColor"))
+        XCTAssertFalse(authSource.contains("resolvedSignUpSeedPrimaryColorOption.color"))
     }
 
     func testBreakReminderChoiceLayoutUsesManageAccountsArtworkAndCopy() {
@@ -507,7 +878,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertEqual(SearchBarGlassStyle.fieldCornerRadius, 22, accuracy: 0.0001)
     }
 
-    func testSideMenuTransitionUsesContainedSoftPushDrawer() {
+    func testSideMenuTransitionUsesInteractiveFeedPushDrawer() {
         XCTAssertEqual(SideMenuTransitionLayout.menuWidthFraction, 0.78, accuracy: 0.0001)
         XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.menuWidthFraction, 0.75)
         XCTAssertLessThanOrEqual(SideMenuTransitionLayout.menuWidthFraction, 0.80)
@@ -535,43 +906,141 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
             0,
             accuracy: 0.0001
         )
-        XCTAssertLessThan(SideMenuTransitionLayout.primaryContentOpenScale, 1)
-        XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.primaryContentOpenCornerRadius, 24)
-        XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.menuTrailingCornerRadius, 28)
-        XCTAssertGreaterThan(SideMenuTransitionLayout.backdropOpacity, 0.16)
+        XCTAssertEqual(SideMenuTransitionLayout.primaryContentOpenScale, 1, accuracy: 0.0001)
+        XCTAssertEqual(
+            SideMenuTransitionLayout.primaryContentOpenCornerRadius,
+            44,
+            accuracy: 0.0001
+        )
+        XCTAssertGreaterThan(SideMenuTransitionLayout.backdropOpacity, 0.3)
         XCTAssertTrue(SideMenuTransitionLayout.usesParentZStack)
-        XCTAssertFalse(SideMenuTransitionLayout.keepsMenuBehindPrimaryContent)
+        XCTAssertTrue(SideMenuTransitionLayout.keepsMenuBehindPrimaryContent)
         XCTAssertTrue(SideMenuTransitionLayout.menuFillsFullContainerHeight)
-        XCTAssertGreaterThan(SideMenuTransitionLayout.menuZIndex, SideMenuTransitionLayout.primaryContentZIndex)
-        XCTAssertGreaterThan(SideMenuTransitionLayout.menuZIndex, SideMenuTransitionLayout.backdropZIndex)
-        XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.menuClosedOffsetFraction, 1)
-        XCTAssertEqual(SideMenuTransitionLayout.menuClosedOpacity, 0, accuracy: 0.0001)
-        XCTAssertLessThanOrEqual(SideMenuTransitionLayout.primaryContentOpenOffsetFraction, 0.06)
-        XCTAssertGreaterThan(SideMenuTransitionLayout.backdropBlurRadius, 0)
+        XCTAssertLessThan(SideMenuTransitionLayout.menuZIndex, SideMenuTransitionLayout.primaryContentZIndex)
+        XCTAssertGreaterThan(SideMenuTransitionLayout.menuClosedOffsetFraction, 0)
+        XCTAssertLessThanOrEqual(SideMenuTransitionLayout.menuClosedOffsetFraction, 0.12)
+        XCTAssertGreaterThan(SideMenuTransitionLayout.menuClosedOpacity, 0.75)
+        XCTAssertEqual(SideMenuTransitionLayout.dragMinimumDistance, 10, accuracy: 0.0001)
+        XCTAssertGreaterThan(SideMenuTransitionLayout.dragAxisDominanceRatio, 1)
+        XCTAssertEqual(SideMenuTransitionLayout.projectedOpenThreshold, 0.5, accuracy: 0.0001)
     }
 
-    func testSideMenuRowsUseStaggeredFadeSlideMotion() {
-        XCTAssertGreaterThan(SideMenuTransitionLayout.rowStaggerDelay, 0)
-        XCTAssertLessThanOrEqual(SideMenuTransitionLayout.rowStaggerDelay, 0.08)
+    func testSideMenuGestureClampsAndProjectsFeedPosition() {
+        let openOffset: CGFloat = 312
+
+        XCTAssertEqual(
+            SideMenuTransitionLayout.clampedContentOffset(
+                isOpen: false,
+                dragTranslation: 120,
+                openOffset: openOffset
+            ),
+            120,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SideMenuTransitionLayout.clampedContentOffset(
+                isOpen: true,
+                dragTranslation: -100,
+                openOffset: openOffset
+            ),
+            212,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SideMenuTransitionLayout.clampedContentOffset(
+                isOpen: false,
+                dragTranslation: -80,
+                openOffset: openOffset
+            ),
+            0,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            SideMenuTransitionLayout.presentationProgress(
+                contentOffset: 156,
+                openOffset: openOffset
+            ),
+            0.5,
+            accuracy: 0.0001
+        )
+        XCTAssertTrue(
+            SideMenuTransitionLayout.isHorizontallyDominant(
+                CGSize(width: 80, height: 20)
+            )
+        )
+        XCTAssertTrue(
+            SideMenuTransitionLayout.isVerticallyDominant(
+                CGSize(width: 15, height: 80)
+            )
+        )
+        XCTAssertTrue(
+            SideMenuTransitionLayout.shouldOpen(
+                isOpen: false,
+                predictedEndTranslation: 210,
+                openOffset: openOffset
+            )
+        )
+        XCTAssertFalse(
+            SideMenuTransitionLayout.shouldOpen(
+                isOpen: true,
+                predictedEndTranslation: -220,
+                openOffset: openOffset
+            )
+        )
+        XCTAssertFalse(
+            SideMenuTransitionLayout.canTrackMenuDrag(
+                isOpen: false,
+                allowsOpeningGesture: false,
+                horizontalTranslation: 120
+            )
+        )
+        XCTAssertTrue(
+            SideMenuTransitionLayout.canTrackMenuDrag(
+                isOpen: false,
+                allowsOpeningGesture: true,
+                horizontalTranslation: 120
+            )
+        )
+        XCTAssertTrue(
+            SideMenuTransitionLayout.canTrackMenuDrag(
+                isOpen: true,
+                allowsOpeningGesture: false,
+                horizontalTranslation: -120
+            )
+        )
+    }
+
+    func testSideMenuRowsUseInteractiveStaggeredFadeSlideMotion() {
+        XCTAssertGreaterThan(SideMenuTransitionLayout.rowStaggerProgress, 0)
+        XCTAssertLessThanOrEqual(SideMenuTransitionLayout.rowStaggerProgress, 0.08)
         XCTAssertLessThan(SideMenuTransitionLayout.rowClosedXOffset, 0)
         XCTAssertEqual(SideMenuTransitionLayout.rowClosedYOffset, 0, accuracy: 0.0001)
         XCTAssertLessThan(SideMenuTransitionLayout.rowClosedOpacity, 1)
+        XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.profileHeaderAvatarSize, 48)
+        XCTAssertLessThanOrEqual(SideMenuTransitionLayout.profileHeaderAvatarSize, 56)
+        XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.profileHeaderLinksTopSpacing, 18)
         XCTAssertEqual(SideMenuTransitionLayout.menuButtonBackgroundOpacity, 0, accuracy: 0.0001)
         XCTAssertEqual(SideMenuTransitionLayout.menuIconBackgroundOpacity, 0, accuracy: 0.0001)
         XCTAssertNil(SideMenuTransitionLayout.animation(reduceMotion: true))
         XCTAssertNotNil(SideMenuTransitionLayout.animation(reduceMotion: false))
-    }
 
-    func testSideMenuProfileBannerFadesIntoMenuContent() {
-        XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.profileBannerHeight, 200)
-        XCTAssertGreaterThanOrEqual(SideMenuTransitionLayout.profileBannerFadeHeight, 110)
-        XCTAssertLessThanOrEqual(
-            SideMenuTransitionLayout.profileBannerFadeHeight,
-            SideMenuTransitionLayout.profileBannerHeight
+        let firstRowProgress = SideMenuTransitionLayout.rowPresentationProgress(
+            menuProgress: 0.5,
+            index: 0
         )
-        XCTAssertGreaterThan(SideMenuTransitionLayout.profileHeaderAvatarSize, 60)
-        XCTAssertGreaterThan(SideMenuTransitionLayout.profileHeaderLinksTopSpacing, 20)
-        XCTAssertGreaterThan(SideMenuTransitionLayout.logoutTopSpacing, 12)
+        let finalRowProgress = SideMenuTransitionLayout.rowPresentationProgress(
+            menuProgress: 0.5,
+            index: 4
+        )
+        XCTAssertGreaterThan(firstRowProgress, finalRowProgress)
+        XCTAssertEqual(
+            SideMenuTransitionLayout.rowPresentationProgress(
+                menuProgress: 1,
+                index: 4
+            ),
+            1,
+            accuracy: 0.0001
+        )
     }
 
     func testHomeSlideoutMenuUsesCompactAccountFocusedCopy() throws {
@@ -995,7 +1464,16 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(viewerSource.contains("viewerNavigationBarColor"))
         XCTAssertTrue(viewerSource.contains(".toolbarBackground(viewerNavigationBarColor, for: .navigationBar)"))
         XCTAssertTrue(viewerSource.contains(".toolbarColorScheme(effectiveColorScheme == .dark ? .dark : .light, for: .navigationBar)"))
+        XCTAssertTrue(viewerSource.contains("NoteZoomableFullscreenImageView("))
+        XCTAssertTrue(viewerSource.contains("kind: .profileImageFullscreen"))
+        XCTAssertTrue(viewerSource.contains("Pinch or double-tap to zoom"))
+        XCTAssertTrue(viewerSource.contains(".simultaneousGesture("))
+        XCTAssertTrue(viewerSource.contains("guard !isImageZoomed"))
+        XCTAssertTrue(viewerSource.contains("value.predictedEndTranslation"))
+        XCTAssertTrue(viewerSource.contains("@Environment(\\.accessibilityReduceMotion)"))
+        XCTAssertTrue(viewerSource.contains(".presentationBackground(.clear)"))
         XCTAssertFalse(viewerSource.contains("Color.black"))
+        XCTAssertFalse(viewerSource.contains(".scaledToFit()"))
     }
 
     func testImageFullscreenRemixToolbarIconUsesSharedChromeColor() throws {
@@ -1008,6 +1486,19 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
 
         XCTAssertTrue(remixIconSource.contains(".foregroundStyle(chromeForegroundColor)"))
         XCTAssertFalse(remixIconSource.contains(".foregroundStyle(appSettings.primaryColor)"))
+    }
+
+    func testFullscreenImageZoomRespectsReduceMotion() throws {
+        let source = try Self.sourceText(at: "Sources/Design/NoteContentMediaSupport.swift")
+        let zoomStart = try XCTUnwrap(source.range(of: "struct NoteZoomableFullscreenImageView: View"))
+        let zoomEnd = try XCTUnwrap(
+            source.range(of: "struct NoteRemoteMediaView", range: zoomStart.upperBound..<source.endIndex)
+        )
+        let zoomSource = source[zoomStart.lowerBound..<zoomEnd.lowerBound]
+
+        XCTAssertTrue(zoomSource.contains("@Environment(\\.accessibilityReduceMotion)"))
+        XCTAssertTrue(zoomSource.contains("reduceMotion: accessibilityReduceMotion"))
+        XCTAssertTrue(source.contains("animated: !reduceMotion"))
     }
 
     func testProfileScreenDoesNotUseMidPageSpotlightGlow() throws {
@@ -1092,6 +1583,23 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
             )
         )
         XCTAssertTrue(followingListSource.contains("if isCurrentAccount(row.pubkey) {\n                Text(\"You\")"))
+    }
+
+    func testProfileAvatarMenuUsesMuteInsteadOfSpamMarking() throws {
+        let source = try Self.sourceText(at: "Sources/Design/FeedRowView.swift")
+        let menuStart = try XCTUnwrap(source.range(of: "private var profileAvatar: some View {"))
+        let menuEnd = try XCTUnwrap(
+            source.range(
+                of: "private var avatarWithFollowBadge: some View {",
+                range: menuStart.upperBound..<source.endIndex
+            )
+        )
+        let menuSource = source[menuStart.lowerBound..<menuEnd.lowerBound]
+
+        XCTAssertTrue(menuSource.contains("applyMuteAuthor(reason: nil)"))
+        XCTAssertTrue(menuSource.contains("Label(\"Mute\", systemImage: \"speaker.slash\")"))
+        XCTAssertFalse(menuSource.contains("handleToggleAuthorSpamMark()"))
+        XCTAssertFalse(menuSource.contains("Mark as Spam"))
     }
 
     func testThreadDetailArticleHeroUsesTransparentNavigationChrome() {
@@ -1216,15 +1724,63 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
     }
 
     func testPulseMutedNotificationsUseAccessibleScopedRevealControls() throws {
+        let activitySource = try Self.sourceText(at: "Sources/Activity/ActivityView.swift")
+        let settingsSource = try Self.sourceText(at: "Sources/Home/SettingsComponents.swift")
+
+        XCTAssertTrue(settingsSource.contains("Toggle(\"Show muted activity\""))
+        XCTAssertTrue(settingsSource.contains(".accessibilityIdentifier(\"pulse-show-muted-notifications\")"))
+        XCTAssertTrue(activitySource.contains("let isMutedNotification = viewModel.isMutedNotification(item)"))
+        XCTAssertTrue(activitySource.contains("revealMutedContent: isMutedNotification"))
+        XCTAssertTrue(activitySource.contains(".accessibilityLabel(\"Open muted notification\")"))
+        XCTAssertTrue(activitySource.contains(".accessibilityValue("))
+        XCTAssertTrue(activitySource.contains("minHeight: 44"))
+    }
+
+    func testBottomNavigationRemainsIconOnly() throws {
+        let source = try Self.sourceText(at: "Sources/App/MainTabShellView.swift")
+        let buttonStart = try XCTUnwrap(source.range(of: "private func bottomNavButton(for tab: Tab)"))
+        let buttonEnd = try XCTUnwrap(
+            source.range(of: "private var homeTabContent", range: buttonStart.upperBound..<source.endIndex)
+        )
+        let buttonSource = source[buttonStart.lowerBound..<buttonEnd.lowerBound]
+
+        XCTAssertTrue(buttonSource.contains("Image(isSelected ? tab.selectedPhosphorIconName : tab.phosphorIconName)"))
+        XCTAssertFalse(buttonSource.contains("Text("))
+        XCTAssertFalse(source.contains("var compactTitle: String"))
+    }
+
+    func testSearchFollowButtonKeepsVisibleCapsulePaddingAndFullHitArea() throws {
+        let source = try Self.sourceText(at: "Sources/Search/SearchViewComponents.swift")
+        let rowStart = try XCTUnwrap(source.range(of: "struct SearchProfileResultRow: View"))
+        let rowEnd = try XCTUnwrap(
+            source.range(of: "struct SearchActionCard: View", range: rowStart.upperBound..<source.endIndex)
+        )
+        let rowSource = source[rowStart.lowerBound..<rowEnd.lowerBound]
+
+        XCTAssertTrue(rowSource.contains(".padding(.horizontal, 12)"))
+        XCTAssertTrue(rowSource.contains(".padding(.vertical, 7)"))
+        XCTAssertTrue(rowSource.contains(".frame(minWidth: 40, minHeight: 40)"))
+        XCTAssertTrue(rowSource.contains(".followCelebration("))
+        XCTAssertFalse(rowSource.contains(".sensoryFeedback(.success, trigger: isFollowing)"))
+    }
+
+    func testFollowCelebrationUsesExplicitRepeatableActionTokens() throws {
+        let motionSource = try Self.sourceText(at: "Sources/App/FlowTransitionMotion.swift")
+        let followStoreSource = try Self.sourceText(at: "Sources/Profile/FollowStore.swift")
+        let profileSource = try Self.sourceText(at: "Sources/Profile/ProfileView.swift")
+
+        XCTAssertTrue(motionSource.contains("trigger: trigger"))
+        XCTAssertFalse(motionSource.contains(".onChange(of: isFollowing)"))
+        XCTAssertTrue(followStoreSource.contains("updatedTokens[target] = FollowCelebrationMotion.nextTrigger("))
+        XCTAssertTrue(profileSource.contains("trigger: followStore.followCelebrationToken(for: viewModel.pubkey)"))
+    }
+
+    func testPulseHeaderRestoresTopSafeAreaInsideSideMenuContainer() throws {
         let source = try Self.sourceText(at: "Sources/Activity/ActivityView.swift")
 
-        XCTAssertTrue(source.contains("title: \"Show muted notifications\""))
-        XCTAssertTrue(source.contains(".accessibilityIdentifier(\"pulse-show-muted-notifications\")"))
-        XCTAssertTrue(source.contains("let isMutedNotification = viewModel.isMutedNotification(item)"))
-        XCTAssertTrue(source.contains("revealMutedContent: isMutedNotification"))
-        XCTAssertTrue(source.contains(".accessibilityLabel(\"Open muted notification\")"))
-        XCTAssertTrue(source.contains(".accessibilityValue("))
-        XCTAssertTrue(source.contains("minHeight: 44"))
+        XCTAssertTrue(source.contains("let safeAreaTop = max(0, geometry.safeAreaInsets.top)"))
+        XCTAssertTrue(source.contains("topSafeAreaInset: safeAreaTop"))
+        XCTAssertTrue(source.contains(".padding(.top, safeAreaTop)"))
     }
 
     func testAppDoesNotRotateAlternateIconsAutomatically() throws {

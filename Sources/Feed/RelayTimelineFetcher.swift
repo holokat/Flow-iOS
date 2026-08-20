@@ -300,16 +300,18 @@ struct RelayTimelineFetcher: Sendable {
             var mergedEvents: [NostrEvent] = []
             var firstError: Error?
             var successfulFetches = 0
+            var completedRelays = 0
             var hasStartedGraceWindow = false
 
             for await progress in group {
                 switch progress {
                 case .relay(let events, let error):
+                    completedRelays += 1
                     if let events {
                         successfulFetches += 1
                         mergedEvents.append(contentsOf: events)
 
-                        if !hasStartedGraceWindow {
+                        if !events.isEmpty, !hasStartedGraceWindow {
                             hasStartedGraceWindow = true
                             let graceTimeout = min(timeout, dittoEOSEGraceTimeout)
                             group.addTask {
@@ -322,8 +324,13 @@ struct RelayTimelineFetcher: Sendable {
                     } else if firstError == nil, let error {
                         firstError = error
                     }
+
+                    if completedRelays == relayURLs.count {
+                        group.cancelAll()
+                        return (mergedEvents, successfulFetches, firstError, false)
+                    }
                 case .graceWindowClosed:
-                    if successfulFetches > 0 {
+                    if !mergedEvents.isEmpty {
                         group.cancelAll()
                         return (mergedEvents, successfulFetches, firstError, false)
                     }
@@ -380,11 +387,19 @@ struct RelayTimelineFetcher: Sendable {
     }
 
     private func mergedTimelineEvents(_ events: [NostrEvent], filter: NostrFilter) -> [NostrEvent] {
-        let merged = deduplicateEvents(events).sorted { lhs, rhs in
-            if lhs.createdAt == rhs.createdAt {
-                return lhs.id > rhs.id
+        let deduplicated = deduplicateEvents(events)
+        let merged: [NostrEvent]
+        if filter.search?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            // NIP-50 relays return hits in relevance order. Re-sorting those
+            // events by created_at discards the relay's search ranking.
+            merged = deduplicated
+        } else {
+            merged = deduplicated.sorted { lhs, rhs in
+                if lhs.createdAt == rhs.createdAt {
+                    return lhs.id > rhs.id
+                }
+                return lhs.createdAt > rhs.createdAt
             }
-            return lhs.createdAt > rhs.createdAt
         }
 
         if let limit = filter.limit {

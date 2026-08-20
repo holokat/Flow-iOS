@@ -74,6 +74,7 @@ struct MainTabShellView: View {
     @State private var isHomeRootVisible = true
     @State private var isActivityRootVisible = true
     @State private var isDMRootVisible = true
+    @State private var pendingHaloLinkParticipantPubkey: String?
     @State private var isHomeSideMenuPresented = false
     private let bottomTabBarHeight: CGFloat = ScrollChromeLayout.defaultBottomTabBarHeight
     private static let bottomNavIconSize: CGFloat = 26
@@ -90,6 +91,10 @@ struct MainTabShellView: View {
     @StateObject private var liveReactsSubscriptionController = LiveReactsSubscriptionController()
 
     var body: some View {
+        eventHandlingShell
+    }
+
+    private var baseShell: some View {
         ZStack {
             AppThemeBackgroundView()
                 .ignoresSafeArea()
@@ -118,6 +123,10 @@ struct MainTabShellView: View {
                 customBottomNavBar
             }
         }
+    }
+
+    private var presentedShell: some View {
+        baseShell
         .sheet(item: composeSheetDraftBinding, onDismiss: {
             composeSheetCoordinator.dismiss()
         }) { draft in
@@ -133,22 +142,30 @@ struct MainTabShellView: View {
                 .environmentObject(appSettings)
                 .environmentObject(relaySettings)
         }
+    }
+
+    private var configuredShell: some View {
+        presentedShell
         .task {
             homeScrollChromeStore.showChromeAtRest()
             relaySettings.configure(
                 accountPubkey: auth.currentAccount?.pubkey,
                 nsec: auth.currentNsec
             )
+            configureFollowStore()
+            configureMuteStore()
             Task { @MainActor in
                 await prewarmInitialHomeFeed()
             }
-            configureFollowStore()
-            configureMuteStore()
             configureActivityViewModel()
             await activityViewModel.sceneDidChange(isActive: scenePhase == .active)
             configureLiveReactsSubscription()
             syncActivityTabActiveState()
         }
+    }
+
+    private var accountObservedShell: some View {
+        configuredShell
         .onChange(of: auth.currentAccount?.pubkey) { _, _ in
             relaySettings.configure(
                 accountPubkey: auth.currentAccount?.pubkey,
@@ -159,10 +176,17 @@ struct MainTabShellView: View {
             configureActivityViewModel()
             configureLiveReactsSubscription()
         }
-        .onChange(of: auth.currentNsec) { _, _ in
+        .onChange(of: auth.currentNsec) { _, newNsec in
             configureFollowStore()
             configureMuteStore()
+            if newNsec != nil, pendingHaloLinkParticipantPubkey != nil {
+                handleTabSelection(.dms)
+            }
         }
+    }
+
+    private var settingsObservedShell: some View {
+        accountObservedShell
         .onChange(of: relaySettings.readRelays) { _, _ in
             configureFollowStore()
             configureMuteStore()
@@ -182,6 +206,10 @@ struct MainTabShellView: View {
         .onChange(of: appSettings.liveReactsEnabled) { _, _ in
             configureLiveReactsSubscription()
         }
+    }
+
+    private var activityObservedShell: some View {
+        settingsObservedShell
         .onChange(of: appSettings.activityNotificationPreferenceSignature) { _, _ in
             activityViewModel.notificationPreferencesChanged()
         }
@@ -200,6 +228,10 @@ struct MainTabShellView: View {
         .onChange(of: shouldKeepHomeFeedActive, initial: true) { _, isActive in
             homeViewModel.setBackgroundUpdatesPaused(!isActive)
         }
+    }
+
+    private var eventHandlingShell: some View {
+        activityObservedShell
         .onChange(of: scenePhase) { _, _ in
             if scenePhase == .active, selectedTab == .home, isHomeRootVisible {
                 homeScrollChromeStore.showChromeAtRest()
@@ -209,8 +241,24 @@ struct MainTabShellView: View {
             }
             configureLiveReactsSubscription()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .flowRequestAccountAccess)) { _ in
+            showAccountAccess()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .flowOpenHaloLinkConversation)) { notification in
+            guard let pubkey = notification.userInfo?["pubkey"] as? String,
+                  !pubkey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return
+            }
+            pendingHaloLinkParticipantPubkey = pubkey
+            if auth.currentNsec == nil {
+                showAccountAccess()
+            } else {
+                handleTabSelection(.dms)
+            }
+        }
         .animation(FlowTransitionMotion.sidePanelAnimation(reduceMotion: accessibilityReduceMotion), value: isHomeSideMenuPresented)
         .animation(.easeInOut(duration: 0.2), value: isDMRootVisible)
+        .sensoryFeedback(.selection, trigger: selectedTab)
         .tint(appSettings.primaryColor)
         .statusBarHidden(false)
     }
@@ -398,7 +446,10 @@ struct MainTabShellView: View {
             isShowingSideMenu: $isHomeSideMenuPresented,
             isRootVisible: $isHomeRootVisible,
             scrollChromeStore: homeScrollChromeStore,
-            bottomTabBarHeight: bottomTabBarHeight
+            bottomTabBarHeight: bottomTabBarHeight,
+            onRequestSearch: {
+                handleTabSelection(.search)
+            }
         )
         .environment(\.flowScrollChromeStore, homeScrollChromeStore)
         .environment(\.flowBottomTabBarHeight, bottomTabBarHeight)
@@ -414,7 +465,11 @@ struct MainTabShellView: View {
     }
 
     private var directMessagesTabContent: some View {
-        DMsView(isRootVisible: $isDMRootVisible)
+        DMsView(
+            isRootVisible: $isDMRootVisible,
+            pendingParticipantPubkey: $pendingHaloLinkParticipantPubkey,
+            onRequestAccountAccess: showAccountAccess
+        )
     }
 
     private var activityTabContent: some View {
@@ -507,6 +562,7 @@ struct MainTabShellView: View {
             quotedHandleHint: draft.quotedHandleHint,
             quotedAvatarURLHint: draft.quotedAvatarURLHint,
             savedDraftID: draft.savedDraftID,
+            onRequestAccountAccess: requestAccountAccessFromComposer,
             onOptimisticPublished: { item in
                 switch selectedTab {
                 case .home:
@@ -547,14 +603,26 @@ struct MainTabShellView: View {
     }
 
     private func handleComposeTap() {
-        guard auth.currentAccount != nil else {
-            authSheetInitialTab = .signIn
-            authSheetPresentationID = UUID()
-            isShowingAuthSheet = true
+        guard auth.currentAccount != nil, auth.currentNsec != nil else {
+            showAccountAccess()
             return
         }
 
         composeSheetCoordinator.presentNewNote()
+    }
+
+    private func showAccountAccess() {
+        authSheetInitialTab = .signIn
+        authSheetPresentationID = UUID()
+        isShowingAuthSheet = true
+    }
+
+    private func requestAccountAccessFromComposer() {
+        composeSheetCoordinator.dismiss()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(220))
+            showAccountAccess()
+        }
     }
 
     private var shouldKeepHomeFeedActive: Bool {
@@ -682,6 +750,11 @@ struct MainTabShellView: View {
     private func syncActivityTabActiveState() {
         activityViewModel.setActivityTabActive(isActivityListVisible)
     }
+}
+
+extension Notification.Name {
+    static let flowRequestAccountAccess = Notification.Name("flow.requestAccountAccess")
+    static let flowOpenHaloLinkConversation = Notification.Name("flow.openHaloLinkConversation")
 }
 
 private extension View {
@@ -966,12 +1039,13 @@ struct ScrollChromeLayout {
 
     static func feedContentPadding(
         topBarHeight: CGFloat,
+        safeAreaTop: CGFloat = 0,
         topBarOffset: CGFloat = 0,
         bottomBarHeight: CGFloat,
         safeAreaBottom: CGFloat,
         bottomBarVisibleFraction: CGFloat = 1
     ) -> ScrollChromeContentPadding {
-        let visibleTopBarHeight = max(0, topBarHeight)
+        let visibleTopBarHeight = max(0, topBarHeight) + max(0, safeAreaTop)
         let visibleBottomClearance = max(0, bottomBarHeight) + max(0, safeAreaBottom)
         _ = topBarOffset
         _ = bottomBarVisibleFraction

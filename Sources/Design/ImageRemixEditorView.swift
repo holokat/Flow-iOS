@@ -5,11 +5,12 @@ import UIKit
 
 struct ImageRemixEditorView: View {
     let baseImage: UIImage
-    let sourceEvent: NostrEvent
+    let sourceEvent: NostrEvent?
     let currentAccountPubkey: String?
     let currentNsec: String?
     let writeRelayURLs: [URL]
-    let onComposeRequested: (ComposeMediaAttachment, NostrEvent?) -> Void
+    let onComposeRequested: ((ComposeMediaAttachment, NostrEvent?) -> Void)?
+    let onApplyEditedImage: ((UIImage) async throws -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var toastCenter: AppToastCenter
@@ -38,6 +39,7 @@ struct ImageRemixEditorView: View {
     @State private var isToolPanelExpanded = false
     @State private var isSavingImage = false
     @State private var isUploadingImage = false
+    @State private var isApplyingEditedImage = false
     @State private var isShowingPostOptions = false
     @State private var confirmationBannerMessage: String?
     @State private var confirmationBannerRequestID = UUID()
@@ -59,6 +61,22 @@ struct ImageRemixEditorView: View {
         self.currentNsec = currentNsec
         self.writeRelayURLs = writeRelayURLs
         self.onComposeRequested = onComposeRequested
+        self.onApplyEditedImage = nil
+        _filteredPreviewImage = State(initialValue: preparedImage)
+    }
+
+    init(
+        sourceImage: UIImage,
+        onApplyEditedImage: @escaping (UIImage) async throws -> Void
+    ) {
+        let preparedImage = sourceImage.flowPreparedForRemix(maxDimension: 1_800)
+        self.baseImage = preparedImage
+        self.sourceEvent = nil
+        self.currentAccountPubkey = nil
+        self.currentNsec = nil
+        self.writeRelayURLs = []
+        self.onComposeRequested = nil
+        self.onApplyEditedImage = onApplyEditedImage
         _filteredPreviewImage = State(initialValue: preparedImage)
     }
 
@@ -102,7 +120,7 @@ struct ImageRemixEditorView: View {
                 }
             }
 
-            if isPreparingFilter || isSavingImage || isUploadingImage {
+            if isPreparingFilter || isSavingImage || isUploadingImage || isApplyingEditedImage {
                 processingOverlay
             }
 
@@ -164,11 +182,11 @@ struct ImageRemixEditorView: View {
             .accessibilityLabel("Close editor")
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Remix")
+                Text(editorTitle)
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(chromePrimaryColor)
 
-                Text(selectedFilter == .original ? "Add some chaos" : selectedFilter.title)
+                Text(editorSubtitle)
                     .font(.footnote)
                     .foregroundStyle(chromeSecondaryColor)
             }
@@ -190,21 +208,39 @@ struct ImageRemixEditorView: View {
             .disabled(isBusy)
             .accessibilityLabel("Save edited image")
 
-            Button {
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
-                    isShowingPostOptions.toggle()
+            if isEditingComposeAttachment {
+                Button {
+                    Task {
+                        await applyEditedImageToComposeAttachment()
+                    }
+                } label: {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(appSettings.buttonTextColor)
+                        .frame(width: 42, height: 42)
+                        .background(appSettings.primaryGradient, in: Circle())
                 }
-            } label: {
-                Image(systemName: "paperplane.fill")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(appSettings.buttonTextColor)
-                    .frame(width: 42, height: 42)
-                    .background(appSettings.primaryGradient, in: Circle())
+                .buttonStyle(.plain)
+                .disabled(isBusy)
+                .opacity(isBusy ? 0.65 : 1)
+                .accessibilityLabel("Use edited image")
+            } else {
+                Button {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+                        isShowingPostOptions.toggle()
+                    }
+                } label: {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(appSettings.buttonTextColor)
+                        .frame(width: 42, height: 42)
+                        .background(appSettings.primaryGradient, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isBusy)
+                .opacity(isBusy ? 0.65 : 1)
+                .accessibilityLabel("Post remix")
             }
-            .buttonStyle(.plain)
-            .disabled(isBusy)
-            .opacity(isBusy ? 0.65 : 1)
-            .accessibilityLabel("Post remix")
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
@@ -860,7 +896,22 @@ struct ImageRemixEditorView: View {
     }
 
     private var isBusy: Bool {
-        isPreparingFilter || isSavingImage || isUploadingImage
+        isPreparingFilter || isSavingImage || isUploadingImage || isApplyingEditedImage
+    }
+
+    private var isEditingComposeAttachment: Bool {
+        onApplyEditedImage != nil
+    }
+
+    private var editorTitle: String {
+        isEditingComposeAttachment ? "Edit image" : "Remix"
+    }
+
+    private var editorSubtitle: String {
+        if selectedFilter != .original {
+            return selectedFilter.title
+        }
+        return isEditingComposeAttachment ? "Adjust before posting" : "Add some chaos"
     }
 
     private var canvasTopPadding: CGFloat {
@@ -922,6 +973,9 @@ struct ImageRemixEditorView: View {
     }
 
     private var progressTitle: String {
+        if isApplyingEditedImage {
+            return "Updating image..."
+        }
         if isUploadingImage {
             return "Uploading your remix..."
         }
@@ -1137,6 +1191,7 @@ struct ImageRemixEditorView: View {
 
     private func uploadEditedImage(forReply: Bool) async {
         guard !isBusy else { return }
+        guard let sourceEvent, let onComposeRequested else { return }
 
         guard let normalizedNsec = currentNsec?.trimmingCharacters(in: .whitespacesAndNewlines),
               !normalizedNsec.isEmpty else {
@@ -1194,6 +1249,26 @@ struct ImageRemixEditorView: View {
 
         Task {
             await uploadEditedImage(forReply: forReply)
+        }
+    }
+
+    private func applyEditedImageToComposeAttachment() async {
+        guard !isBusy, let onApplyEditedImage else { return }
+
+        isApplyingEditedImage = true
+        defer {
+            isApplyingEditedImage = false
+        }
+
+        do {
+            try await onApplyEditedImage(renderEditedImage())
+            dismiss()
+        } catch {
+            toastCenter.show(
+                (error as? LocalizedError)?.errorDescription ?? "Couldn't update that image right now.",
+                style: .error,
+                duration: 2.8
+            )
         }
     }
 

@@ -48,7 +48,7 @@ enum EditableProfileFieldsError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidNostrAddress:
-            return "Enter a valid NIP-05 address or leave it blank."
+            return "Enter a valid verified address or leave it blank."
         }
     }
 }

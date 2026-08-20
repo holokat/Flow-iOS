@@ -11,9 +11,17 @@ struct DMsView: View {
     @State private var navigationPath: [HaloLinkThreadRoute] = []
     @State private var isShowingNewConversationSheet = false
     @Binding private var isRootVisible: Bool
+    @Binding private var pendingParticipantPubkey: String?
+    private let onRequestAccountAccess: () -> Void
 
-    init(isRootVisible: Binding<Bool> = .constant(true)) {
+    init(
+        isRootVisible: Binding<Bool> = .constant(true),
+        pendingParticipantPubkey: Binding<String?> = .constant(nil),
+        onRequestAccountAccess: @escaping () -> Void = {}
+    ) {
         _isRootVisible = isRootVisible
+        _pendingParticipantPubkey = pendingParticipantPubkey
+        self.onRequestAccountAccess = onRequestAccountAccess
     }
 
     var body: some View {
@@ -37,6 +45,7 @@ struct DMsView: View {
                     .environmentObject(auth)
             }
         }
+        .flowInteractiveBackSwipe()
         .sheet(isPresented: $isShowingNewConversationSheet) {
             HaloLinkNewConversationSheet(store: store) { route in
                 openThread(route)
@@ -47,6 +56,7 @@ struct DMsView: View {
         }
         .onAppear {
             notifyRootVisibilityChanged()
+            openPendingThreadIfPossible()
         }
         .onChange(of: navigationPath.count) { _, _ in
             notifyRootVisibilityChanged()
@@ -59,6 +69,10 @@ struct DMsView: View {
         }
         .onChange(of: auth.currentNsec) { _, _ in
             configureStore()
+            openPendingThreadIfPossible()
+        }
+        .onChange(of: pendingParticipantPubkey) { _, _ in
+            openPendingThreadIfPossible()
         }
         .onChange(of: relaySettings.readRelays) { _, _ in
             configureStore()
@@ -105,8 +119,13 @@ struct DMsView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 22)
+                .flowPeerTabContentTransition(selection: activeTab)
             }
         }
+        .flowHorizontalPaging(
+            selection: $activeTab,
+            items: HaloLinkInboxTab.allCases
+        )
     }
 
     private var header: some View {
@@ -208,16 +227,39 @@ struct DMsView: View {
         HaloLinkInfoState(
             iconName: "bubble.left.and.bubble.right",
             title: "Sign in to use Halo Link",
-            message: "Halo Link uses NIP-17 direct messages, reactions, and encrypted media in one inbox."
+            message: "Keep private conversations, reactions, photos, and videos together.",
+            actionTitle: "Sign in",
+            action: onRequestAccountAccess
         )
     }
 
     private var noSignerState: some View {
         HaloLinkInfoState(
             iconName: "key.fill",
-            title: "Sign in required",
-            message: "This account can browse, but Halo Link needs an `nsec` so it can decrypt and send NIP-17 messages."
+            title: "Add account access",
+            message: "This account can browse. Add access to read and send private messages.",
+            actionTitle: "Continue",
+            action: onRequestAccountAccess
         )
+    }
+
+    private func openPendingThreadIfPossible() {
+        guard auth.currentNsec != nil,
+              let pendingParticipantPubkey else {
+            return
+        }
+
+        let normalizedPubkey = pendingParticipantPubkey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalizedPubkey.isEmpty else {
+            self.pendingParticipantPubkey = nil
+            return
+        }
+
+        navigationPath.removeAll()
+        openThread(HaloLinkThreadRoute(participantPubkeys: [normalizedPubkey]))
+        self.pendingParticipantPubkey = nil
     }
 
     private var loadingCard: some View {
@@ -440,22 +482,55 @@ private struct HaloLinkInfoState: View {
     let iconName: String
     let title: String
     let message: String
+    let actionTitle: String?
+    let action: (() -> Void)?
+
+    init(
+        iconName: String,
+        title: String,
+        message: String,
+        actionTitle: String? = nil,
+        action: (() -> Void)? = nil
+    ) {
+        self.iconName = iconName
+        self.title = title
+        self.message = message
+        self.actionTitle = actionTitle
+        self.action = action
+    }
 
     var body: some View {
         VStack(spacing: 14) {
             Image(systemName: iconName)
                 .font(.system(size: 34, weight: .semibold))
                 .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                .flowHierarchyEntrance(index: 0)
 
-            Text(title)
-                .font(appSettings.appFont(.title3, weight: .semibold))
-                .foregroundStyle(appSettings.themePalette.foreground)
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(appSettings.appFont(.title3, weight: .semibold))
+                    .foregroundStyle(appSettings.themePalette.foreground)
 
-            Text(message)
-                .font(appSettings.appFont(.subheadline))
-                .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
+                Text(message)
+                    .font(appSettings.appFont(.subheadline))
+                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
+            }
+            .flowHierarchyEntrance(index: 1)
+
+            if let actionTitle, let action {
+                Button(action: action) {
+                    Text(actionTitle)
+                        .font(appSettings.appFont(.headline, weight: .semibold))
+                        .foregroundStyle(appSettings.buttonTextColor)
+                        .padding(.horizontal, 22)
+                        .frame(minHeight: 44)
+                        .background(appSettings.primaryGradient, in: Capsule(style: .continuous))
+                }
+                .buttonStyle(FlowPressScaleButtonStyle())
+                .flowHierarchyEntrance(index: 2)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)

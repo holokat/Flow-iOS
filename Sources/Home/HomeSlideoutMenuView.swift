@@ -1,9 +1,28 @@
 import SwiftUI
 
+enum HomeSlideoutMenuStyle {
+    @MainActor
+    static func background(
+        appSettings: AppSettingsStore,
+        colorScheme: ColorScheme
+    ) -> Color {
+        let effectiveColorScheme = appSettings.preferredColorScheme ?? colorScheme
+        if effectiveColorScheme == .dark {
+            return Color(
+                red: 17.0 / 255.0,
+                green: 17.0 / 255.0,
+                blue: 17.0 / 255.0
+            )
+        }
+
+        return appSettings.themePalette.background
+    }
+}
+
 struct HomeSlideoutMenuView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    @Environment(\.sideMenuPresentationIsOpen) private var isMenuPresented
+    @Environment(\.sideMenuPresentationProgress) private var menuPresentationProgress
     @Environment(\.sideMenuSafeAreaInsets) private var menuSafeAreaInsets
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
@@ -11,7 +30,6 @@ struct HomeSlideoutMenuView: View {
     @State private var accountHeaderName: String?
     @State private var accountHeaderHandle: String?
     @State private var accountHeaderAvatarURL: URL?
-    @State private var accountHeaderBannerURL: URL?
     @State private var isShowingProfileQR = false
 
     let onViewProfile: () -> Void
@@ -19,7 +37,6 @@ struct HomeSlideoutMenuView: View {
     let onManageSettings: () -> Void
     let onManageAccounts: () -> Void
     let onLogout: () -> Void
-    let onClose: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -30,7 +47,7 @@ struct HomeSlideoutMenuView: View {
                             accountProfileHeader(currentAccount)
                         }
                     } else {
-                        closeOnlyHeader
+                        guestHeader
                     }
 
                     menuLinks
@@ -75,7 +92,10 @@ struct HomeSlideoutMenuView: View {
     }
 
     private var menuBackground: Color {
-        appSettings.themePalette.background
+        HomeSlideoutMenuStyle.background(
+            appSettings: appSettings,
+            colorScheme: colorScheme
+        )
     }
 
     private var effectiveMenuColorScheme: ColorScheme {
@@ -84,30 +104,28 @@ struct HomeSlideoutMenuView: View {
 
     private var menuLinks: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                revealedMenuRow(index: 1) {
-                    menuButton(
-                        title: "Profile",
-                        icon: "person",
-                        action: onViewProfile
-                    )
-                }
+            revealedMenuRow(index: 1) {
+                menuButton(
+                    title: "Profile",
+                    icon: "person",
+                    action: onViewProfile
+                )
+            }
 
-                revealedMenuRow(index: 2) {
-                    menuButton(
-                        title: "Settings",
-                        icon: "gearshape",
-                        action: onManageSettings
-                    )
-                }
+            revealedMenuRow(index: 2) {
+                menuButton(
+                    title: "Settings",
+                    icon: "gearshape",
+                    action: onManageSettings
+                )
+            }
 
-                revealedMenuRow(index: 3) {
-                    menuButton(
-                        title: "Accounts",
-                        icon: "arrow.left.arrow.right.circle",
-                        action: onManageAccounts
-                    )
-                }
+            revealedMenuRow(index: 3) {
+                menuButton(
+                    title: "Accounts",
+                    icon: "arrow.left.arrow.right.circle",
+                    action: onManageAccounts
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -116,9 +134,9 @@ struct HomeSlideoutMenuView: View {
     private var menuFooter: some View {
         VStack(alignment: .leading, spacing: 0) {
             Rectangle()
-                .fill(appSettings.themePalette.chromeBorder.opacity(0.6))
-                .frame(height: 0.7)
-                .padding(.horizontal, 16)
+                .fill(appSettings.themePalette.chromeBorder.opacity(0.52))
+                .frame(height: 0.5)
+                .padding(.horizontal, 20)
 
             if auth.isLoggedIn {
                 revealedMenuRow(index: 4) {
@@ -129,28 +147,10 @@ struct HomeSlideoutMenuView: View {
                         action: onLogout
                     )
                 }
-                .padding(.top, SideMenuTransitionLayout.logoutTopSpacing - 8)
-            }
-
-            revealedMenuRow(index: 5) {
-                Text(appVersionLabel)
-                    .font(appSettings.appFont(.caption2))
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground.opacity(0.8))
-                    .padding(.horizontal, 16)
-                    .padding(.top, auth.isLoggedIn ? 6 : 14)
+                .padding(.top, SideMenuTransitionLayout.logoutTopSpacing - 6)
             }
         }
-        .padding(.bottom, max(menuSafeAreaInsets.bottom, 12) + 4)
-    }
-
-    private var appVersionLabel: String {
-        let info = Bundle.main.infoDictionary
-        let appName = (info?["CFBundleDisplayName"] as? String)
-            ?? (info?["CFBundleName"] as? String)
-            ?? "App"
-        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
-        let build = (info?["CFBundleVersion"] as? String).map { " (\($0))" } ?? ""
-        return "\(appName) \(version)\(build)"
+        .padding(.bottom, max(menuSafeAreaInsets.bottom, 12) + 8)
     }
 
     private func accountProfileHeader(_ account: AuthAccount) -> some View {
@@ -158,113 +158,64 @@ struct HomeSlideoutMenuView: View {
         let accountHandle = resolvedAccountHandle ?? fallbackAccountHandle(for: account)
 
         return VStack(alignment: .leading, spacing: 0) {
-            SideMenuProfileBannerArtwork(
-                bannerURL: accountHeaderBannerURL,
-                menuBackground: menuBackground,
-                topSafeAreaInset: menuSafeAreaInsets.top
-            )
-            .overlay(alignment: .topTrailing) {
-                closeMenuButton
-                    .padding(.top, menuSafeAreaInsets.top + 12)
-                    .padding(.trailing, 16)
-            }
-
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 Button {
                     onViewProfile()
                 } label: {
                     accountHeaderAvatar(fallbackName: resolvedName)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(
+                    SideMenuPressButtonStyle(reduceMotion: accessibilityReduceMotion)
+                )
                 .accessibilityLabel("View profile")
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(resolvedName)
-                        .font(appSettings.appFont(.headline, weight: .semibold))
-                        .foregroundStyle(appSettings.themePalette.foreground)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    Text(accountHandle)
-                        .font(appSettings.appFont(.caption1))
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                .padding(.top, SideMenuTransitionLayout.profileHeaderAvatarSize / 2)
 
                 Spacer(minLength: 0)
 
                 profileQRButton
-                    .padding(.top, SideMenuTransitionLayout.profileHeaderAvatarSize / 2)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, -(SideMenuTransitionLayout.profileHeaderAvatarSize / 2))
-            .padding(.bottom, SideMenuTransitionLayout.profileHeaderContentBottomPadding)
+
+            Text(resolvedName)
+                .font(appSettings.appFont(.title3, weight: .bold))
+                .foregroundStyle(appSettings.themePalette.foreground)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.top, 12)
+
+            Text(accountHandle)
+                .font(appSettings.appFont(.subheadline))
+                .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.top, 3)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.top, max(menuSafeAreaInsets.top, 0) + 14)
     }
 
-    private var closeOnlyHeader: some View {
-        HStack {
-            Spacer()
-            closeMenuButton
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, menuSafeAreaInsets.top + 12)
-        .padding(.bottom, 14)
-    }
-
-    private var closeMenuButton: some View {
-        Button {
-            onClose()
-        } label: {
-            glassMenuControl(systemName: "xmark", size: 16)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Close menu")
+    private var guestHeader: some View {
+        Text("Halo")
+            .font(appSettings.appFont(.title2, weight: .bold))
+            .foregroundStyle(appSettings.themePalette.foreground)
+            .padding(.horizontal, 20)
+            .padding(.top, max(menuSafeAreaInsets.top, 0) + 20)
+            .padding(.bottom, 8)
     }
 
     private var profileQRButton: some View {
         Button {
             isShowingProfileQR = true
         } label: {
-            glassMenuControl(systemName: "qrcode", size: 17)
+            Image(systemName: "qrcode")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(appSettings.themePalette.foreground.opacity(0.88))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(
+            SideMenuPressButtonStyle(reduceMotion: accessibilityReduceMotion)
+        )
         .accessibilityLabel("Show profile QR")
-    }
-
-    private func glassMenuControl(systemName: String, size: CGFloat) -> some View {
-        Image(systemName: systemName)
-            .font(.system(size: size, weight: .semibold))
-            .foregroundStyle(appSettings.themePalette.foreground.opacity(0.86))
-            .frame(width: 36, height: 36)
-            .background {
-                Circle()
-                    .fill(menuCircleBackgroundFill())
-            }
-            .overlay {
-                Circle()
-                    .stroke(menuCircleStroke(), lineWidth: 0.8)
-            }
-            .shadow(
-                color: Color.black.opacity(effectiveMenuColorScheme == .dark ? 0.22 : 0.06),
-                radius: 10,
-                x: 0,
-                y: 4
-            )
-            .clipShape(Circle())
-    }
-
-    private func menuCircleBackgroundFill(tint: Color? = nil) -> Color {
-        let baseTint = tint ?? appSettings.themePalette.foreground
-        return baseTint.opacity(effectiveMenuColorScheme == .light ? 0.08 : 0.16)
-    }
-
-    private func menuCircleStroke(tint: Color? = nil) -> Color {
-        let baseTint = tint ?? appSettings.themePalette.foreground
-        return baseTint.opacity(effectiveMenuColorScheme == .light ? 0.12 : 0.22)
     }
 
     private func accountHeaderAvatar(fallbackName: String) -> some View {
@@ -275,110 +226,14 @@ struct HomeSlideoutMenuView: View {
             fallbackGradient: appSettings.avatarFallbackGradient(forAccountPubkey: auth.currentAccount?.pubkey),
             fallbackForeground: appSettings.avatarFallbackForeground(forAccountPubkey: auth.currentAccount?.pubkey)
         )
-    }
-
-    private struct SideMenuProfileBannerArtwork: View {
-        let bannerURL: URL?
-        let menuBackground: Color
-        let topSafeAreaInset: CGFloat
-
-        @EnvironmentObject private var appSettings: AppSettingsStore
-
-        // The drawer bleeds under the status bar, so the banner grows by the
-        // top inset to keep the same visible artwork height below it.
-        private var bannerHeight: CGFloat {
-            SideMenuTransitionLayout.profileBannerHeight + max(0, topSafeAreaInset)
-        }
-
-        var body: some View {
-            GeometryReader { proxy in
-                let width = max(0, proxy.size.width)
-
-                Rectangle()
-                    .fill(menuBackground)
-                    .frame(width: width, height: bannerHeight)
-                    .overlay(alignment: .topLeading) {
-                        bannerContent
-                            .frame(width: width, height: bannerHeight)
-                            .clipped()
-                    }
-                    .overlay(alignment: .topLeading) {
-                        LinearGradient(
-                            colors: [
-                                Color.black.opacity(0.1),
-                                Color.clear
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(width: width, height: bannerHeight)
-                    }
-                    .overlay(alignment: .bottomLeading) {
-                        LinearGradient(
-                            stops: [
-                                .init(color: Color.clear, location: 0),
-                                .init(color: menuBackground.opacity(0.32), location: 0.34),
-                                .init(color: menuBackground.opacity(0.8), location: 0.72),
-                                .init(color: menuBackground, location: 1)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(width: width, height: SideMenuTransitionLayout.profileBannerFadeHeight)
-                    }
-                    .clipped()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: bannerHeight)
-            .background(menuBackground)
-            .clipped()
-        }
-
-        @ViewBuilder
-        private var bannerContent: some View {
-            if appSettings.textOnlyMode {
-                bannerFallback
-            } else if let bannerURL {
-                CachedAsyncImage(url: bannerURL, kind: .profileBanner) { phase in
-                    switch phase {
-                    case .success(let image):
-                        loadedBannerImage(image)
-                    case .empty, .failure:
-                        bannerFallback
-                    }
-                }
-            } else {
-                bannerFallback
-            }
-        }
-
-        private func loadedBannerImage(_ image: Image) -> some View {
-            image
-                .resizable()
-                .scaledToFill()
-                .saturation(SideMenuTransitionLayout.profileBannerLoadedImageSaturation)
-                .opacity(SideMenuTransitionLayout.profileBannerLoadedImageOpacity)
-        }
-
-        private var bannerFallback: some View {
-            ZStack {
-                Rectangle()
-                    .fill(appSettings.primaryGradient)
-                    .opacity(appSettings.usesPrimaryGradientForProminentButtons ? 0.9 : 0.34)
-                    .background(appSettings.themePalette.secondaryBackground)
-
-                Circle()
-                    .fill(Color.white.opacity(appSettings.usesPrimaryGradientForProminentButtons ? 0.34 : 0.4))
-                    .frame(width: 128, height: 128)
-                    .blur(radius: 18)
-                    .offset(x: 90, y: -34)
-
-                Circle()
-                    .fill(appSettings.primaryColor.opacity(0.16))
-                    .frame(width: 156, height: 156)
-                    .blur(radius: 28)
-                    .offset(x: -106, y: 46)
-            }
+        .overlay {
+            Circle()
+                .stroke(
+                    effectiveMenuColorScheme == .dark
+                        ? Color.white.opacity(0.1)
+                        : Color.black.opacity(0.1),
+                    lineWidth: 1
+                )
         }
     }
 
@@ -388,58 +243,53 @@ struct HomeSlideoutMenuView: View {
         tint: Color? = nil,
         action: @escaping () -> Void
     ) -> some View {
-        let iconTint = tint ?? appSettings.themePalette.foreground.opacity(0.86)
+        let iconTint = tint ?? appSettings.themePalette.foreground.opacity(0.9)
         let textTint = tint ?? appSettings.themePalette.foreground
 
         return Button {
             action()
         } label: {
-            HStack(spacing: 14) {
+            HStack(spacing: 18) {
                 Image(systemName: icon)
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: 21, weight: .regular))
                     .foregroundStyle(iconTint)
-                    .frame(width: 34, height: 34)
-                    .background {
-                        Circle()
-                            .fill(menuCircleBackgroundFill(tint: tint))
-                    }
-                    .overlay {
-                        Circle()
-                            .stroke(menuCircleStroke(tint: tint), lineWidth: 0.8)
-                    }
+                    .frame(width: 28, height: 44)
 
                 Text(title)
-                    .font(appSettings.appFont(.body))
+                    .font(appSettings.appFont(.headline, weight: .semibold))
                     .foregroundStyle(textTint)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 7)
+            .frame(minHeight: 56)
+            .padding(.horizontal, 20)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(
+            SideMenuPressButtonStyle(reduceMotion: accessibilityReduceMotion)
+        )
     }
 
     private func revealedMenuRow<Content: View>(
         index: Int,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        content()
-            .opacity(isMenuPresented ? 1 : SideMenuTransitionLayout.rowClosedOpacity)
-            .offset(
-                x: isMenuPresented ? 0 : SideMenuTransitionLayout.rowClosedXOffset,
-                y: isMenuPresented ? 0 : SideMenuTransitionLayout.rowClosedYOffset
+        let rowProgress = accessibilityReduceMotion
+            ? (menuPresentationProgress > 0 ? CGFloat(1) : CGFloat(0))
+            : SideMenuTransitionLayout.rowPresentationProgress(
+                menuProgress: menuPresentationProgress,
+                index: index
             )
-            .animation(rowAnimation(index: index), value: isMenuPresented)
-    }
 
-    private func rowAnimation(index: Int) -> Animation? {
-        guard !accessibilityReduceMotion else { return nil }
-
-        let animation = Animation.easeOut(duration: 0.24)
-        guard isMenuPresented else { return animation }
-
-        return animation.delay(Double(index) * SideMenuTransitionLayout.rowStaggerDelay)
+        return content()
+            .opacity(
+                SideMenuTransitionLayout.rowClosedOpacity
+                    + ((1 - SideMenuTransitionLayout.rowClosedOpacity) * Double(rowProgress))
+            )
+            .offset(
+                x: SideMenuTransitionLayout.rowClosedXOffset * (1 - rowProgress),
+                y: SideMenuTransitionLayout.rowClosedYOffset * (1 - rowProgress)
+            )
     }
 
     @MainActor
@@ -465,14 +315,12 @@ struct HomeSlideoutMenuView: View {
             accountHeaderName = nil
             accountHeaderHandle = nil
             accountHeaderAvatarURL = nil
-            accountHeaderBannerURL = nil
             return
         }
 
         accountHeaderName = nil
         accountHeaderHandle = nil
         accountHeaderAvatarURL = nil
-        accountHeaderBannerURL = nil
 
         let normalizedPubkey = account.pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let cacheResult = await ProfileCache.shared.resolve(pubkeys: [account.pubkey, normalizedPubkey])
@@ -480,7 +328,6 @@ struct HomeSlideoutMenuView: View {
             accountHeaderName = preferredDisplayName(from: cachedProfile)
             accountHeaderHandle = preferredHandle(from: cachedProfile)
             accountHeaderAvatarURL = preferredAvatarURL(from: cachedProfile)
-            accountHeaderBannerURL = preferredBannerURL(from: cachedProfile)
         }
 
         let readRelayURLs = relaySettings.readRelayURLs
@@ -493,7 +340,6 @@ struct HomeSlideoutMenuView: View {
             accountHeaderName = preferredDisplayName(from: fetchedProfile)
             accountHeaderHandle = preferredHandle(from: fetchedProfile)
             accountHeaderAvatarURL = preferredAvatarURL(from: fetchedProfile)
-            accountHeaderBannerURL = preferredBannerURL(from: fetchedProfile)
         }
     }
 
@@ -506,15 +352,6 @@ struct HomeSlideoutMenuView: View {
 
     private func preferredAvatarURL(from profile: NostrProfile) -> URL? {
         profile.resolvedAvatarURL
-    }
-
-    private func preferredBannerURL(from profile: NostrProfile) -> URL? {
-        guard let banner = trimmedNonEmpty(profile.banner),
-              let url = URL(string: banner),
-              FlowURLSafety.isPubliclyLoadableWebURL(url) else {
-            return nil
-        }
-        return url
     }
 
     private func preferredHandle(from profile: NostrProfile) -> String? {
@@ -553,5 +390,27 @@ struct HomeSlideoutMenuView: View {
             return nil
         }
         return value
+    }
+}
+
+private struct SideMenuPressButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    let reduceMotion: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(
+                configuration.isPressed && !reduceMotion && !accessibilityReduceMotion
+                    ? 0.96
+                    : 1
+            )
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .animation(
+                reduceMotion || accessibilityReduceMotion
+                    ? nil
+                    : .easeOut(duration: 0.14),
+                value: configuration.isPressed
+            )
     }
 }

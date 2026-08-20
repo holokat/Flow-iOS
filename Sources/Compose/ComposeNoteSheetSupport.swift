@@ -697,6 +697,26 @@ struct ComposeMediaAttachmentController {
     }
 
     func uploadAttachment(
+        fromEditedImage image: UIImage,
+        normalizedNsec: String
+    ) async throws -> ComposeMediaAttachment {
+        guard let imageData = image.jpegData(compressionQuality: 0.94) else {
+            throw MediaUploadError.missingFileData
+        }
+
+        let preparedMedia = try MediaUploadPreparation.prepareUploadMedia(
+            data: imageData,
+            mimeType: "image/jpeg",
+            fileExtension: "jpg"
+        )
+        return try await uploadPreparedMedia(
+            preparedMedia,
+            filenamePrefix: "edited-image",
+            normalizedNsec: normalizedNsec
+        )
+    }
+
+    func uploadAttachment(
         from selection: KlipyGIFAttachmentCandidate,
         normalizedNsec: String
     ) async throws -> ComposeMediaAttachment {
@@ -797,32 +817,47 @@ struct ComposeMediaAttachmentController {
     private func prepareSharedComposeAttachmentForUpload(
         _ sharedAttachment: SharedComposeAttachment
     ) async throws -> PreparedUploadMedia {
-        guard let fileURL = sharedAttachment.resolvedFileURL else {
-            throw SharedComposeImportError.missingFileURL
-        }
+        let preparationTask = Task.detached(priority: .userInitiated) {
+            try Task.checkCancellation()
 
-        let mimeType = sharedAttachment.mimeType
-        let normalizedMimeType = mimeType.lowercased()
-        let normalizedFileExtension = sharedAttachment.fileExtension.lowercased()
+            guard let fileURL = sharedAttachment.resolvedFileURL else {
+                throw SharedComposeImportError.missingFileURL
+            }
 
-        if normalizedMimeType.hasPrefix("video/") ||
-            ["mp4", "mov", "m4v", "webm", "mkv"].contains(normalizedFileExtension) {
-            return try await MediaUploadPreparation.prepareUploadMedia(
-                fileURL: fileURL,
+            let mimeType = sharedAttachment.mimeType
+            let normalizedMimeType = mimeType.lowercased()
+            let normalizedFileExtension = sharedAttachment.fileExtension.lowercased()
+
+            if normalizedMimeType.hasPrefix("video/") ||
+                ["mp4", "mov", "m4v", "webm", "mkv"].contains(normalizedFileExtension) {
+                let prepared = try await MediaUploadPreparation.prepareUploadMedia(
+                    fileURL: fileURL,
+                    mimeType: mimeType,
+                    fileExtension: normalizedFileExtension
+                )
+                try Task.checkCancellation()
+                return prepared
+            }
+
+            guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe),
+                  !data.isEmpty else {
+                throw SharedComposeImportError.unreadableFile
+            }
+
+            let prepared = try MediaUploadPreparation.prepareUploadMedia(
+                data: data,
                 mimeType: mimeType,
                 fileExtension: normalizedFileExtension
             )
+            try Task.checkCancellation()
+            return prepared
         }
 
-        guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else {
-            throw SharedComposeImportError.unreadableFile
+        return try await withTaskCancellationHandler {
+            try await preparationTask.value
+        } onCancel: {
+            preparationTask.cancel()
         }
-
-        return try MediaUploadPreparation.prepareUploadMedia(
-            data: data,
-            mimeType: mimeType,
-            fileExtension: normalizedFileExtension
-        )
     }
 }
 
@@ -1422,9 +1457,17 @@ struct ComposeMultilineTextView: UIViewRepresentable {
         textView.adjustsFontForContentSizeCategory = false
         textView.textColor = UIColor(appSettings.themePalette.foreground)
         textView.tintColor = UIColor(appSettings.themePalette.foreground)
-        textView.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
+        textView.textContainerInset = UIEdgeInsets(
+            top: ComposeEditorLayout.textContainerVerticalInset,
+            left: ComposeEditorLayout.textContainerHorizontalInset,
+            bottom: ComposeEditorLayout.textContainerVerticalInset,
+            right: ComposeEditorLayout.textContainerHorizontalInset
+        )
         textView.textContainer.lineFragmentPadding = 0
         textView.bounces = false
+        textView.isAccessibilityElement = true
+        textView.accessibilityLabel = "Note text"
+        textView.accessibilityHint = "Double tap to edit your note"
         return textView
     }
 

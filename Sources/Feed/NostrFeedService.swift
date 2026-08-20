@@ -81,7 +81,8 @@ struct NostrFeedService: Sendable {
             resolveReferences: { pointersByKey, baseReadRelayURLs in
                 await self.referenceResolver.fetchResolvedReferenceEvents(
                     pointersByKey: pointersByKey,
-                    baseReadRelayURLs: baseReadRelayURLs
+                    baseReadRelayURLs: baseReadRelayURLs,
+                    relayFetchMode: pointersByKey.count == 1 ? .firstRelayWithEvents : .allRelays
                 )
             },
             makeRepostReferencePointer: { targetEventID, sourceEvent in
@@ -101,6 +102,62 @@ struct NostrFeedService: Sendable {
 
     func profileUpdates() -> AsyncStream<[String: NostrProfile]> {
         profileCache.profileUpdates()
+    }
+
+    func fetchSearchRelayURLs(
+        relayURLs: [URL],
+        pubkey: String,
+        fetchTimeout: TimeInterval = 2
+    ) async -> [URL] {
+        let normalizedPubkey = pubkey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedPubkey.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
+            return []
+        }
+
+        let filter = NostrFilter(
+            authors: [normalizedPubkey],
+            kinds: [10_007],
+            limit: 1
+        )
+
+        let cachedEvents = await seenEventStore.queryEvents(filter: filter)
+        if let cachedRelayURLs = Self.searchRelayURLs(from: cachedEvents), !cachedRelayURLs.isEmpty {
+            return cachedRelayURLs
+        }
+
+        let fetchedEvents = (try? await relayTimelineFetcher.fetchTimelineEvents(
+            relayURLs: relayURLs,
+            filter: filter,
+            timeout: fetchTimeout,
+            useCache: false,
+            relayFetchMode: .firstRelayWithEvents
+        )) ?? []
+        return Self.searchRelayURLs(from: fetchedEvents) ?? []
+    }
+
+    private static func searchRelayURLs(from events: [NostrEvent]) -> [URL]? {
+        guard let latestEvent = events
+            .filter({ $0.kind == 10_007 })
+            .max(by: { $0.createdAt < $1.createdAt }) else {
+            return nil
+        }
+
+        var seen = Set<String>()
+        return latestEvent.tags.compactMap { tag in
+            guard tag.count > 1, tag[0].lowercased() == "relay" else { return nil }
+            let rawValue = tag[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let url = URL(string: rawValue),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "wss" || scheme == "ws",
+                  url.host != nil else {
+                return nil
+            }
+            let key = url.absoluteString.lowercased()
+            guard seen.insert(key).inserted else { return nil }
+            return url
+        }
     }
 
     private var profileResolver: NostrProfileResolver {

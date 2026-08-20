@@ -77,12 +77,12 @@ enum RelayURLSupport {
     private static let relayActionURLQueryItemName = "url"
 
     private static let knownDisplayNames: [String: String] = [
-        "relay.damus.io": "Damus Relay",
-        "relay.primal.net": "Primal Relay",
-        "nos.lol": "Nos Relay",
-        "relay.nostr.band": "Nostr.band Relay",
-        "nostr.mom": "Nostr.mom Relay",
-        "relay.snort.social": "Snort Relay"
+        "relay.damus.io": "Damus Source",
+        "relay.primal.net": "Primal Source",
+        "nos.lol": "Nos Source",
+        "relay.nostr.band": "Band Source",
+        "nostr.mom": "Mom Source",
+        "relay.snort.social": "Snort Source"
     ]
 
     static func actionURL(for relayURLValue: String) -> URL? {
@@ -161,7 +161,7 @@ enum RelayURLSupport {
     static func displayName(for relayURL: URL) -> String {
         guard let host = normalizedURL(from: relayURL.absoluteString)?.host()?.lowercased(),
               !host.isEmpty else {
-            return "Relay"
+            return "Source"
         }
 
         if let knownDisplayName = knownDisplayNames[host] {
@@ -173,7 +173,7 @@ enum RelayURLSupport {
             !["relay", "nostr", "www"].contains(part.lowercased())
         } ?? hostParts.first
 
-        guard let meaningfulPart else { return "Relay" }
+        guard let meaningfulPart else { return "Source" }
 
         let title = meaningfulPart
             .split(whereSeparator: { $0 == "-" || $0 == "_" })
@@ -182,6 +182,6 @@ enum RelayURLSupport {
             }
             .joined(separator: " ")
 
-        return title.isEmpty ? "Relay" : "\(title) Relay"
+        return title.isEmpty ? "Source" : "\(title) Source"
     }
 }

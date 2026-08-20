@@ -309,6 +309,68 @@ struct MutedKeywordListState: Identifiable, Hashable, Sendable {
     }
 }
 
+struct LocalMuteReasonPersistence {
+    private static let keyPrefix = "flow.muteReasons"
+
+    let defaults: UserDefaults
+
+    func load(for accountPubkey: String) -> [String: String] {
+        let accountKey = normalize(accountPubkey)
+        guard !accountKey.isEmpty,
+              let saved = defaults.dictionary(forKey: defaultsKey(for: accountKey)) else {
+            return [:]
+        }
+
+        var reasons: [String: String] = [:]
+        for (pubkey, value) in saved {
+            guard let reason = value as? String,
+                  let normalizedReason = normalizedReason(reason) else {
+                continue
+            }
+
+            let normalizedPubkey = normalize(pubkey)
+            guard !normalizedPubkey.isEmpty else { continue }
+            reasons[normalizedPubkey] = normalizedReason
+        }
+        return reasons
+    }
+
+    func save(_ reasons: [String: String], for accountPubkey: String) {
+        let accountKey = normalize(accountPubkey)
+        guard !accountKey.isEmpty else { return }
+
+        var normalizedReasons: [String: String] = [:]
+        for (pubkey, reason) in reasons {
+            let normalizedPubkey = normalize(pubkey)
+            guard !normalizedPubkey.isEmpty,
+                  let normalizedReason = normalizedReason(reason) else {
+                continue
+            }
+            normalizedReasons[normalizedPubkey] = normalizedReason
+        }
+        defaults.set(normalizedReasons, forKey: defaultsKey(for: accountKey))
+    }
+
+    func normalizedReason(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func defaultsKey(for accountPubkey: String) -> String {
+        "\(Self.keyPrefix).\(accountPubkey)"
+    }
+
+    private func normalize(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+}
+
 @MainActor
 final class MuteStore: ObservableObject, NIP44v2Encrypting {
     static let shared = MuteStore()
@@ -316,6 +378,7 @@ final class MuteStore: ObservableObject, NIP44v2Encrypting {
     private static let normalizedEventTextCacheLimit = 4000
 
     @Published private(set) var mutedPubkeys: Set<String>
+    @Published private(set) var muteReasons: [String: String]
     @Published private(set) var activeMutedWords: [String]
     @Published private(set) var mutedKeywordLists: [MutedKeywordListState]
     @Published private(set) var filterRevision = 0
@@ -323,6 +386,7 @@ final class MuteStore: ObservableObject, NIP44v2Encrypting {
     @Published private(set) var isPublishing = false
 
     private let defaults: UserDefaults
+    private let muteReasonPersistence: LocalMuteReasonPersistence
     private let feedService: ProfileEventService
     private let relayClient: NostrRelayClient
     private let keyPrefix = "flow.mutedPubkeys"
@@ -448,9 +512,11 @@ final class MuteStore: ObservableObject, NIP44v2Encrypting {
         relayClient: NostrRelayClient = NostrRelayClient()
     ) {
         self.defaults = defaults
+        self.muteReasonPersistence = LocalMuteReasonPersistence(defaults: defaults)
         self.feedService = feedService
         self.relayClient = relayClient
         self.mutedPubkeys = []
+        self.muteReasons = [:]
         self.activeMutedWords = []
         self.mutedKeywordLists = Self.defaultMutedKeywordLists()
     }
@@ -509,6 +575,7 @@ final class MuteStore: ObservableObject, NIP44v2Encrypting {
 
         guard let session = nextSession else {
             mutedPubkeys = []
+            muteReasons = [:]
             activeMutedWords = []
             mutedKeywordLists = Self.defaultMutedKeywordLists()
             rebuildMutedWordMatchers()
@@ -516,6 +583,9 @@ final class MuteStore: ObservableObject, NIP44v2Encrypting {
         }
 
         mutedPubkeys = loadPersistedMutes(for: session.accountPubkey)
+        muteReasons = muteReasonPersistence.load(for: session.accountPubkey)
+            .filter { mutedPubkeys.contains($0.key) }
+        persistCurrentMuteReasons()
         activeMutedWords = []
         mutedKeywordLists = Self.defaultMutedKeywordLists()
         rebuildMutedWordMatchers()
@@ -527,6 +597,28 @@ final class MuteStore: ObservableObject, NIP44v2Encrypting {
 
     func isMuted(_ pubkey: String) -> Bool {
         mutedPubkeys.contains(normalizePubkey(pubkey))
+    }
+
+    func muteReason(for pubkey: String) -> String? {
+        muteReasons[normalizePubkey(pubkey)]
+    }
+
+    func setMuteReason(_ reason: String?, for pubkey: String) {
+        guard let session else { return }
+
+        let normalizedTarget = normalizePubkey(pubkey)
+        guard !normalizedTarget.isEmpty,
+              normalizedTarget != session.accountPubkey,
+              mutedPubkeys.contains(normalizedTarget) else {
+            return
+        }
+
+        if let normalizedReason = muteReasonPersistence.normalizedReason(reason) {
+            muteReasons[normalizedTarget] = normalizedReason
+        } else {
+            muteReasons.removeValue(forKey: normalizedTarget)
+        }
+        persistCurrentMuteReasons()
     }
 
     func shouldHide(_ event: NostrEvent) -> Bool {
@@ -569,7 +661,7 @@ final class MuteStore: ObservableObject, NIP44v2Encrypting {
         )
     }
 
-    func toggleMute(_ pubkey: String) {
+    func toggleMute(_ pubkey: String, reason: String? = nil) {
         guard let session else { return }
         guard session.nsec != nil else {
             lastPublishError = "Sign in to manage mutes."
@@ -581,14 +673,22 @@ final class MuteStore: ObservableObject, NIP44v2Encrypting {
 
         let shouldMute = !mutedPubkeys.contains(normalizedTarget)
         let previousPubkeys = mutedPubkeys
+        let previousReasons = muteReasons
 
         if shouldMute {
             mutedPubkeys.insert(normalizedTarget)
+            if let normalizedReason = muteReasonPersistence.normalizedReason(reason) {
+                muteReasons[normalizedTarget] = normalizedReason
+            } else {
+                muteReasons.removeValue(forKey: normalizedTarget)
+            }
         } else {
             mutedPubkeys.remove(normalizedTarget)
+            muteReasons.removeValue(forKey: normalizedTarget)
         }
         invalidateFilterCaches()
         persistCurrentMutes()
+        persistCurrentMuteReasons()
         lastPublishError = nil
         isPublishing = true
 
@@ -598,8 +698,10 @@ final class MuteStore: ObservableObject, NIP44v2Encrypting {
                 for: session,
                 rollback: {
                     self?.mutedPubkeys = previousPubkeys
+                    self?.muteReasons = previousReasons
                     self?.invalidateFilterCaches()
                     self?.persistCurrentMutes()
+                    self?.persistCurrentMuteReasons()
                 },
                 mutate: { state in
                     let nextPrivateTags = self?.updatedPrivatePubkeyTags(
@@ -1047,10 +1149,12 @@ final class MuteStore: ObservableObject, NIP44v2Encrypting {
     private func applyDecodedState(_ state: DecodedMuteState) {
         latestPrivateTags = state.privateTags
         mutedPubkeys = state.mutedPubkeys
+        muteReasons = muteReasons.filter { mutedPubkeys.contains($0.key) }
         activeMutedWords = state.activeMutedWords
         mutedKeywordLists = state.mutedKeywordLists
         rebuildMutedWordMatchers()
         persistCurrentMutes()
+        persistCurrentMuteReasons()
     }
 
     private func applyPrivateTagsLocally(_ privateTags: [NostrSDK.Tag]) {
@@ -1388,6 +1492,11 @@ final class MuteStore: ObservableObject, NIP44v2Encrypting {
     private func persistCurrentMutes() {
         guard let accountPubkey = session?.accountPubkey else { return }
         defaults.set(Array(mutedPubkeys).sorted(), forKey: defaultsKey(for: accountPubkey))
+    }
+
+    private func persistCurrentMuteReasons() {
+        guard let accountPubkey = session?.accountPubkey else { return }
+        muteReasonPersistence.save(muteReasons, for: accountPubkey)
     }
 
     private func defaultsKey(for accountPubkey: String) -> String {

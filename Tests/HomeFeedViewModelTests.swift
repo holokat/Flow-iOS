@@ -304,7 +304,7 @@ final class HomeFeedViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testNetworkRefreshUsesDittoGraceWindowInsteadOfWaitingForSlowRelay() async throws {
+    func testNetworkRefreshIncludesResultsFromASlowerRelay() async throws {
         let initialNote = makeEvent(
             id: hex("d"),
             pubkey: hex("a"),
@@ -328,7 +328,7 @@ final class HomeFeedViewModelTests: XCTestCase {
                 secondaryHomeRelayURL: [olderRemoteNote]
             ]
         )
-        await harness.setRelayDelay(3_100_000_000, for: secondaryHomeRelayURL)
+        await harness.setRelayDelay(450_000_000, for: secondaryHomeRelayURL)
         harness.viewModel.feedSource = .network
         let startedAt = Date()
         await harness.viewModel.refresh()
@@ -336,9 +336,9 @@ final class HomeFeedViewModelTests: XCTestCase {
 
         XCTAssertEqual(
             harness.viewModel.visibleItems.map(\.id),
-            [initialNote.id]
+            [initialNote.id, olderRemoteNote.id]
         )
-        XCTAssertLessThan(elapsed, 1.5)
+        XCTAssertLessThan(elapsed, 5)
     }
 
     @MainActor
