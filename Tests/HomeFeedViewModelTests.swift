@@ -1931,6 +1931,132 @@ final class ThreadDetailViewModelTests: XCTestCase {
         )
     }
 
+    func testPostedReplySurvivesRepeatedRefreshAndReopeningBeforeRelayEcho() async {
+        LocalPublicationStore.shared.clearForTesting()
+        defer {
+            LocalPublicationStore.shared.clearForTesting()
+        }
+
+        let rootEvent = makeEvent(
+            id: hex("5"),
+            pubkey: hex("a"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Notification thread root",
+            createdAt: 1_700_000_100
+        )
+        let replyEvent = makeEvent(
+            id: hex("6"),
+            pubkey: hex("b"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [
+                ["e", rootEvent.id, "", "root"],
+                ["e", rootEvent.id, "", "reply"]
+            ],
+            content: "Posted reply awaiting relay echo",
+            createdAt: 1_700_000_101
+        )
+        let service = NostrFeedService(
+            relayClient: HomeFeedTestRelayClient(eventsByRelay: [:])
+        )
+        let firstViewModel = ThreadDetailViewModel(
+            rootItem: FeedItem(event: rootEvent, profile: nil),
+            relayURL: defaultHomeRelayURL,
+            service: service
+        )
+
+        firstViewModel.configureSpamFilter(
+            currentUserPubkey: replyEvent.pubkey,
+            followedPubkeys: []
+        )
+        firstViewModel.appendLocalReply(FeedItem(event: replyEvent, profile: nil))
+        LocalPublicationStore.shared.markPosted(eventID: replyEvent.id)
+
+        await firstViewModel.refresh()
+        await firstViewModel.refresh()
+
+        XCTAssertEqual(
+            firstViewModel.replies.filter { $0.id == replyEvent.id }.count,
+            1,
+            "Publish completion and repeated stale refreshes must keep exactly one visible reply."
+        )
+        XCTAssertEqual(
+            LocalPublicationStore.shared.record(for: replyEvent.id)?.state,
+            .posted
+        )
+
+        let reopenedViewModel = ThreadDetailViewModel(
+            rootItem: FeedItem(event: rootEvent, profile: nil),
+            relayURL: defaultHomeRelayURL,
+            service: service
+        )
+        reopenedViewModel.configureSpamFilter(
+            currentUserPubkey: replyEvent.pubkey,
+            followedPubkeys: []
+        )
+
+        await reopenedViewModel.loadIfNeeded()
+
+        XCTAssertEqual(
+            reopenedViewModel.replies.filter { $0.id == replyEvent.id }.count,
+            1,
+            "Reopening the notification thread must retain a posted local reply before relay echo."
+        )
+    }
+
+    func testRelayEchoMergesWithPostedReplyWithoutDuplicatingIt() async {
+        LocalPublicationStore.shared.clearForTesting()
+        defer {
+            LocalPublicationStore.shared.clearForTesting()
+        }
+
+        let rootEvent = makeEvent(
+            id: hex("7"),
+            pubkey: hex("a"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Thread root",
+            createdAt: 1_700_000_200
+        )
+        let replyEvent = makeEvent(
+            id: hex("8"),
+            pubkey: hex("b"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [["e", rootEvent.id, "", "root"]],
+            content: "Reply echoed by a source",
+            createdAt: 1_700_000_201
+        )
+        let localItem = FeedItem(event: replyEvent, profile: nil)
+        LocalPublicationStore.shared.registerPublishing(item: localItem)
+        LocalPublicationStore.shared.markPosted(eventID: replyEvent.id)
+
+        let viewModel = ThreadDetailViewModel(
+            rootItem: FeedItem(event: rootEvent, profile: nil),
+            relayURL: defaultHomeRelayURL,
+            service: NostrFeedService(
+                relayClient: HomeFeedTestRelayClient(eventsByRelay: [
+                    defaultHomeRelayURL: [replyEvent]
+                ])
+            )
+        )
+        viewModel.configureSpamFilter(
+            currentUserPubkey: replyEvent.pubkey,
+            followedPubkeys: []
+        )
+
+        await viewModel.refresh()
+
+        XCTAssertEqual(
+            viewModel.replies.filter { $0.id == replyEvent.id }.count,
+            1,
+            "The fetched source copy must merge into the stable local event ID instead of adding a second row."
+        )
+        XCTAssertEqual(
+            LocalPublicationStore.shared.record(for: replyEvent.id)?.state,
+            .posted
+        )
+    }
+
     private func waitForReply(
         id: String,
         in viewModel: ThreadDetailViewModel,
