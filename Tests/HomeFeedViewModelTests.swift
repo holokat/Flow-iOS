@@ -1836,6 +1836,58 @@ final class HomeFeedLoadingRegressionTests: XCTestCase {
 
 @MainActor
 final class ThreadDetailViewModelTests: XCTestCase {
+    func testRefreshKeepsLocallyPublishedReplyVisibleWhenSpamContextIsStale() async {
+        let settings = AppSettingsStore.shared
+        let previousSpamReplyFilterEnabled = settings.spamReplyFilterEnabled
+        let localAuthorPubkey = hex("c")
+
+        LocalPublicationStore.shared.clearForTesting()
+        settings.spamReplyFilterEnabled = true
+        settings.addSpamFilterMarkedPubkey(localAuthorPubkey)
+        defer {
+            LocalPublicationStore.shared.clearForTesting()
+            settings.removeSpamFilterMarkedPubkey(localAuthorPubkey)
+            settings.spamReplyFilterEnabled = previousSpamReplyFilterEnabled
+        }
+
+        let rootEvent = makeEvent(
+            id: hex("3"),
+            pubkey: hex("a"),
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Root note",
+            createdAt: 1_700_000_000
+        )
+        let replyEvent = makeEvent(
+            id: hex("4"),
+            pubkey: localAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [
+                ["e", rootEvent.id, "", "root"],
+                ["e", rootEvent.id, "", "reply"]
+            ],
+            content: "Locally signed reply",
+            createdAt: 1_700_000_001
+        )
+        let viewModel = ThreadDetailViewModel(
+            rootItem: FeedItem(event: rootEvent, profile: nil),
+            relayURL: defaultHomeRelayURL,
+            service: NostrFeedService(relayClient: HomeFeedTestRelayClient(eventsByRelay: [:]))
+        )
+
+        // Deliberately leave the current-account spam context unconfigured. A notification-pushed
+        // detail can briefly be in this state, but a locally signed publication is still trusted.
+        viewModel.appendLocalReply(FeedItem(event: replyEvent, profile: nil))
+        LocalPublicationStore.shared.markPosted(eventID: replyEvent.id)
+        await viewModel.refresh()
+
+        XCTAssertTrue(
+            viewModel.replies.contains { $0.id == replyEvent.id },
+            "A locally published reply must never disappear into the spam bucket during refresh."
+        )
+        XCTAssertFalse(viewModel.spamReplies.contains { $0.id == replyEvent.id })
+    }
+
     func testRefreshKeepsLocalReplyWhenConnectedSourcesHaveNotEchoedIt() async {
         LocalPublicationStore.shared.clearForTesting()
         defer {

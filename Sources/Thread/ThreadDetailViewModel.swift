@@ -409,7 +409,9 @@ final class ThreadDetailViewModel: ObservableObject {
             var hiddenReplies: [FeedItem] = []
             for item in allReplies {
                 let pubkey = normalizedPubkey(item.displayAuthorPubkey)
-                if pubkey != spamFilterCurrentUserPubkey, settings.shouldHideSpamMarkedPubkey(pubkey) {
+                if !isLocallyPublished(item),
+                   pubkey != spamFilterCurrentUserPubkey,
+                   settings.shouldHideSpamMarkedPubkey(pubkey) {
                     hiddenReplies.append(item)
                 } else {
                     visibleReplies.append(item)
@@ -439,6 +441,10 @@ final class ThreadDetailViewModel: ObservableObject {
 
         for item in allReplies {
             let pubkey = normalizedPubkey(item.displayAuthorPubkey)
+            if isLocallyPublished(item) {
+                visibleReplies.append(item)
+                continue
+            }
             if pubkey != spamFilterCurrentUserPubkey, settings.shouldHideSpamMarkedPubkey(pubkey) {
                 hiddenReplies.append(item)
                 continue
@@ -478,6 +484,10 @@ final class ThreadDetailViewModel: ObservableObject {
         }
 
         scheduleSpamScoring(seedNotesByPubkey: seedNotesByPubkey)
+    }
+
+    private func isLocallyPublished(_ item: FeedItem) -> Bool {
+        LocalPublicationStore.shared.record(for: item.id) != nil
     }
 
     private func shouldEvaluateForSpam(pubkey: String) -> Bool {
