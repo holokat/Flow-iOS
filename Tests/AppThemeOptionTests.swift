@@ -1013,8 +1013,8 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
         XCTAssertTrue(source.contains("feedContent(\n                contentPadding.bottom,\n                contentPadding.top,\n                safeAreaBottom\n            )"))
         XCTAssertTrue(source.contains("feedTopChromeClearance(height: topBarHeight)\n                .homeFeedListRow()"))
-        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                scrollChromeStore: scrollChromeStore,\n                bottomBarHeight: bottomTabBarHeight,\n                safeAreaTop: safeAreaTop,\n                safeAreaBottom: safeAreaBottom,\n                topNavigationBar: topNavigationBar\n            )"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
+        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                scrollChromeStore: scrollChromeStore,\n                bottomBarHeight: bottomTabBarHeight,\n                safeAreaTop: safeAreaTop,\n                safeAreaBottom: safeAreaBottom,\n                pullToRefreshDistance: pullToRefreshDistance,\n                isPullToRefreshActive: isPullToRefreshActive,\n                topNavigationBar: topNavigationBar\n            )"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity * refreshRevealOpacity)"))
         XCTAssertTrue(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertFalse(source.contains("let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)"))
@@ -1072,7 +1072,7 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertFalse(source.contains(".background(topNavigationBackground)"))
         XCTAssertFalse(source.contains("private var topNavigationBackground"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity * refreshRevealOpacity)"))
         XCTAssertTrue(source.contains(".background(topNavigationBarBackground)"))
         XCTAssertTrue(source.contains("private var topNavigationBarBackground: some View"))
         XCTAssertTrue(source.contains("appSettings.themePalette.background"))
@@ -1102,9 +1102,14 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(refreshFunctionSource.contains("visibleBufferedNewItemsCount"))
         XCTAssertFalse(source.contains("ScrollView(.vertical"))
         XCTAssertFalse(source.contains("pullToRefreshIndicator"))
-        XCTAssertFalse(source.contains("pullToRefreshDistance"))
+        XCTAssertTrue(source.contains("@State private var pullToRefreshDistance: CGFloat = 0"))
+        XCTAssertTrue(source.contains("pullDistance: max(0, -offsetFromTop)"))
+        XCTAssertTrue(source.contains("updatePullToRefreshDistance(max(0, newValue - topBarHeight))"))
+        XCTAssertTrue(source.contains("isPullToRefreshActive = true\n        defer { isPullToRefreshActive = false }"))
+        XCTAssertTrue(source.contains("guard !isRefreshing else { return 0 }"))
+        XCTAssertTrue(source.contains("refreshRevealOpacity"))
         XCTAssertFalse(source.contains("isManualRefreshActive"))
-        XCTAssertFalse(source.contains("max(0, -(geometry.contentOffset.y + geometry.contentInsets.top))"))
+        XCTAssertFalse(source.contains("ProgressView().refreshable"))
     }
 
     func testHomeFeedKeepsBottomPaddingStableWhileOverlayChromeMoves() throws {
@@ -1280,8 +1285,8 @@ final class AppThemeOptionTests: XCTestCase {
     func testHomeFeedUsesNativeScrollGeometryForChromeOffsets() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
-        XCTAssertTrue(source.contains(".onScrollGeometryChange(for: CGFloat.self)"))
-        XCTAssertTrue(source.contains("handleScroll(currentScrollY: scrollY"))
+        XCTAssertTrue(source.contains(".onScrollGeometryChange(for: HomeFeedScrollMetrics.self)"))
+        XCTAssertTrue(source.contains("handleScroll(currentScrollY: metrics.scrollY"))
     }
 
     func testFeedSourcePickerCanOpenFeedsSettingsForCreateFeed() throws {

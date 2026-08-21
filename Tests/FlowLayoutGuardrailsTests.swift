@@ -1336,10 +1336,11 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(source.contains("private var showsFeedModeHeader: Bool {"))
         XCTAssertTrue(source.contains("feedContent(\n                contentPadding.bottom,\n                contentPadding.top,\n                safeAreaBottom\n            )"))
         XCTAssertTrue(source.contains("safeAreaTop: safeAreaTop"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity)"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)\n            .background(topNavigationBarBackground)\n            .opacity(chromeOpacity * refreshRevealOpacity)"))
         XCTAssertTrue(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
-        XCTAssertFalse(source.contains("pullToRefreshDistance"))
-        XCTAssertFalse(source.contains("refreshRevealOpacity"))
+        XCTAssertTrue(source.contains("@State private var pullToRefreshDistance: CGFloat = 0"))
+        XCTAssertTrue(source.contains("pullDistance: max(0, -offsetFromTop)"))
+        XCTAssertTrue(topNavChromeSource.contains("refreshRevealOpacity"))
         XCTAssertFalse(source.contains("HomeFeedTopNavigationBarHeightPreferenceKey"))
         XCTAssertFalse(source.contains("topHiddenOffset"))
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
@@ -1347,8 +1348,8 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(topNavChromeSource.contains("topBarOffset"))
         XCTAssertTrue(topNavChromeSource.contains("safeAreaTop"))
         XCTAssertFalse(topNavChromeSource.contains(".offset(y:"))
-        XCTAssertTrue(topNavChromeSource.contains(".opacity(chromeOpacity)"))
-        XCTAssertTrue(topNavChromeSource.contains(".allowsHitTesting(chromeOpacity > 0.05)"))
+        XCTAssertTrue(topNavChromeSource.contains(".opacity(chromeOpacity * refreshRevealOpacity)"))
+        XCTAssertTrue(topNavChromeSource.contains(".allowsHitTesting(chromeOpacity * refreshRevealOpacity > 0.05)"))
     }
 
     func testHomeFeedScrollChromeDoesNotRebuildBufferedFeedContent() throws {
