@@ -4,6 +4,106 @@ import UIKit
 @testable import Flow
 
 final class NoteContentLinkResolverTests: XCTestCase {
+    func testWebsitePreviewParserReadsOpenGraphMetadataRegardlessOfAttributeOrder() throws {
+        let pageURL = URL(
+            string: "https://reclaimthenet.org/meta-trial-opens-as-states-demand-age-verification"
+        )!
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta content="Meta Trial Opens as States Demand Age Verification" property="og:title">
+          <meta property='og:description' content='A trial doesn&#x27;t need a verdict to be useful.'>
+          <meta content="Reclaim The Net: Free Speech, Privacy, Digital Rights" property="og:site_name">
+          <meta property="og:url" content="https://reclaimthenet.org/meta-trial-opens-as-states-demand-age-verification/">
+          <meta content="https://media.reclaimthenet.org/images/2026/08/F25we0EGVSwN.jpg" property="og:image">
+        </head>
+        </html>
+        """
+
+        let metadata = try XCTUnwrap(
+            WebsitePreviewHTMLParser.parse(html: html, responseURL: pageURL)
+        )
+
+        XCTAssertEqual(metadata.title, "Meta Trial Opens as States Demand Age Verification")
+        XCTAssertEqual(metadata.summary, "A trial doesn't need a verdict to be useful.")
+        XCTAssertEqual(
+            metadata.siteName,
+            "Reclaim The Net: Free Speech, Privacy, Digital Rights"
+        )
+        XCTAssertEqual(
+            metadata.imageURL?.absoluteString,
+            "https://media.reclaimthenet.org/images/2026/08/F25we0EGVSwN.jpg"
+        )
+        XCTAssertEqual(
+            metadata.resolvedURL?.absoluteString,
+            "https://reclaimthenet.org/meta-trial-opens-as-states-demand-age-verification/"
+        )
+    }
+
+    func testWebsitePreviewParserFallsBackToHTMLTitleAndRelativeSiteIcon() throws {
+        let pageURL = URL(string: "https://otherstuff.ai/word5/")!
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <link rel="icon" type="image/png" sizes="512x512" href="assets/icon-word5.png">
+          <link rel="apple-touch-icon" href="assets/icon-word5.png">
+          <title>  WORD5  </title>
+        </head>
+        </html>
+        """
+
+        let metadata = try XCTUnwrap(
+            WebsitePreviewHTMLParser.parse(html: html, responseURL: pageURL)
+        )
+
+        XCTAssertEqual(metadata.title, "WORD5")
+        XCTAssertNil(metadata.imageURL)
+        XCTAssertEqual(
+            metadata.iconURL?.absoluteString,
+            "https://otherstuff.ai/word5/assets/icon-word5.png"
+        )
+    }
+
+    func testWebsitePreviewParserUsesTwitterFallbackAndDecodesNumericEntities() throws {
+        let pageURL = URL(string: "https://example.com/article")!
+        let html = """
+        <html><head>
+          <meta name="twitter:title" content="Rock &#x26; Roll &#8217;26">
+          <meta name="twitter:image" content="/social-card.jpg">
+          <link rel="canonical" href="/canonical-article">
+        </head></html>
+        """
+
+        let metadata = try XCTUnwrap(
+            WebsitePreviewHTMLParser.parse(html: html, responseURL: pageURL)
+        )
+
+        XCTAssertEqual(metadata.title, "Rock & Roll ’26")
+        XCTAssertEqual(metadata.imageURL?.absoluteString, "https://example.com/social-card.jpg")
+        XCTAssertEqual(metadata.resolvedURL?.absoluteString, "https://example.com/canonical-article")
+    }
+
+    func testWebsitePreviewParserRejectsPrivateNetworkPreviewAssets() throws {
+        let pageURL = URL(string: "https://example.com/article")!
+        let html = """
+        <html><head>
+          <meta property="og:title" content="Public article">
+          <meta property="og:image" content="http://127.0.0.1/private-image.jpg">
+          <link rel="icon" href="http://localhost/private-icon.png">
+        </head></html>
+        """
+
+        let metadata = try XCTUnwrap(
+            WebsitePreviewHTMLParser.parse(html: html, responseURL: pageURL)
+        )
+
+        XCTAssertEqual(metadata.title, "Public article")
+        XCTAssertNil(metadata.imageURL)
+        XCTAssertNil(metadata.iconURL)
+    }
+
     func testReportedNIP89HandlerParsesAsApplicationMetadata() throws {
         let event = NostrEvent(
             id: "e14c76b35415e66e78bcb46eecbe54385b5b9ecef74f6da000625f3c1cbe27e8",
