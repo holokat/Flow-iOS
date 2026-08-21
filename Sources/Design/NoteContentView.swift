@@ -207,7 +207,7 @@ struct NoteContentView: View {
     private let mediaLayout: NoteContentMediaLayout
     private let reactionCount: Int
     private let commentCount: Int
-    private let embedDepth: Int
+    private let referenceEmbeddingContext: NostrReferenceEmbeddingContext
     private let mentionIdentifiers: [String]
     private let emojiTagURLs: [String: URL]
     private let mediaRevealCacheKey: String
@@ -224,7 +224,6 @@ struct NoteContentView: View {
 
     private static let collapsedPreviewCharacterLimit = 520
     private static let collapsedPreviewLineLimit = 9
-    private static let maxEmbeddedReferenceDepth = 1
     private static let maxConcatenatedInlineTokenCount = 64
     private static let maximumRenderContentByteCount = 65_536
     private static let maximumEmbeddedEventJSONByteCount = 262_144
@@ -242,7 +241,7 @@ struct NoteContentView: View {
         mediaLayout: NoteContentMediaLayout = .feed,
         reactionCount: Int = 0,
         commentCount: Int = 0,
-        embedDepth: Int = 0,
+        referenceEmbeddingContext: NostrReferenceEmbeddingContext? = nil,
         articleAuthor: LongFormArticleAuthorSummary? = nil,
         onHashtagTap: ((String) -> Void)? = nil,
         onProfileTap: ((String) -> Void)? = nil,
@@ -295,7 +294,8 @@ struct NoteContentView: View {
         self.mediaLayout = mediaLayout
         self.reactionCount = reactionCount
         self.commentCount = commentCount
-        self.embedDepth = embedDepth
+        self.referenceEmbeddingContext = referenceEmbeddingContext
+            ?? NostrReferenceEmbeddingContext(rootEvent: event)
         _revealsBlurredMedia = State(
             initialValue: Self.blurRevealStateCache.isRevealed(for: rowStateKey)
         )
@@ -317,8 +317,9 @@ struct NoteContentView: View {
             } else if parts.isEmpty, pollMetadata == nil {
                 taggedEventSummaryView
             } else {
+                let visibleParts = renderedParts
                 let pollInsertionOffsets = NoteContentPollPlacement.insertionOffsets(
-                    partCount: renderedParts.count,
+                    partCount: visibleParts.count,
                     insertionIndex: pollInsertionIndex,
                     includesPoll: pollMetadata != nil
                 )
@@ -328,7 +329,7 @@ struct NoteContentView: View {
                         pollCard(for: pollMetadata)
                     }
 
-                    ForEach(Array(renderedParts.enumerated()), id: \.offset) { index, part in
+                    ForEach(Array(visibleParts.enumerated()), id: \.offset) { index, part in
                         switch part {
                         case .inlineTokens(let inlineTokens):
                             if mediaLayout == .detailCarousel {
@@ -425,19 +426,38 @@ struct NoteContentView: View {
                                 NoteAudioPlayerView(url: url)
                             }
                         case .nostrEventReference(let nostrURI):
-                            if embedDepth < Self.maxEmbeddedReferenceDepth {
+                            let referenceOrdinal = Self.referenceOrdinal(
+                                at: index,
+                                in: visibleParts
+                            )
+                            switch referenceEmbeddingContext.decision(
+                                for: nostrURI,
+                                referenceOrdinal: referenceOrdinal
+                            ) {
+                            case .automatic:
                                 NostrEventReferenceCardView(
                                     nostrURI: nostrURI,
-                                    embedDepth: embedDepth + 1,
+                                    embeddingContext: referenceEmbeddingContext,
                                     onHashtagTap: onHashtagTap,
                                     onProfileTap: onProfileTap,
                                     onOpenThread: onReferencedEventTap,
                                     onRelayTap: onRelayTap
                                 )
-                            } else {
+                            case .deferred:
+                                NostrDeferredEventReferenceView(
+                                    nostrURI: nostrURI,
+                                    embeddingContext: referenceEmbeddingContext,
+                                    onHashtagTap: onHashtagTap,
+                                    onProfileTap: onProfileTap,
+                                    onOpenThread: onReferencedEventTap,
+                                    onRelayTap: onRelayTap
+                                )
+                            case .cycle:
                                 NostrEventReferenceFallbackView(
                                     nostrURI: nostrURI,
-                                    onOpenThread: onReferencedEventTap
+                                    onOpenThread: onReferencedEventTap,
+                                    title: "Referenced above",
+                                    systemImage: "arrow.uturn.up"
                                 )
                             }
                         }
@@ -531,6 +551,18 @@ struct NoteContentView: View {
             }
         }
         return nil
+    }
+
+    private static func referenceOrdinal(
+        at partIndex: Int,
+        in parts: [RenderPart]
+    ) -> Int {
+        guard partIndex > 0 else { return 0 }
+        return parts.prefix(partIndex).reduce(into: 0) { count, part in
+            if case .nostrEventReference = part {
+                count += 1
+            }
+        }
     }
 
     @ViewBuilder

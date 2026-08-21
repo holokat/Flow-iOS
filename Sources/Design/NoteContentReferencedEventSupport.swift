@@ -1,6 +1,90 @@
 import NostrSDK
 import SwiftUI
 
+enum NostrReferenceEmbeddingDecision: Equatable, Sendable {
+    case automatic
+    case deferred
+    case cycle
+}
+
+struct NostrReferenceEmbeddingContext: Equatable, Sendable {
+    static let maximumAutomaticDepth = 2
+    static let maximumAutomaticReferencesPerEvent = 4
+
+    let depth: Int
+    let visitedTargetIdentities: Set<String>
+
+    init(rootEvent: NostrEvent) {
+        depth = 0
+        visitedTargetIdentities = Self.targetIdentities(for: rootEvent)
+    }
+
+    private init(depth: Int, visitedTargetIdentities: Set<String>) {
+        self.depth = depth
+        self.visitedTargetIdentities = visitedTargetIdentities
+    }
+
+    func decision(
+        for nostrURI: String,
+        referenceOrdinal: Int = 0
+    ) -> NostrReferenceEmbeddingDecision {
+        if let identity = Self.targetIdentity(for: nostrURI),
+           visitedTargetIdentities.contains(identity) {
+            return .cycle
+        }
+        let isWithinAutomaticBudget = referenceOrdinal >= 0
+            && referenceOrdinal < Self.maximumAutomaticReferencesPerEvent
+        return depth < Self.maximumAutomaticDepth && isWithinAutomaticBudget
+            ? .automatic
+            : .deferred
+    }
+
+    func descending(into event: NostrEvent, referencedBy nostrURI: String) -> Self {
+        var visited = visitedTargetIdentities
+        if let identity = Self.targetIdentity(for: nostrURI) {
+            visited.insert(identity)
+        }
+        visited.formUnion(Self.targetIdentities(for: event))
+        return Self(depth: depth + 1, visitedTargetIdentities: visited)
+    }
+
+    private static func targetIdentity(for nostrURI: String) -> String? {
+        guard let pointer = NoteContentParser.eventReferencePointer(from: nostrURI) else {
+            return nil
+        }
+        switch pointer.target {
+        case .eventID(let eventID):
+            let normalized = eventID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized.isEmpty ? nil : "event:\(normalized)"
+        case .replaceable(let kind, let pubkey, let identifier):
+            let normalizedPubkey = pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let normalizedIdentifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedPubkey.isEmpty, !normalizedIdentifier.isEmpty else { return nil }
+            return "address:\(kind):\(normalizedPubkey):\(normalizedIdentifier)"
+        }
+    }
+
+    private static func targetIdentities(for event: NostrEvent) -> Set<String> {
+        var identities = Set<String>()
+        let eventID = event.id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !eventID.isEmpty {
+            identities.insert("event:\(eventID)")
+        }
+
+        if (30_000..<40_000).contains(event.kind),
+           let identifier = event.tags.first(where: { tag in
+               tag.count > 1 && tag[0].lowercased() == "d"
+           })?[1].trimmingCharacters(in: .whitespacesAndNewlines),
+           !identifier.isEmpty {
+            let pubkey = event.pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !pubkey.isEmpty {
+                identities.insert("address:\(event.kind):\(pubkey):\(identifier)")
+            }
+        }
+        return identities
+    }
+}
+
 private struct ReferencedNoteCardChromeModifier: ViewModifier {
     @EnvironmentObject private var appSettings: AppSettingsStore
 
@@ -66,7 +150,7 @@ private struct ReferencedNoteCardChromeModifier: ViewModifier {
     }
 }
 
-private actor EmbeddedReferencedNoteCache {
+actor EmbeddedReferencedNoteCache {
     static let shared = EmbeddedReferencedNoteCache()
 
     private enum CachedResult {
@@ -80,13 +164,16 @@ private actor EmbeddedReferencedNoteCache {
     private var resolvedOrder: [String] = []
     private var inFlightTasks: [String: Task<FeedItem?, Never>] = [:]
 
-    func cachedValue(for key: String) -> (found: Bool, item: FeedItem?) {
+    func cachedValue(
+        for key: String,
+        retryCachedMiss: Bool = false
+    ) -> (found: Bool, item: FeedItem?) {
         if let cached = resolvedItems[key] {
             switch cached {
             case .value(let item):
                 return (true, item)
             case .miss(let storedAt):
-                guard Date().timeIntervalSince(storedAt) >= missRetryInterval else {
+                guard retryCachedMiss || Date().timeIntervalSince(storedAt) >= missRetryInterval else {
                     return (true, nil)
                 }
                 resolvedItems.removeValue(forKey: key)
@@ -210,12 +297,18 @@ private enum EmbeddedReferencedNoteResolver {
         return "\(value.prefix(12))...\(value.suffix(8))"
     }
 
-    static func resolve(nostrURI: String) async -> FeedItem? {
+    static func resolve(
+        nostrURI: String,
+        retryCachedMiss: Bool = false
+    ) async -> FeedItem? {
         let key = normalizedIdentifier(from: nostrURI)
         guard !key.isEmpty else { return nil }
 
         let cache = EmbeddedReferencedNoteCache.shared
-        let cached = await cache.cachedValue(for: key)
+        let cached = await cache.cachedValue(
+            for: key,
+            retryCachedMiss: retryCachedMiss
+        )
         if cached.found {
             return cached.item
         }
@@ -835,6 +928,9 @@ struct NostrUnsupportedEventCardView: View {
 struct NostrEventReferenceFallbackView: View {
     let nostrURI: String
     var onOpenThread: ((FeedItem) -> Void)? = nil
+    var onRetry: (() -> Void)? = nil
+    var title = "Referenced note"
+    var systemImage = "quote.bubble"
     @EnvironmentObject private var appSettings: AppSettingsStore
     @State private var isOpeningInApp = false
 
@@ -844,7 +940,16 @@ struct NostrEventReferenceFallbackView: View {
 
     var body: some View {
         Group {
-            if onOpenThread != nil {
+            if let onRetry {
+                Button(action: onRetry) {
+                    fallbackLabel(
+                        isLoading: false,
+                        showsChevron: true,
+                        showExternalIcon: false
+                    )
+                }
+                .buttonStyle(.plain)
+            } else if onOpenThread != nil {
                 Button {
                     Task {
                         await openInApp()
@@ -889,11 +994,11 @@ struct NostrEventReferenceFallbackView: View {
                 ProgressView()
                     .controlSize(.small)
             } else {
-                Image(systemName: "quote.bubble")
+                Image(systemName: systemImage)
                     .foregroundStyle(appSettings.themePalette.mutedForeground)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(isLoading ? "Finding referenced note" : "Referenced note")
+                Text(isLoading ? "Finding referenced note" : title)
                     .font(.subheadline.weight(.semibold))
                 Text(EmbeddedReferencedNoteResolver.shortIdentifier(identifier))
                     .font(.caption)
@@ -931,6 +1036,62 @@ struct NostrEventReferenceFallbackView: View {
     }
 }
 
+struct NostrDeferredEventReferenceView: View {
+    let nostrURI: String
+    let embeddingContext: NostrReferenceEmbeddingContext
+    let onHashtagTap: ((String) -> Void)?
+    let onProfileTap: ((String) -> Void)?
+    let onOpenThread: ((FeedItem) -> Void)?
+    let onRelayTap: ((URL) -> Void)?
+    @EnvironmentObject private var appSettings: AppSettingsStore
+    @State private var isExpanded = false
+
+    private var identifier: String {
+        EmbeddedReferencedNoteResolver.normalizedIdentifier(from: nostrURI)
+    }
+
+    var body: some View {
+        if isExpanded {
+            NostrEventReferenceCardView(
+                nostrURI: nostrURI,
+                embeddingContext: embeddingContext,
+                onHashtagTap: onHashtagTap,
+                onProfileTap: onProfileTap,
+                onOpenThread: onOpenThread,
+                onRelayTap: onRelayTap
+            )
+        } else {
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    isExpanded = true
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "quote.bubble")
+                        .foregroundStyle(appSettings.themePalette.mutedForeground)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Show referenced note")
+                            .font(.subheadline.weight(.semibold))
+                        Text(EmbeddedReferencedNoteResolver.shortIdentifier(identifier))
+                            .font(.caption)
+                            .foregroundStyle(appSettings.themePalette.mutedForeground)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(appSettings.themePalette.mutedForeground)
+                }
+                .padding(12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .modifier(ReferencedNoteCardChromeModifier())
+            .accessibilityLabel("Show referenced note")
+        }
+    }
+}
+
 struct NostrEventReferenceCardView: View {
     private enum LoadState {
         case idle
@@ -940,7 +1101,7 @@ struct NostrEventReferenceCardView: View {
     }
 
     let nostrURI: String
-    let embedDepth: Int
+    let embeddingContext: NostrReferenceEmbeddingContext
     let onHashtagTap: ((String) -> Void)?
     let onProfileTap: ((String) -> Void)?
     let onOpenThread: ((FeedItem) -> Void)?
@@ -961,7 +1122,17 @@ struct NostrEventReferenceCardView: View {
             case .loaded(let item):
                 embeddedCard(for: item)
             case .failed:
-                NostrEventReferenceFallbackView(nostrURI: nostrURI, onOpenThread: onOpenThread)
+                NostrEventReferenceFallbackView(
+                    nostrURI: nostrURI,
+                    onOpenThread: onOpenThread,
+                    onRetry: {
+                        Task {
+                            await loadReferencedEvent(retryCachedMiss: true)
+                        }
+                    },
+                    title: "Retry referenced note",
+                    systemImage: "arrow.clockwise"
+                )
             }
         }
         .task(id: normalizedIdentifier) {
@@ -991,51 +1162,22 @@ struct NostrEventReferenceCardView: View {
     private func embeddedCard(for item: FeedItem) -> some View {
         if let zapReceipt = NostrZapReceiptMetadata(event: item.displayEvent) {
             NostrZapReceiptCardView(metadata: zapReceipt)
-        } else if let onOpenThread {
-            Button {
-                onOpenThread(item.threadNavigationItem)
-            } label: {
-                embeddedCardContent(for: item)
-            }
-            .buttonStyle(.plain)
         } else {
             embeddedCardContent(for: item)
         }
     }
 
     private func embeddedCardContent(for item: FeedItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
-                cardAvatar(for: item)
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(item.displayName)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(item.handle)
-                        .font(.caption)
-                        .foregroundStyle(appSettings.themePalette.mutedForeground)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 8)
-
-                if let clientName = item.displayEvent.clientName {
-                    Text("via \(clientName)")
-                        .font(.caption2)
-                        .foregroundStyle(appSettings.themePalette.mutedForeground)
-                        .lineLimit(1)
-                }
-
-                Text(RelativeTimestampFormatter.shortString(from: item.displayEvent.createdAtDate))
-                    .font(.caption2)
-                    .foregroundStyle(appSettings.themePalette.mutedForeground)
-                    .lineLimit(1)
-            }
+        let childEmbeddingContext = embeddingContext.descending(
+            into: item.displayEvent,
+            referencedBy: nostrURI
+        )
+        return VStack(alignment: .leading, spacing: 8) {
+            referencedNoteHeader(for: item)
 
             NoteContentView(
                 event: item.displayEvent,
-                embedDepth: embedDepth,
+                referenceEmbeddingContext: childEmbeddingContext,
                 articleAuthor: LongFormArticleAuthorSummary(item: item),
                 onHashtagTap: onHashtagTap,
                 onProfileTap: onProfileTap,
@@ -1045,6 +1187,53 @@ struct NostrEventReferenceCardView: View {
         }
         .padding(10)
         .modifier(ReferencedNoteCardChromeModifier())
+    }
+
+    @ViewBuilder
+    private func referencedNoteHeader(for item: FeedItem) -> some View {
+        if let onOpenThread {
+            Button {
+                onOpenThread(item.threadNavigationItem)
+            } label: {
+                referencedNoteHeaderContent(for: item)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open referenced note by \(item.displayName)")
+        } else {
+            referencedNoteHeaderContent(for: item)
+        }
+    }
+
+    private func referencedNoteHeaderContent(for item: FeedItem) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            cardAvatar(for: item)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(item.displayName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(item.handle)
+                    .font(.caption)
+                    .foregroundStyle(appSettings.themePalette.mutedForeground)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            if let clientName = item.displayEvent.clientName {
+                Text("via \(clientName)")
+                    .font(.caption2)
+                    .foregroundStyle(appSettings.themePalette.mutedForeground)
+                    .lineLimit(1)
+            }
+
+            Text(RelativeTimestampFormatter.shortString(from: item.displayEvent.createdAtDate))
+                .font(.caption2)
+                .foregroundStyle(appSettings.themePalette.mutedForeground)
+                .lineLimit(1)
+        }
+        .frame(minHeight: 40)
+        .contentShape(Rectangle())
     }
 
     private func cardAvatar(for item: FeedItem) -> some View {
@@ -1082,7 +1271,7 @@ struct NostrEventReferenceCardView: View {
         }
     }
 
-    private func loadReferencedEvent() async {
+    private func loadReferencedEvent(retryCachedMiss: Bool = false) async {
         let key = normalizedIdentifier
         guard !key.isEmpty else {
             await MainActor.run { state = .failed }
@@ -1090,7 +1279,10 @@ struct NostrEventReferenceCardView: View {
         }
 
         await MainActor.run { state = .loading }
-        let item = await EmbeddedReferencedNoteResolver.resolve(nostrURI: nostrURI)
+        let item = await EmbeddedReferencedNoteResolver.resolve(
+            nostrURI: nostrURI,
+            retryCachedMiss: retryCachedMiss
+        )
 
         guard !Task.isCancelled else { return }
 

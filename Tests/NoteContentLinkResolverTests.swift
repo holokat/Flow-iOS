@@ -4,6 +4,133 @@ import UIKit
 @testable import Flow
 
 final class NoteContentLinkResolverTests: XCTestCase {
+    func testReferencedNoteEmbeddingAutomaticallyResolvesTheReportedNestedChain() {
+        let rootEvent = NostrEvent(
+            id: "3928242e745b89e7a65a1327bafc98ada2e21077a3bd55a0157ddb1417da7680",
+            pubkey: "8fb140b4e8ddef97ce4b821d247278a1a4353362623f64021484b372f948000c",
+            createdAt: 1_787_275_452,
+            kind: 1,
+            tags: [],
+            content: "",
+            sig: String(repeating: "f", count: 128)
+        )
+        let firstReference = "nevent1qqsru33n2mukexssvl5sv9n46p055stvxm2gw05j2zuxga8n4cp9jyc62vryt"
+        let firstReferencedEvent = NostrEvent(
+            id: "3e463356f96c9a1067e9061675d05f4a416c36d4873e9250b86474f3ae025913",
+            pubkey: rootEvent.pubkey,
+            createdAt: 1_786_495_218,
+            kind: 1,
+            tags: [],
+            content: "",
+            sig: String(repeating: "e", count: 128)
+        )
+        let reportedNestedReference = "nevent1qqsq5fnyagj2r4k5skzednp83feswmk5dp8allu2vm698dl4r2vnc2g7dflzx"
+
+        let rootContext = NostrReferenceEmbeddingContext(rootEvent: rootEvent)
+        XCTAssertEqual(rootContext.decision(for: firstReference), .automatic)
+
+        let firstReferenceContext = rootContext.descending(
+            into: firstReferencedEvent,
+            referencedBy: firstReference
+        )
+        XCTAssertEqual(firstReferenceContext.depth, 1)
+        XCTAssertEqual(
+            firstReferenceContext.decision(for: reportedNestedReference),
+            .automatic
+        )
+    }
+
+    func testReferencedNoteEmbeddingDefersDeeperAcyclicChainsForInlineExpansion() {
+        let rootEvent = makeReferenceEmbeddingEvent(idCharacter: "1")
+        let firstEvent = makeReferenceEmbeddingEvent(idCharacter: "2")
+        let secondEvent = makeReferenceEmbeddingEvent(idCharacter: "3")
+        let firstReference = String(repeating: "2", count: 64)
+        let secondReference = String(repeating: "3", count: 64)
+        let deeperReference = String(repeating: "4", count: 64)
+
+        let rootContext = NostrReferenceEmbeddingContext(rootEvent: rootEvent)
+        let firstContext = rootContext.descending(
+            into: firstEvent,
+            referencedBy: firstReference
+        )
+        let secondContext = firstContext.descending(
+            into: secondEvent,
+            referencedBy: secondReference
+        )
+
+        XCTAssertEqual(secondContext.depth, NostrReferenceEmbeddingContext.maximumAutomaticDepth)
+        XCTAssertEqual(secondContext.decision(for: deeperReference), .deferred)
+    }
+
+    func testReferencedNoteEmbeddingDefersExcessSiblingReferences() {
+        let context = NostrReferenceEmbeddingContext(
+            rootEvent: makeReferenceEmbeddingEvent(idCharacter: "1")
+        )
+        let reference = String(repeating: "2", count: 64)
+
+        XCTAssertEqual(
+            context.decision(
+                for: reference,
+                referenceOrdinal: NostrReferenceEmbeddingContext.maximumAutomaticReferencesPerEvent - 1
+            ),
+            .automatic
+        )
+        XCTAssertEqual(
+            context.decision(
+                for: reference,
+                referenceOrdinal: NostrReferenceEmbeddingContext.maximumAutomaticReferencesPerEvent
+            ),
+            .deferred
+        )
+    }
+
+    func testReferencedNoteEmbeddingStopsCyclesByCanonicalEventIdentity() {
+        let rootEvent = makeReferenceEmbeddingEvent(idCharacter: "a")
+        let childEvent = makeReferenceEmbeddingEvent(idCharacter: "b")
+        let childReference = String(repeating: "b", count: 64)
+        let rootReference = String(repeating: "a", count: 64)
+
+        let childContext = NostrReferenceEmbeddingContext(rootEvent: rootEvent).descending(
+            into: childEvent,
+            referencedBy: childReference
+        )
+
+        XCTAssertEqual(childContext.decision(for: rootReference), .cycle)
+    }
+
+    func testReferencedNoteEmbeddingStopsAddressableEventCycles() {
+        let pubkey = String(repeating: "c", count: 64)
+        let rootEvent = NostrEvent(
+            id: String(repeating: "d", count: 64),
+            pubkey: pubkey,
+            createdAt: 1_700_000_000,
+            kind: 30_023,
+            tags: [["d", "article-slug"]],
+            content: "",
+            sig: String(repeating: "f", count: 128)
+        )
+        let rootAddress = "30023:\(pubkey):article-slug"
+
+        XCTAssertEqual(
+            NostrReferenceEmbeddingContext(rootEvent: rootEvent).decision(for: rootAddress),
+            .cycle
+        )
+    }
+
+    func testReferencedNoteRetryBypassesCachedMiss() async {
+        let cache = EmbeddedReferencedNoteCache()
+        let key = "missing-reference"
+        await cache.storeResolvedValue(nil, for: key)
+
+        let cachedMiss = await cache.cachedValue(for: key)
+        XCTAssertTrue(cachedMiss.found)
+        XCTAssertNil(cachedMiss.item)
+
+        let retryLookup = await cache.cachedValue(for: key, retryCachedMiss: true)
+        XCTAssertFalse(retryLookup.found)
+        XCTAssertNil(retryLookup.item)
+    }
+
     func testWebsitePreviewParserReadsOpenGraphMetadataRegardlessOfAttributeOrder() throws {
         let pageURL = URL(
             string: "https://reclaimthenet.org/meta-trial-opens-as-states-demand-age-verification"
@@ -131,6 +258,18 @@ final class NoteContentLinkResolverTests: XCTestCase {
         XCTAssertEqual(metadata.websiteURL?.absoluteString, "https://vectorapp.io")
         XCTAssertEqual(metadata.supportedKinds, [0, 1_059])
         XCTAssertEqual(metadata.categories, ["messaging", "social", "media"])
+    }
+
+    private func makeReferenceEmbeddingEvent(idCharacter: Character) -> Flow.NostrEvent {
+        NostrEvent(
+            id: String(repeating: idCharacter, count: 64),
+            pubkey: String(repeating: "c", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 1,
+            tags: [],
+            content: "",
+            sig: String(repeating: "f", count: 128)
+        )
     }
 
     func testNIP89HandlerFallsBackToAltNameWithoutValidMetadataJSON() throws {
