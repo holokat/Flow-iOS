@@ -24,8 +24,12 @@ xcuserdata/
 # Build products
 build/
 DerivedData/
+.derivedData*/
 .build/
 
 # Legacy renamed project artifacts
 x21.xcodeproj/
 x21.xcodeproj.legacy/
+
+# Local visual review artifacts
+design-qa.md
