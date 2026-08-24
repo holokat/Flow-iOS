@@ -588,6 +588,31 @@ struct ComposeMediaAttachment: Identifiable, Hashable, Codable, Sendable {
         }
         return url.pathExtension.lowercased() == "gif"
     }
+
+    var altText: String? {
+        imetaTag
+            .dropFirst()
+            .first { $0.lowercased().hasPrefix("alt ") }
+            .map { String($0.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    func settingAltText(_ value: String) -> ComposeMediaAttachment {
+        let prepared = HaloModelInputSanitizer.prepare(value, maximumLength: 300)
+            .replacingOccurrences(of: "\n", with: " ")
+        var updatedTag = imetaTag.filter { !$0.lowercased().hasPrefix("alt ") }
+        if !prepared.isEmpty {
+            updatedTag.append("alt \(prepared)")
+        }
+
+        return ComposeMediaAttachment(
+            id: id,
+            url: url,
+            imetaTag: updatedTag,
+            mimeType: mimeType,
+            fileSizeBytes: fileSizeBytes
+        )
+    }
 }
 
 struct CameraCapturePermissionSnapshot: Equatable {

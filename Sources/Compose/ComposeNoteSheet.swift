@@ -69,6 +69,7 @@ struct ComposeNoteSheet: View {
     @State private var hasAppliedInitialSelectedMentions = false
     @State private var hasAppliedInitialSharedAttachments = false
     @State private var previewingMediaAttachment: ComposeMediaAttachment?
+    @State private var altTextMediaAttachment: ComposeMediaAttachment?
     @State private var isShowingKlipyGIFPicker = false
     @State private var isShowingDraftLibrary = false
     @State private var editorSelectionRequest = ComposeTextSelectionRequest(
@@ -233,6 +234,11 @@ struct ComposeNoteSheet: View {
         .sheet(item: $previewingMediaAttachment) { attachment in
             ComposeMediaAttachmentPreviewSheet(attachment: attachment)
         }
+        .sheet(item: $altTextMediaAttachment) { attachment in
+            ComposeImageAltTextSheet(attachment: attachment) { altText in
+                updateAltText(altText, for: attachment)
+            }
+        }
         .sheet(isPresented: $isShowingKlipyGIFPicker) {
             ComposeKlipyGIFPickerSheet(currentAccountPubkey: currentAccountPubkey) { selection in
                 Task {
@@ -341,6 +347,9 @@ struct ComposeNoteSheet: View {
                         Task {
                             await openMediaAttachmentEditor(for: attachment)
                         }
+                    },
+                    onAltText: { attachment in
+                        altTextMediaAttachment = attachment
                     },
                     onRemove: removeMediaAttachment(_:)
                 )
@@ -1051,6 +1060,16 @@ struct ComposeNoteSheet: View {
 
     private func removeMediaAttachment(_ attachment: ComposeMediaAttachment) {
         mediaAttachments.removeAll { $0.id == attachment.id }
+    }
+
+    private func updateAltText(_ altText: String, for attachment: ComposeMediaAttachment) {
+        guard let index = mediaAttachments.firstIndex(where: { $0.id == attachment.id }) else {
+            toastCenter.show("That image is no longer attached.", style: .error, duration: 2.8)
+            return
+        }
+        mediaAttachments[index] = mediaAttachments[index].settingAltText(altText)
+        let wasCleared = altText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        toastCenter.show(wasCleared ? "Alt text cleared" : "Alt text saved")
     }
 
     @MainActor

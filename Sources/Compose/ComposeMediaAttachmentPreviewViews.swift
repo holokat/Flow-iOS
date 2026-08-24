@@ -12,6 +12,7 @@ struct ComposeMediaAttachmentStrip: View {
     let preparingEditAttachmentID: UUID?
     let onPreview: (ComposeMediaAttachment) -> Void
     let onEdit: (ComposeMediaAttachment) -> Void
+    let onAltText: (ComposeMediaAttachment) -> Void
     let onRemove: (ComposeMediaAttachment) -> Void
 
     var body: some View {
@@ -40,28 +41,45 @@ struct ComposeMediaAttachmentStrip: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("Remove attachment")
                     }
-                    .overlay(alignment: .bottomLeading) {
+                    .overlay(alignment: .bottom) {
                         if attachment.isImage && !attachment.isGIF {
-                            Button {
-                                onEdit(attachment)
-                            } label: {
-                                Group {
-                                    if preparingEditAttachmentID == attachment.id {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                    } else {
-                                        Image(systemName: "pencil")
-                                            .font(.system(size: 15, weight: .semibold))
+                            HStack {
+                                Button {
+                                    onEdit(attachment)
+                                } label: {
+                                    Group {
+                                        if preparingEditAttachmentID == attachment.id {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                        } else {
+                                            Image(systemName: "pencil")
+                                                .font(.system(size: 15, weight: .semibold))
+                                        }
                                     }
+                                    .foregroundStyle(appSettings.themePalette.foreground)
+                                    .frame(width: 40, height: 40)
+                                    .background(.regularMaterial, in: Circle())
                                 }
-                                .foregroundStyle(appSettings.themePalette.foreground)
-                                .frame(width: 40, height: 40)
-                                .background(.regularMaterial, in: Circle())
+                                .buttonStyle(.plain)
+                                .disabled(preparingEditAttachmentID != nil)
+                                .accessibilityLabel("Edit image")
+                                .accessibilityHint("Opens filters, subjects, drawing, text, stickers, and creation tools")
+
+                                Spacer(minLength: 10)
+
+                                Button {
+                                    onAltText(attachment)
+                                } label: {
+                                    Image(systemName: attachment.altText == nil ? "text.bubble" : "checkmark.bubble.fill")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(appSettings.themePalette.foreground)
+                                        .frame(width: 40, height: 40)
+                                        .background(.regularMaterial, in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(attachment.altText == nil ? "Add alt text" : "Edit alt text")
                             }
-                            .buttonStyle(.plain)
-                            .disabled(preparingEditAttachmentID != nil)
-                            .accessibilityLabel("Edit image")
-                            .accessibilityHint("Opens filters, drawing, text, and stickers")
+                            .padding(4)
                         }
                     }
                 }

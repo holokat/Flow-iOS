@@ -30,6 +30,7 @@
 		151C23D4ABE5ECA1B40E1D40 /* HomeFeedFilterStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96D4B5BA28A24BEE53F56796 /* HomeFeedFilterStore.swift */; };
 		15EB392EA8847584F476D765 /* NostrFeedService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDE66A5BBD34930A34D3923F /* NostrFeedService.swift */; };
 		16B4C8F585E531A97EAA1618 /* FeedStorageProtocols.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6128242D14E4D2BA8E780A1C /* FeedStorageProtocols.swift */; };
+		18EEB4913252789ACEC6EA12 /* ComposeImageAltTextSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1542D87C1CCCBF01CE557BE /* ComposeImageAltTextSheet.swift */; };
 		193FEE523F8578101768CF40 /* LiveReactsOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE5072564E400712902A306 /* LiveReactsOverlay.swift */; };
 		1980E432B55E399310B61ECE /* ElmsSans.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 52DF640ED9A2F870EE31FEB7 /* ElmsSans.ttf */; };
 		19F757610B10C8A90D063E5D /* ComposeSpeechTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73524C099B08853D1740EFED /* ComposeSpeechTranscriber.swift */; };
@@ -164,6 +165,7 @@
 		A0E815CBA9CFE156BAD51695 /* Nacelle-SemiBold.otf in Resources */ = {isa = PBXBuildFile; fileRef = 31A7D4B5649CF06E87EC4A57 /* Nacelle-SemiBold.otf */; };
 		A0EA6C6AC32C2824CF83CAB3 /* HaloLinkModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F4A33EF482872BB750555EB /* HaloLinkModels.swift */; };
 		A1A28042BB18460E51D5A448 /* AuthorRelayPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99BA901E66E91527E2DE8998 /* AuthorRelayPlanner.swift */; };
+		A39E4D03FE5A42BFF448CA0F /* HaloOnDeviceAssistantTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4091E61F75A7C22433E971EE /* HaloOnDeviceAssistantTests.swift */; };
 		A3F9D65BF1E8CEA6C9393A71 /* Nacelle-Regular.otf in Resources */ = {isa = PBXBuildFile; fileRef = 71C6CD017B6EEEE4E003688E /* Nacelle-Regular.otf */; };
 		A8319EFEB1DBF7B77BBCDA18 /* HubotSans.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 19722A383725F5B3F7CF8BD7 /* HubotSans.ttf */; };
 		A8DE27AE883958A3AE65ABBE /* LocalCorpusCrawlPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30E34F953BF887A3D7E0C4CB /* LocalCorpusCrawlPolicyTests.swift */; };
@@ -181,6 +183,7 @@
 		B638FCF4207DBFF34C968735 /* ThreadReplyPublishService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73A09E5C5DEB394F9F612B36 /* ThreadReplyPublishService.swift */; };
 		B71D2BA3782242DAD9267933 /* FlowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6018FB948D5F4B745EA4EFCE /* FlowApp.swift */; };
 		B7FF9B2A1598892EDDBA9917 /* RelaySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6BDD5E9DEFAD0D257ED53A2 /* RelaySettingsView.swift */; };
+		B8C262844CC1D61504978E48 /* HaloFeedCatchUpSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64F2EE26C78FF820D07114B5 /* HaloFeedCatchUpSheet.swift */; };
 		B8C448AF8680823CE5182F06 /* HaloSystemNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83706ED9BF5E74A06B80F976 /* HaloSystemNavigation.swift */; };
 		BB5E7852F3184B4DC679A335 /* HomeFeedModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23CC4CF52157CEDCC4B539B /* HomeFeedModeTests.swift */; };
 		BB69B3F29E3BCAE9A3549E4A /* ICloudKeyRestoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A425E0757F755784E6CF942 /* ICloudKeyRestoreView.swift */; };
@@ -199,6 +202,7 @@
 		CC7ADDDBDE4AEEBB871DB73A /* ProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1480B5E7A53CAE02D9D677C1 /* ProfileViewModel.swift */; };
 		D0016D02B1C4E7C644166C47 /* NostrArchivesSearchServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11B0AE37EFE1E6A07DF93296 /* NostrArchivesSearchServiceTests.swift */; };
 		D0BFF94F948FAF634CE6D6DB /* HaloAudioPlaybackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51845B2B52C7FA719299524C /* HaloAudioPlaybackCoordinator.swift */; };
+		D2140E82AFF14CDF03189502 /* HaloOnDeviceAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFC1025F6EC37D1CCD4E1591 /* HaloOnDeviceAssistant.swift */; };
 		D2194AE6438D861CC9AFEB79 /* FollowStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C79C9AF2B774553CEEF8299 /* FollowStore.swift */; };
 		D424A84308B9D6A70CC57FBC /* ReactionButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D961155CF6467EAA934FDBA /* ReactionButton.swift */; };
 		D56D1CAA7AD09E392DA35AB0 /* ProfileEventService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92745AAE627B22A05C5801E1 /* ProfileEventService.swift */; };
@@ -351,6 +355,7 @@
 		3D961155CF6467EAA934FDBA /* ReactionButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReactionButton.swift; sourceTree = "<group>"; };
 		3DBC0F4016C4FA948E281702 /* PublicSans.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = PublicSans.ttf; sourceTree = "<group>"; };
 		3F248F0B151BBBFC0BF057B7 /* ProfileSearchSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSearchSupport.swift; sourceTree = "<group>"; };
+		4091E61F75A7C22433E971EE /* HaloOnDeviceAssistantTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaloOnDeviceAssistantTests.swift; sourceTree = "<group>"; };
 		419BE95AAE93709A1913E5F5 /* ImageRemixEditorProcessing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRemixEditorProcessing.swift; sourceTree = "<group>"; };
 		425996BFC8F1FE946E745146 /* LongFormArticleModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongFormArticleModelsTests.swift; sourceTree = "<group>"; };
 		4326CEACDA9C72B3A03BEC11 /* RelaySettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelaySettingsStore.swift; sourceTree = "<group>"; };
@@ -388,6 +393,7 @@
 		6133DBFA5B0AA77347D53FE0 /* NoteAudioPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteAudioPlayerView.swift; sourceTree = "<group>"; };
 		63D554ED3C23A4F578BBAB7C /* CompactMediaAttachmentPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactMediaAttachmentPreview.swift; sourceTree = "<group>"; };
 		63DD057C6352DD0CC08FD79A /* ComposeNoteSheetSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeNoteSheetSupport.swift; sourceTree = "<group>"; };
+		64F2EE26C78FF820D07114B5 /* HaloFeedCatchUpSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaloFeedCatchUpSheet.swift; sourceTree = "<group>"; };
 		668778178F4FBD32B9CAB751 /* SearchViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViewModel.swift; sourceTree = "<group>"; };
 		66A8E4104DADF1DF956F004C /* NoteVideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteVideoPlayerView.swift; sourceTree = "<group>"; };
 		67F2F5076A590F9C3206D189 /* SettingsInterestsFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsInterestsFeedView.swift; sourceTree = "<group>"; };
@@ -477,6 +483,7 @@
 		B9BEB6EA4B182422CED31E86 /* FlowShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = FlowShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		BD4A3A69CDBE8348D50E5A7D /* ImageRemixEditorModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRemixEditorModels.swift; sourceTree = "<group>"; };
 		BE21CAC755326BB710119CE6 /* ProfileMediaSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileMediaSupport.swift; sourceTree = "<group>"; };
+		BFC1025F6EC37D1CCD4E1591 /* HaloOnDeviceAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaloOnDeviceAssistant.swift; sourceTree = "<group>"; };
 		BFE1331CC7D26B2FEB4A9096 /* Flow.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Flow.entitlements; sourceTree = "<group>"; };
 		C3EF20CFB3AC1F3D6ECAE007 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C43AE51014539232196DD259 /* NostrDiscoveryFeedResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrDiscoveryFeedResolver.swift; sourceTree = "<group>"; };
@@ -488,6 +495,7 @@
 		CA037464D93501F5D7F386EB /* ProfileHeaderSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileHeaderSection.swift; sourceTree = "<group>"; };
 		CEB82ADDAF2014F1EFC7A16F /* CrawlCursorStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrawlCursorStoreTests.swift; sourceTree = "<group>"; };
 		D0E539613B4947ABF1C8C766 /* HomeFeedTrustGraph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeFeedTrustGraph.swift; sourceTree = "<group>"; };
+		D1542D87C1CCCBF01CE557BE /* ComposeImageAltTextSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeImageAltTextSheet.swift; sourceTree = "<group>"; };
 		D184F3FC887A7A2C896C4C51 /* CrawlCursorStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrawlCursorStore.swift; sourceTree = "<group>"; };
 		D1F78B89A1ACE092883F2C71 /* SearchViewModelRelayTargetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViewModelRelayTargetTests.swift; sourceTree = "<group>"; };
 		D2830367616A47232D42906F /* GeistSans.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = GeistSans.ttf; sourceTree = "<group>"; };
@@ -592,6 +600,7 @@
 				0C5B7161C48261146444A8EB /* FlowNetworkPathMonitor.swift */,
 				596CFEA9874FDBFE4D5E84D7 /* FlowTransitionMotion.swift */,
 				A1A181E457D4306F4E511681 /* HaloAppIntents.swift */,
+				BFC1025F6EC37D1CCD4E1591 /* HaloOnDeviceAssistant.swift */,
 				337729F5EA5048DB49A3B340 /* HaloPerformanceMonitoring.swift */,
 				77161437C3B39FD4CCBA513C /* HaloSystemEntities.swift */,
 				83706ED9BF5E74A06B80F976 /* HaloSystemNavigation.swift */,
@@ -661,6 +670,7 @@
 				D2EE38569BAF46EC577CDF58 /* FlowMediaCacheDiagnosticsTests.swift */,
 				D8BB7735D70B178ADC6A622A /* FlowNetworkPathMonitorTests.swift */,
 				525CF06CB984ADCE339F73D9 /* HaloImageRemixIntegrationTests.swift */,
+				4091E61F75A7C22433E971EE /* HaloOnDeviceAssistantTests.swift */,
 				230D303E5414CD9549951EB3 /* HaloSystemNavigationTests.swift */,
 				F23CC4CF52157CEDCC4B539B /* HomeFeedModeTests.swift */,
 				7D2F9C728B9BF4A4C652D8AF /* HomeFeedViewModelTests.swift */,
@@ -782,6 +792,7 @@
 		B3AFA4CA1416B223E236ED9F /* Home */ = {
 			isa = PBXGroup;
 			children = (
+				64F2EE26C78FF820D07114B5 /* HaloFeedCatchUpSheet.swift */,
 				EF4CE20A439FB46B16EB9DA7 /* HomeFeedModels.swift */,
 				92A5F1B6D348F49CDB550E0F /* HomeFeedPageFetching.swift */,
 				D0E539613B4947ABF1C8C766 /* HomeFeedTrustGraph.swift */,
@@ -969,6 +980,7 @@
 		FD01136A6823D628ECDFD09E /* Compose */ = {
 			isa = PBXGroup;
 			children = (
+				D1542D87C1CCCBF01CE557BE /* ComposeImageAltTextSheet.swift */,
 				8264623494917B38C1140FFF /* ComposeKlipyGIFPickerSheet.swift */,
 				5C2495BE2EC6498FF70672F7 /* ComposeMediaAttachmentPreviewViews.swift */,
 				DB9619AA2B74AE8DE02E11D9 /* ComposeNotePublishService.swift */,
@@ -1187,6 +1199,7 @@
 				A1A28042BB18460E51D5A448 /* AuthorRelayPlanner.swift in Sources */,
 				C6DA55EE314F31B0EEEB3C81 /* BreakReminderOverlay.swift in Sources */,
 				DCEDACF4FDA917B689B6FC06 /* CompactMediaAttachmentPreview.swift in Sources */,
+				18EEB4913252789ACEC6EA12 /* ComposeImageAltTextSheet.swift in Sources */,
 				1282B309527C91A9738A850A /* ComposeKlipyGIFPickerSheet.swift in Sources */,
 				4BAFD65A876B16CDF399C2A0 /* ComposeMediaAttachmentPreviewViews.swift in Sources */,
 				0627B86CB55C015CC15C16D3 /* ComposeNotePublishService.swift in Sources */,
@@ -1221,9 +1234,11 @@
 				F4D2C1E16E8E755F5B5A9279 /* FollowingListViewModel.swift in Sources */,
 				EC4F165366B43A20B9DC2998 /* HaloAppIntents.swift in Sources */,
 				D0BFF94F948FAF634CE6D6DB /* HaloAudioPlaybackCoordinator.swift in Sources */,
+				B8C262844CC1D61504978E48 /* HaloFeedCatchUpSheet.swift in Sources */,
 				A0EA6C6AC32C2824CF83CAB3 /* HaloLinkModels.swift in Sources */,
 				97B6720D10BEEA901409A302 /* HaloLinkStore.swift in Sources */,
 				4BC2FFFAC8379D8E310409DF /* HaloLinkThreadView.swift in Sources */,
+				D2140E82AFF14CDF03189502 /* HaloOnDeviceAssistant.swift in Sources */,
 				24BBEAEEE5AEAD64145CC476 /* HaloPerformanceMonitoring.swift in Sources */,
 				ED93BF572F9FF52D017108A8 /* HaloReactionBonus.swift in Sources */,
 				259CBF5CECB5516E841A7059 /* HaloSubjectSegmentation.swift in Sources */,
@@ -1369,6 +1384,7 @@
 				9D863BB7629A60AC9BD679EE /* FlowMediaCacheDiagnosticsTests.swift in Sources */,
 				9A71BCECC43AB8680EB13885 /* FlowNetworkPathMonitorTests.swift in Sources */,
 				3308FC6AA7DE0CBB9411A387 /* HaloImageRemixIntegrationTests.swift in Sources */,
+				A39E4D03FE5A42BFF448CA0F /* HaloOnDeviceAssistantTests.swift in Sources */,
 				8EC579E5BE688BFBD0657C06 /* HaloSystemNavigationTests.swift in Sources */,
 				BB5E7852F3184B4DC679A335 /* HomeFeedModeTests.swift in Sources */,
 				EBDF2086176BD4F89676D952 /* HomeFeedViewModelTests.swift in Sources */,

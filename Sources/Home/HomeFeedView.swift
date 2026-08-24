@@ -39,6 +39,11 @@ struct HomeFeedView: View {
     @State private var isShowingFeedSourcePicker = false
     @State private var isShowingFilterSheet = false
     @State private var isShowingSettings = false
+    @State private var isShowingCatchUp = false
+    @State private var isGeneratingCatchUp = false
+    @State private var catchUpSummary: HaloFeedCatchUpSummary?
+    @State private var catchUpErrorMessage: String?
+    @State private var catchUpTask: Task<Void, Never>?
     @StateObject private var settingsSheetState = SettingsSheetState()
 
     @State private var selectedThreadItem: FeedItem?
@@ -61,6 +66,14 @@ struct HomeFeedView: View {
         navigationRoot
             .modifier(sheetsModifier)
             .modifier(lifecycleModifier)
+            .sheet(isPresented: $isShowingCatchUp, onDismiss: cancelCatchUp) {
+                HaloFeedCatchUpSheet(
+                    summary: catchUpSummary,
+                    isGenerating: isGeneratingCatchUp,
+                    errorMessage: catchUpErrorMessage,
+                    onRetry: generateCatchUp
+                )
+            }
             .onAppear {
                 updateRootVisibility()
                 showScrollChromeAtRest()
@@ -393,28 +406,36 @@ struct HomeFeedView: View {
         viewModel.supportsModeTabsForCurrentSource ||
             viewModel.mediaOnly ||
             viewModel.feedSource == .articles ||
-            viewModel.feedSource == .polls
+            viewModel.feedSource == .polls ||
+            shouldShowCatchUpButton
     }
 
     private var feedModeHeaderRow: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if viewModel.feedSource == .articles {
-                Label("Articles from people you follow", systemImage: "doc.text")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
-            } else if viewModel.feedSource == .polls {
-                Label("Polls from people you follow", systemImage: "chart.bar.xaxis")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
-            } else if viewModel.supportsModeTabsForCurrentSource {
-                FlowCapsuleTabBar(
-                    selection: $viewModel.mode,
-                    items: HomeFeedMode.allCases,
-                    selectedBackground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedBackground,
-                    selectedForeground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedForeground,
-                    selectedStroke: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedStroke,
-                    title: { $0.title }
-                )
+            HStack(spacing: 10) {
+                if viewModel.feedSource == .articles {
+                    Label("Articles from people you follow", systemImage: "doc.text")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                } else if viewModel.feedSource == .polls {
+                    Label("Polls from people you follow", systemImage: "chart.bar.xaxis")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
+                } else if viewModel.supportsModeTabsForCurrentSource {
+                    FlowCapsuleTabBar(
+                        selection: $viewModel.mode,
+                        items: HomeFeedMode.allCases,
+                        selectedBackground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedBackground,
+                        selectedForeground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedForeground,
+                        selectedStroke: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedStroke,
+                        title: { $0.title }
+                    )
+                }
+
+                if shouldShowCatchUpButton {
+                    Spacer(minLength: 4)
+                    catchUpButton
+                }
             }
 
             if viewModel.mediaOnly {
@@ -425,6 +446,85 @@ struct HomeFeedView: View {
         }
         .padding(.vertical, 0)
         .padding(.horizontal, Self.feedHorizontalInset)
+    }
+
+    private var shouldShowCatchUpButton: Bool {
+        guard #available(iOS 26.0, *) else { return false }
+        let readableCount = viewModel.visibleItems.lazy.filter {
+            !$0.displayEvent.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.prefix(2).count
+        return readableCount >= 2
+    }
+
+    private var catchUpButton: some View {
+        Button {
+            generateCatchUp()
+        } label: {
+            HStack(spacing: 6) {
+                if isGeneratingCatchUp {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "sparkles")
+                }
+                Text("Catch up")
+            }
+            .font(appSettings.appFont(.footnote, weight: .semibold))
+            .foregroundStyle(appSettings.themePalette.foreground)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 8)
+            .background(
+                appSettings.themePalette.navigationControlBackground,
+                in: Capsule(style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isGeneratingCatchUp)
+        .accessibilityHint("Summarizes visible posts on this device")
+    }
+
+    private func generateCatchUp() {
+        catchUpTask?.cancel()
+        let sources = viewModel.visibleItems.compactMap { item in
+            HaloFeedSummarySource(
+                author: item.displayName,
+                content: item.displayEvent.content
+            )
+        }
+        let boundedSources = Array(sources.prefix(8))
+
+        isShowingCatchUp = true
+        catchUpSummary = nil
+        catchUpErrorMessage = nil
+
+        let availability = HaloOnDeviceAssistant.summaryAvailability
+        guard availability == .available else {
+            isGeneratingCatchUp = false
+            catchUpErrorMessage = availability.message
+            return
+        }
+
+        isGeneratingCatchUp = true
+        catchUpTask = Task {
+            do {
+                let summary = try await HaloOnDeviceAssistant.summarizeFeed(boundedSources)
+                guard !Task.isCancelled else { return }
+                catchUpSummary = summary
+                isGeneratingCatchUp = false
+                catchUpTask = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                catchUpErrorMessage = (error as? LocalizedError)?.errorDescription ?? "Halo couldn't summarize these posts."
+                isGeneratingCatchUp = false
+                catchUpTask = nil
+            }
+        }
+    }
+
+    private func cancelCatchUp() {
+        catchUpTask?.cancel()
+        catchUpTask = nil
+        isGeneratingCatchUp = false
     }
 
     @ViewBuilder
