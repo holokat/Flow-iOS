@@ -4,6 +4,40 @@ import Photos
 import SwiftUI
 import UIKit
 
+struct ImageRemixUploadEncoding {
+    let data: Data
+    let mimeType: String
+    let fileExtension: String
+
+    init?(image: UIImage) {
+        if image.flowHasAlphaChannel, let data = image.pngData() {
+            self.data = data
+            self.mimeType = "image/png"
+            self.fileExtension = "png"
+        } else if let data = image.jpegData(compressionQuality: 0.94) {
+            self.data = data
+            self.mimeType = "image/jpeg"
+            self.fileExtension = "jpg"
+        } else {
+            return nil
+        }
+    }
+}
+
+private extension UIImage {
+    var flowHasAlphaChannel: Bool {
+        guard let alphaInfo = cgImage?.alphaInfo else { return false }
+        switch alphaInfo {
+        case .first, .last, .premultipliedFirst, .premultipliedLast:
+            return true
+        case .none, .noneSkipFirst, .noneSkipLast, .alphaOnly:
+            return alphaInfo == .alphaOnly
+        @unknown default:
+            return false
+        }
+    }
+}
+
 enum ImageRemixFilterProcessor {
     private static let context = CIContext(options: nil)
 

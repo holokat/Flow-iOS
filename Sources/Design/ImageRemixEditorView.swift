@@ -1,4 +1,5 @@
 
+import ImagePlayground
 import SwiftUI
 import UIKit
 
@@ -43,6 +44,11 @@ struct ImageRemixEditorView: View {
     @State private var isShowingPostOptions = false
     @State private var confirmationBannerMessage: String?
     @State private var confirmationBannerRequestID = UUID()
+    @State private var subjectSelection: HaloSubjectSelection?
+    @State private var subjectEditedImage: UIImage?
+    @State private var isSelectingSubject = false
+    @State private var isShowingImagePlayground = false
+    @State private var imagePlaygroundSourceImage: UIImage?
 
     private let mediaUploadService = MediaUploadService.shared
 
@@ -81,6 +87,50 @@ struct ImageRemixEditorView: View {
     }
 
     var body: some View {
+        configuredEditorContent
+    }
+
+    @ViewBuilder
+    private var configuredEditorContent: some View {
+        if #available(iOS 27.0, *) {
+            editorContent
+                .imagePlaygroundSheet(
+                    isPresented: $isShowingImagePlayground,
+                    concepts: [],
+                    sourceImage: imagePlaygroundSourceImage.map(Image.init(uiImage:)),
+                    onCompletion: handleImagePlaygroundCompletion
+                )
+                .imagePlaygroundGenerationStyle(
+                    .illustration,
+                    in: [.animation, .illustration, .sketch]
+                )
+                .imagePlaygroundOptions(imagePlaygroundOptions27)
+        } else if #available(iOS 18.4, *) {
+            editorContent
+                .imagePlaygroundSheet(
+                    isPresented: $isShowingImagePlayground,
+                    concepts: [],
+                    sourceImage: imagePlaygroundSourceImage.map(Image.init(uiImage:)),
+                    onCompletion: handleImagePlaygroundCompletion
+                )
+                .imagePlaygroundGenerationStyle(
+                    .illustration,
+                    in: [.animation, .illustration, .sketch]
+                )
+        } else if #available(iOS 18.1, *) {
+            editorContent
+                .imagePlaygroundSheet(
+                    isPresented: $isShowingImagePlayground,
+                    concepts: [],
+                    sourceImage: imagePlaygroundSourceImage.map(Image.init(uiImage:)),
+                    onCompletion: handleImagePlaygroundCompletion
+                )
+        } else {
+            editorContent
+        }
+    }
+
+    private var editorContent: some View {
         ZStack {
             remixBackground
 
@@ -120,7 +170,7 @@ struct ImageRemixEditorView: View {
                 }
             }
 
-            if isPreparingFilter || isSavingImage || isUploadingImage || isApplyingEditedImage {
+            if isPreparingFilter || isSavingImage || isUploadingImage || isApplyingEditedImage || isSelectingSubject {
                 processingOverlay
             }
 
@@ -159,6 +209,16 @@ struct ImageRemixEditorView: View {
         .onChange(of: selectedFilter) { _, _ in
             refreshFilteredPreview()
         }
+    }
+
+    @available(iOS 27.0, *)
+    private var imagePlaygroundOptions27: ImagePlaygroundOptions {
+        var options = ImagePlaygroundOptions()
+        options.creationStrategy = .editExisting
+        options.creationVariety = .high
+        options.personalization = .disabled
+        options.sizeSpecification = .closest(to: workingBaseImage.size)
+        return options
     }
 
     private var remixBackground: some View {
@@ -333,22 +393,28 @@ struct ImageRemixEditorView: View {
     private var bottomToolPanel: some View {
         VStack(alignment: .leading, spacing: isToolPanelExpanded ? 16 : 0) {
             HStack(spacing: 10) {
-                ForEach(ImageRemixTool.allCases) { tool in
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.84)) {
-                            selectedTool = tool
-                            isToolPanelExpanded = true
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(ImageRemixTool.allCases) { tool in
+                            Button {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.84)) {
+                                    selectedTool = tool
+                                    isToolPanelExpanded = true
+                                }
+                            } label: {
+                                ImageRemixToolButtonLabel(
+                                    tool: tool,
+                                    isSelected: selectedTool == tool,
+                                    showsTitle: isToolPanelExpanded,
+                                    accentColor: appSettings.primaryColor
+                                )
+                                .frame(width: isToolPanelExpanded ? 76 : 44)
+                            }
+                            .buttonStyle(.plain)
                         }
-                    } label: {
-                        ImageRemixToolButtonLabel(
-                            tool: tool,
-                            isSelected: selectedTool == tool,
-                            showsTitle: isToolPanelExpanded,
-                            accentColor: appSettings.primaryColor
-                        )
                     }
-                    .buttonStyle(.plain)
                 }
+                .scrollClipDisabled()
 
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.84)) {
@@ -371,12 +437,16 @@ struct ImageRemixEditorView: View {
                         switch selectedTool {
                         case .filters:
                             filtersPanel
+                        case .subjects:
+                            subjectsPanel
                         case .draw:
                             drawPanel
                         case .text:
                             textPanel
                         case .stickers:
                             stickersPanel
+                        case .create:
+                            createPanel
                         }
                     } else {
                         toolSelectionPrompt
@@ -442,6 +512,89 @@ struct ImageRemixEditorView: View {
                         .padding(.trailing, 4)
                 }
                 .allowsHitTesting(false)
+            }
+        }
+    }
+
+    private var subjectsPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Subject")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(chromePrimaryColor)
+
+                Spacer(minLength: 0)
+
+                if isSelectingSubject {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            if #available(iOS 27.0, *) {
+                Text(subjectSelection == nil
+                     ? "Tap a subject in the image to select it on device."
+                     : "Subject selected. Choose how to separate it from the background.")
+                    .font(.caption)
+                    .foregroundStyle(chromeSecondaryColor)
+
+                HStack(spacing: 10) {
+                    Button {
+                        applySubjectEffect(\.blurredBackground)
+                    } label: {
+                        Label("Blur background", systemImage: "camera.aperture")
+                    }
+                    .buttonStyle(ImageRemixSecondaryButtonStyle())
+                    .disabled(subjectSelection == nil || isSelectingSubject)
+
+                    Button {
+                        applySubjectEffect(\.cutout)
+                    } label: {
+                        Label("Lift subject", systemImage: "person.crop.rectangle.badge.plus")
+                    }
+                    .buttonStyle(ImageRemixSecondaryButtonStyle())
+                    .disabled(subjectSelection == nil || isSelectingSubject)
+                }
+
+                if subjectEditedImage != nil || subjectSelection != nil {
+                    Button {
+                        resetSubjectEdits()
+                    } label: {
+                        Label("Reset subject edit", systemImage: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(ImageRemixSecondaryButtonStyle())
+                    .disabled(isSelectingSubject)
+                }
+            } else {
+                Label("Subject selection requires iOS 27.", systemImage: "iphone.gen3")
+                    .font(.caption)
+                    .foregroundStyle(chromeSecondaryColor)
+            }
+        }
+    }
+
+    private var createPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Image Playground")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(chromePrimaryColor)
+
+            Text("Open the system editor with this composition as the source image.")
+                .font(.caption)
+                .foregroundStyle(chromeSecondaryColor)
+
+            if #available(iOS 18.1, *), ImagePlaygroundViewController.isAvailable {
+                Button {
+                    openImagePlayground()
+                } label: {
+                    Label("Create variation", systemImage: "wand.and.stars")
+                }
+                .buttonStyle(ImageRemixAccentButtonStyle(color: appSettings.primaryColor))
+                .disabled(isBusy)
+            } else {
+                Label("Image Playground isn't available on this device.", systemImage: "exclamationmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(chromeSecondaryColor)
             }
         }
     }
@@ -817,6 +970,17 @@ struct ImageRemixEditorView: View {
                 .scaledToFit()
                 .frame(width: canvasSize.width, height: canvasSize.height)
 
+            if selectedTool == .subjects, let maskPreview = subjectSelection?.maskPreview {
+                Image(uiImage: maskPreview)
+                    .resizable()
+                    .renderingMode(.template)
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .foregroundStyle(appSettings.primaryColor.opacity(0.44))
+                    .frame(width: canvasSize.width, height: canvasSize.height)
+                    .allowsHitTesting(false)
+            }
+
             ImageRemixDrawingLayer(
                 strokes: strokes,
                 activeStrokePoints: activeStrokePoints,
@@ -892,11 +1056,28 @@ struct ImageRemixEditorView: View {
                             }
                     )
             }
+
+            if selectedTool == .subjects {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(
+                        SpatialTapGesture()
+                            .onEnded { value in
+                                let normalizedPoint = CGPoint(
+                                    x: (value.location.x / canvasSize.width).clamped(to: 0...1),
+                                    y: (value.location.y / canvasSize.height).clamped(to: 0...1)
+                                )
+                                selectSubject(at: normalizedPoint)
+                            }
+                    )
+                    .accessibilityLabel("Select image subject")
+                    .accessibilityHint("Tap the subject to separate it from the background")
+            }
         }
     }
 
     private var isBusy: Bool {
-        isPreparingFilter || isSavingImage || isUploadingImage || isApplyingEditedImage
+        isPreparingFilter || isSavingImage || isUploadingImage || isApplyingEditedImage || isSelectingSubject
     }
 
     private var isEditingComposeAttachment: Bool {
@@ -973,6 +1154,9 @@ struct ImageRemixEditorView: View {
     }
 
     private var progressTitle: String {
+        if isSelectingSubject {
+            return "Finding subject..."
+        }
         if isApplyingEditedImage {
             return "Updating image..."
         }
@@ -988,6 +1172,10 @@ struct ImageRemixEditorView: View {
     private var selectedTextOverlay: ImageRemixTextOverlay? {
         guard let selectedOverlayID else { return nil }
         return textOverlays.first(where: { $0.id == selectedOverlayID })
+    }
+
+    private var workingBaseImage: UIImage {
+        subjectEditedImage ?? baseImage
     }
 
     private var selectedStickerOverlay: ImageRemixStickerOverlay? {
@@ -1036,18 +1224,19 @@ struct ImageRemixEditorView: View {
     }
 
     private func fittedCanvasSize(in availableSize: CGSize) -> CGSize {
-        guard baseImage.size.width > 0, baseImage.size.height > 0 else {
+        let sourceSize = workingBaseImage.size
+        guard sourceSize.width > 0, sourceSize.height > 0 else {
             return CGSize(width: max(availableSize.width - 40, 0), height: max(availableSize.height - 40, 0))
         }
 
         let maxWidth = max(availableSize.width - 40, 120)
         let maxHeight = max(availableSize.height - 40, 120)
-        let widthRatio = maxWidth / baseImage.size.width
-        let heightRatio = maxHeight / baseImage.size.height
+        let widthRatio = maxWidth / sourceSize.width
+        let heightRatio = maxHeight / sourceSize.height
         let scale = min(widthRatio, heightRatio)
         return CGSize(
-            width: baseImage.size.width * scale,
-            height: baseImage.size.height * scale
+            width: sourceSize.width * scale,
+            height: sourceSize.height * scale
         )
     }
 
@@ -1055,7 +1244,7 @@ struct ImageRemixEditorView: View {
         previewRequestID = UUID()
         let requestID = previewRequestID
         let preset = selectedFilter
-        let source = baseImage
+        let source = workingBaseImage
 
         if preset == .original {
             filteredPreviewImage = source
@@ -1146,8 +1335,81 @@ struct ImageRemixEditorView: View {
         stickerOverlays[index] = overlay
     }
 
+    private func selectSubject(at normalizedPoint: CGPoint) {
+        guard !isSelectingSubject else { return }
+        guard #available(iOS 27.0, *) else {
+            toastCenter.show("Subject selection requires iOS 27.", style: .error, duration: 2.8)
+            return
+        }
+
+        isSelectingSubject = true
+        let source = filteredPreviewImage
+        Task {
+            do {
+                let selection = try await HaloSubjectSegmentation.selectSubject(
+                    in: source,
+                    at: normalizedPoint
+                )
+                subjectSelection = selection
+                isSelectingSubject = false
+                showConfirmationBanner("Subject selected")
+            } catch {
+                isSelectingSubject = false
+                subjectSelection = nil
+                toastCenter.show(
+                    (error as? LocalizedError)?.errorDescription ?? "Halo couldn't select that subject.",
+                    style: .error,
+                    duration: 2.8
+                )
+            }
+        }
+    }
+
+    private func applySubjectEffect(_ keyPath: KeyPath<HaloSubjectSelection, UIImage>) {
+        guard let subjectSelection else { return }
+        subjectEditedImage = subjectSelection[keyPath: keyPath]
+        selectedFilter = .original
+        filteredPreviewImage = subjectSelection[keyPath: keyPath]
+        self.subjectSelection = nil
+    }
+
+    private func resetSubjectEdits() {
+        subjectSelection = nil
+        subjectEditedImage = nil
+        refreshFilteredPreview()
+    }
+
+    private func openImagePlayground() {
+        guard #available(iOS 18.1, *), ImagePlaygroundViewController.isAvailable else {
+            toastCenter.show("Image Playground isn't available on this device.", style: .error, duration: 2.8)
+            return
+        }
+        imagePlaygroundSourceImage = renderEditedImage()
+        isShowingImagePlayground = true
+    }
+
+    private func handleImagePlaygroundCompletion(_ url: URL) {
+        guard let data = try? Data(contentsOf: url),
+              let generatedImage = UIImage(data: data)?.flowPreparedForRemix(maxDimension: 1_800) else {
+            toastCenter.show("Halo couldn't open the created image.", style: .error, duration: 2.8)
+            return
+        }
+
+        subjectEditedImage = generatedImage
+        subjectSelection = nil
+        selectedFilter = .original
+        filteredPreviewImage = generatedImage
+        strokes.removeAll()
+        redoStrokes.removeAll()
+        textOverlays.removeAll()
+        stickerOverlays.removeAll()
+        selectedOverlayID = nil
+        imagePlaygroundSourceImage = nil
+        showConfirmationBanner("Variation added")
+    }
+
     private func renderEditedImage() -> UIImage {
-        let filteredImage = ImageRemixFilterProcessor.renderedImage(for: selectedFilter, from: baseImage)
+        let filteredImage = ImageRemixFilterProcessor.renderedImage(for: selectedFilter, from: workingBaseImage)
         let content = ImageRemixStaticCompositionView(
             image: filteredImage,
             canvasSize: filteredImage.size,
@@ -1205,7 +1467,7 @@ struct ImageRemixEditorView: View {
         }
 
         let image = renderEditedImage()
-        guard let imageData = image.jpegData(compressionQuality: 0.94) else {
+        guard let encodedImage = ImageRemixUploadEncoding(image: image) else {
             toastCenter.show("Couldn't prepare that image for upload.", style: .error, duration: 2.8)
             return
         }
@@ -1217,9 +1479,9 @@ struct ImageRemixEditorView: View {
 
         do {
             let result = try await mediaUploadService.uploadMedia(
-                data: imageData,
-                mimeType: "image/jpeg",
-                filename: "remix-\(UUID().uuidString).jpg",
+                data: encodedImage.data,
+                mimeType: encodedImage.mimeType,
+                filename: "remix-\(UUID().uuidString).\(encodedImage.fileExtension)",
                 nsec: normalizedNsec,
                 provider: appSettings.mediaUploadProvider
             )
@@ -1228,8 +1490,8 @@ struct ImageRemixEditorView: View {
                 ComposeMediaAttachment(
                     url: result.url,
                     imetaTag: result.imetaTag,
-                    mimeType: "image/jpeg",
-                    fileSizeBytes: imageData.count
+                    mimeType: encodedImage.mimeType,
+                    fileSizeBytes: encodedImage.data.count
                 ),
                 forReply ? sourceEvent : nil
             )

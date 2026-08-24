@@ -3,9 +3,11 @@ import UIKit
 
 enum ImageRemixTool: String, CaseIterable, Identifiable {
     case filters
+    case subjects
     case draw
     case text
     case stickers
+    case create
 
     var id: String { rawValue }
 
@@ -13,12 +15,16 @@ enum ImageRemixTool: String, CaseIterable, Identifiable {
         switch self {
         case .filters:
             return "Filters"
+        case .subjects:
+            return "Subject"
         case .draw:
             return "Draw"
         case .text:
             return "Text"
         case .stickers:
             return "Stickers"
+        case .create:
+            return "Create"
         }
     }
 
@@ -26,12 +32,16 @@ enum ImageRemixTool: String, CaseIterable, Identifiable {
         switch self {
         case .filters:
             return "sparkles"
+        case .subjects:
+            return "person.crop.rectangle"
         case .draw:
             return "scribble.variable"
         case .text:
             return "textformat"
         case .stickers:
             return "face.smiling"
+        case .create:
+            return "wand.and.stars"
         }
     }
 }

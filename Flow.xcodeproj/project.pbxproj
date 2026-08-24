@@ -51,10 +51,12 @@
 		23E86DFE95582F9656D78467 /* DMSans.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E304D4E8ED48016DD1E5DFEA /* DMSans.ttf */; };
 		2421A4241E58BA6A273C0E23 /* FlowLayoutGuardrailsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CC25D9B28CD86D0D614512E /* FlowLayoutGuardrailsTests.swift */; };
 		24BBEAEEE5AEAD64145CC476 /* HaloPerformanceMonitoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337729F5EA5048DB49A3B340 /* HaloPerformanceMonitoring.swift */; };
+		259CBF5CECB5516E841A7059 /* HaloSubjectSegmentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4518BE49B2C27718F7B43E8 /* HaloSubjectSegmentation.swift */; };
 		26725AD373B892D2B989A5C9 /* SettingsAppearanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF207C026ABEFA8EEC5F36AF /* SettingsAppearanceView.swift */; };
 		27FD0AAFE54262EB93C36527 /* PollModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 151A65BB15F10295225A7D6A /* PollModelsTests.swift */; };
 		2F8184A1622F2852891CF9C4 /* HomeFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BF58C9E17E69DC8787A73BC /* HomeFeedView.swift */; };
 		2FFE75A363A191C5B56B6DB3 /* NoteContentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85EAD6ECBAD9C4846932EE1C /* NoteContentParser.swift */; };
+		3308FC6AA7DE0CBB9411A387 /* HaloImageRemixIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 525CF06CB984ADCE339F73D9 /* HaloImageRemixIntegrationTests.swift */; };
 		331005DE6E26309362E77DBF /* AppFontOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D6E2FE9C608FF26B59D358 /* AppFontOption.swift */; };
 		34CC6F578DBB638FCD7A1D78 /* SettingsMediaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C969F08ACC15FE7DC675C3 /* SettingsMediaView.swift */; };
 		3526AA8C857820567D62575C /* LongFormArticleModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 425996BFC8F1FE946E745146 /* LongFormArticleModelsTests.swift */; };
@@ -368,6 +370,7 @@
 		505A7CDC9E3F0A15A1C4F5F8 /* NoteReportSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteReportSheetView.swift; sourceTree = "<group>"; };
 		511060E12B55934D1299527C /* SignupOnboardingFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignupOnboardingFlowTests.swift; sourceTree = "<group>"; };
 		51845B2B52C7FA719299524C /* HaloAudioPlaybackCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaloAudioPlaybackCoordinator.swift; sourceTree = "<group>"; };
+		525CF06CB984ADCE339F73D9 /* HaloImageRemixIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaloImageRemixIntegrationTests.swift; sourceTree = "<group>"; };
 		52DF640ED9A2F870EE31FEB7 /* ElmsSans.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = ElmsSans.ttf; sourceTree = "<group>"; };
 		52F39CB18BE7884FB0A8A159 /* AuthorRelayPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorRelayPlannerTests.swift; sourceTree = "<group>"; };
 		53F5DA9D089C96CC1B1C4188 /* ActivityRowPreviewDisplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRowPreviewDisplayTests.swift; sourceTree = "<group>"; };
@@ -509,6 +512,7 @@
 		E1F6836BDC0C280FB41674C1 /* SettingsSheetStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheetStateTests.swift; sourceTree = "<group>"; };
 		E304D4E8ED48016DD1E5DFEA /* DMSans.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = DMSans.ttf; sourceTree = "<group>"; };
 		E3D6E2FE9C608FF26B59D358 /* AppFontOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFontOption.swift; sourceTree = "<group>"; };
+		E4518BE49B2C27718F7B43E8 /* HaloSubjectSegmentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaloSubjectSegmentation.swift; sourceTree = "<group>"; };
 		E4889A19CC98EE799589C45B /* ThreadDetailComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadDetailComponents.swift; sourceTree = "<group>"; };
 		E695E0883CD0CDEE151E004B /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		E6BDD5E9DEFAD0D257ED53A2 /* RelaySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelaySettingsView.swift; sourceTree = "<group>"; };
@@ -656,6 +660,7 @@
 				7CC25D9B28CD86D0D614512E /* FlowLayoutGuardrailsTests.swift */,
 				D2EE38569BAF46EC577CDF58 /* FlowMediaCacheDiagnosticsTests.swift */,
 				D8BB7735D70B178ADC6A622A /* FlowNetworkPathMonitorTests.swift */,
+				525CF06CB984ADCE339F73D9 /* HaloImageRemixIntegrationTests.swift */,
 				230D303E5414CD9549951EB3 /* HaloSystemNavigationTests.swift */,
 				F23CC4CF52157CEDCC4B539B /* HomeFeedModeTests.swift */,
 				7D2F9C728B9BF4A4C652D8AF /* HomeFeedViewModelTests.swift */,
@@ -930,6 +935,7 @@
 				88E10288F9317E8E9959E77E /* FeedRowView.swift */,
 				1ED5C6EF9F220A3E121ECE2E /* FlowCapsuleTabBar.swift */,
 				51845B2B52C7FA719299524C /* HaloAudioPlaybackCoordinator.swift */,
+				E4518BE49B2C27718F7B43E8 /* HaloSubjectSegmentation.swift */,
 				FB8E0B2EBA2BA6A0BA1C44D8 /* ImageRemixEditorControls.swift */,
 				BD4A3A69CDBE8348D50E5A7D /* ImageRemixEditorModels.swift */,
 				419BE95AAE93709A1913E5F5 /* ImageRemixEditorProcessing.swift */,
@@ -1220,6 +1226,7 @@
 				4BC2FFFAC8379D8E310409DF /* HaloLinkThreadView.swift in Sources */,
 				24BBEAEEE5AEAD64145CC476 /* HaloPerformanceMonitoring.swift in Sources */,
 				ED93BF572F9FF52D017108A8 /* HaloReactionBonus.swift in Sources */,
+				259CBF5CECB5516E841A7059 /* HaloSubjectSegmentation.swift in Sources */,
 				3F0F1B8F737A7B2A3FECD082 /* HaloSystemEntities.swift in Sources */,
 				B8C448AF8680823CE5182F06 /* HaloSystemNavigation.swift in Sources */,
 				94F6A15C5F930511A7E60B09 /* HaloSystemRouteView.swift in Sources */,
@@ -1361,6 +1368,7 @@
 				2421A4241E58BA6A273C0E23 /* FlowLayoutGuardrailsTests.swift in Sources */,
 				9D863BB7629A60AC9BD679EE /* FlowMediaCacheDiagnosticsTests.swift in Sources */,
 				9A71BCECC43AB8680EB13885 /* FlowNetworkPathMonitorTests.swift in Sources */,
+				3308FC6AA7DE0CBB9411A387 /* HaloImageRemixIntegrationTests.swift in Sources */,
 				8EC579E5BE688BFBD0657C06 /* HaloSystemNavigationTests.swift in Sources */,
 				BB5E7852F3184B4DC679A335 /* HomeFeedModeTests.swift in Sources */,
 				EBDF2086176BD4F89676D952 /* HomeFeedViewModelTests.swift in Sources */,
