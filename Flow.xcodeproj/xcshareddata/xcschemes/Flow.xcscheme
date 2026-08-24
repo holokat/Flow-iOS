@@ -50,6 +50,17 @@
                ReferencedContainer = "container:Flow.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "EEE1B747606CFF2BA6717DF6"
+               BuildableName = "FlowUITests.xctest"
+               BlueprintName = "FlowUITests"
+               ReferencedContainer = "container:Flow.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>

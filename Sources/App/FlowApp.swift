@@ -17,6 +17,7 @@ struct FlowApp: App {
     @StateObject private var composeSheetCoordinator = AppComposeSheetCoordinator()
     @StateObject private var composeDraftStore = AppComposeDraftStore()
     @StateObject private var breakReminderCoordinator = BreakReminderCoordinator()
+    @StateObject private var systemNavigationStore = HaloSystemNavigationStore()
     @State private var launchSplashSelection = WelcomeArtworkSelection.initial()
     @State private var isLaunchSplashVisible = false
     @State private var hasPresentedLaunchSplash = false
@@ -91,6 +92,10 @@ struct FlowApp: App {
             .environmentObject(composeSheetCoordinator)
             .environmentObject(composeDraftStore)
             .environmentObject(breakReminderCoordinator)
+            .environmentObject(systemNavigationStore)
+            .sheet(item: $systemNavigationStore.presentedContentRoute) { route in
+                HaloSystemRouteView(route: route)
+            }
             .tint(appSettings.primaryColor)
             .preferredColorScheme(appSettings.preferredColorScheme)
             .task {
@@ -106,6 +111,7 @@ struct FlowApp: App {
                 Task(priority: .utility) {
                     await appSettings.refreshNotificationAuthorizationStatus()
                     await presentPendingSharedComposeDraftIfPossible()
+                    await HaloSystemIndexer.syncFeeds(appSettings.customFeeds)
                 }
             }
             .onChange(of: authManager.currentAccount?.pubkey) { _, newValue in
@@ -127,6 +133,11 @@ struct FlowApp: App {
             }
             .onChange(of: appSettings.previewTheme?.rawValue) { _, _ in
                 updateGlobalNavigationAppearance()
+            }
+            .onChange(of: appSettings.customFeeds) { _, feeds in
+                Task(priority: .utility) {
+                    await HaloSystemIndexer.syncFeeds(feeds)
+                }
             }
             .onChange(of: composeSheetCoordinator.draft?.id) { _, newValue in
                 guard newValue == nil else { return }
@@ -152,11 +163,19 @@ struct FlowApp: App {
                 }
             }
             .onOpenURL { url in
-                guard FlowSharedComposeDraftStore.canHandleIncomingURL(url) else { return }
-                Task {
-                    await presentPendingSharedComposeDraftIfPossible()
-                }
+                handleIncomingURL(url)
             }
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        if FlowSharedComposeDraftStore.canHandleIncomingURL(url) {
+            Task {
+                await presentPendingSharedComposeDraftIfPossible()
+            }
+            return
+        }
+
+        _ = systemNavigationStore.accept(url)
     }
 
     // Relay sockets silently die while the app is suspended. Reconnect them
@@ -281,8 +300,11 @@ struct FlowApp: App {
 final class AppComposeSheetCoordinator: ObservableObject {
     @Published var draft: AppComposeSheetDraft?
 
-    func presentNewNote() {
-        draft = AppComposeSheetDraft(viewModel: ComposeNoteViewModel())
+    func presentNewNote(initialText: String = "") {
+        draft = AppComposeSheetDraft(
+            viewModel: ComposeNoteViewModel(),
+            initialText: initialText
+        )
     }
 
     func presentRemix(

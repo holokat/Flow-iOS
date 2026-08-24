@@ -814,6 +814,7 @@ struct ThreadDetailView: View {
         }
 
         await viewModel.loadIfNeeded()
+        await HaloSystemIndexer.recordNote(viewModel.rootItem)
 
         if !isArticle, initialReplyScrollTargetID != nil {
             Task { @MainActor in

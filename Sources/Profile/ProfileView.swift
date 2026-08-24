@@ -476,6 +476,12 @@ struct ProfileView: View {
         .task {
             configureStores()
             await loadInitialProfileScreenData()
+            await HaloSystemIndexer.recordProfile(
+                pubkey: viewModel.pubkey,
+                displayName: viewModel.displayName,
+                handle: viewModel.handle,
+                avatarURL: viewModel.avatarURL
+            )
         }
         .sheet(isPresented: $isShowingProfileEditor) {
             ProfileEditorSheet(

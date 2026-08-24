@@ -323,6 +323,11 @@ final class SearchViewModel: ObservableObject {
         await activateSuggestedContentSearch()
     }
 
+    func performSystemSearch(query: String) async {
+        searchText = String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(500))
+        await submitSearch()
+    }
+
     private func refreshPopularProfiles() async {
         guard !isLoading else { return }
 

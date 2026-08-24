@@ -74,6 +74,20 @@ targets:
         DEVELOPMENT_TEAM: 9LZ5TSWPZ9
     dependencies:
       - target: Flow
+  FlowUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "27.0"
+    sources:
+      - path: UITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.21media.haloapp.UITests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: 5.0
+        DEVELOPMENT_TEAM: 9LZ5TSWPZ9
+    dependencies:
+      - target: Flow
 schemes:
   Flow:
     build:
@@ -83,5 +97,6 @@ schemes:
       config: Debug
       targets:
         - name: FlowTests
+        - name: FlowUITests
     run:
       config: Debug

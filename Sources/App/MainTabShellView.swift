@@ -61,6 +61,7 @@ struct MainTabShellView: View {
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var relaySettings: RelaySettingsStore
     @EnvironmentObject private var composeSheetCoordinator: AppComposeSheetCoordinator
+    @EnvironmentObject private var systemNavigationStore: HaloSystemNavigationStore
     @ObservedObject private var muteStore = MuteStore.shared
     @ObservedObject private var followStore = FollowStore.shared
 
@@ -162,6 +163,7 @@ struct MainTabShellView: View {
             await activityViewModel.sceneDidChange(isActive: scenePhase == .active)
             configureLiveReactsSubscription()
             syncActivityTabActiveState()
+            handlePendingSystemRouteIfNeeded()
         }
     }
 
@@ -182,6 +184,9 @@ struct MainTabShellView: View {
             configureMuteStore()
             if newNsec != nil, pendingHaloLinkParticipantPubkey != nil {
                 handleTabSelection(.dms)
+            }
+            if newNsec != nil {
+                handlePendingSystemRouteIfNeeded()
             }
         }
     }
@@ -256,6 +261,9 @@ struct MainTabShellView: View {
             } else {
                 handleTabSelection(.dms)
             }
+        }
+        .onChange(of: systemNavigationStore.pendingTabRoute) { _, _ in
+            handlePendingSystemRouteIfNeeded()
         }
         .animation(FlowTransitionMotion.sidePanelAnimation(reduceMotion: accessibilityReduceMotion), value: isHomeSideMenuPresented)
         .animation(.easeInOut(duration: 0.2), value: isDMRootVisible)
@@ -617,6 +625,42 @@ struct MainTabShellView: View {
         }
 
         composeSheetCoordinator.presentNewNote()
+    }
+
+    private func handlePendingSystemRouteIfNeeded() {
+        guard let route = systemNavigationStore.pendingTabRoute else { return }
+
+        switch route {
+        case .feed(let id):
+            homeViewModel.updateCustomFeeds(appSettings.customFeeds)
+            handleTabSelection(.home)
+            if homeViewModel.customFeedDefinition(id: id) != nil {
+                homeViewModel.selectFeedSource(.custom(id))
+            }
+        case .search(let query):
+            handleTabSelection(.search)
+            Task {
+                await searchViewModel.performSystemSearch(query: query)
+            }
+        case .compose(let text):
+            guard auth.currentAccount != nil, auth.currentNsec != nil else {
+                showAccountAccess()
+                return
+            }
+            composeSheetCoordinator.presentNewNote(initialText: text)
+        case .message(let pubkey, let draft):
+            guard auth.currentNsec != nil else {
+                showAccountAccess()
+                return
+            }
+            HaloLinkPendingDraftStore.save(draft, recipientPubkey: pubkey)
+            pendingHaloLinkParticipantPubkey = pubkey
+            handleTabSelection(.dms)
+        case .profile, .note, .hashtag:
+            return
+        }
+
+        systemNavigationStore.clearPendingTabRoute()
     }
 
     private func showAccountAccess() {
