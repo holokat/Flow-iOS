@@ -234,6 +234,19 @@ struct MainTabShellView: View {
         .onChange(of: shouldKeepHomeFeedActive, initial: true) { _, isActive in
             homeViewModel.setBackgroundUpdatesPaused(!isActive)
         }
+        .onChange(of: homeViewModel.isLoading) { _, isLoading in
+            guard selectedTab == .home else { return }
+            HaloPerformanceMonitor.shared.transition(
+                isLoading ? .homeFeedLoading : .home,
+                signedIn: auth.isLoggedIn
+            )
+        }
+        .onChange(of: composeSheetCoordinator.draft?.id) { _, draftID in
+            let state: HaloPerformanceState = draftID == nil
+                ? performanceState(for: selectedTab)
+                : .composer
+            HaloPerformanceMonitor.shared.transition(state, signedIn: auth.isLoggedIn)
+        }
     }
 
     private var eventHandlingShell: some View {
@@ -710,6 +723,10 @@ struct MainTabShellView: View {
         }
 
         selectedTab = tab
+        HaloPerformanceMonitor.shared.transition(
+            performanceState(for: tab),
+            signedIn: auth.isLoggedIn
+        )
         syncActivityTabActiveState()
 
         if selectionEffects.resetsHomeRoot {
@@ -718,6 +735,16 @@ struct MainTabShellView: View {
 
         if selectionEffects.resetsSearchRoot {
             searchRootResetID = UUID()
+        }
+    }
+
+    private func performanceState(for tab: Tab) -> HaloPerformanceState {
+        switch tab {
+        case .home: return .home
+        case .search: return .search
+        case .compose: return .composer
+        case .dms: return .haloLink
+        case .activity: return .activity
         }
     }
 

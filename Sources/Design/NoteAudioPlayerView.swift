@@ -1,4 +1,3 @@
-import AVFoundation
 import Foundation
 import SwiftUI
 
@@ -6,18 +5,8 @@ struct NoteAudioPlayerView: View {
     let url: URL
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
-    @State private var player: AVPlayer
-    @State private var isPlaying = false
-    @State private var currentTime: Double = 0
-    @State private var duration: Double = 0
+    @ObservedObject private var playback = HaloAudioPlaybackCoordinator.shared
     @State private var dragProgress: Double?
-    @State private var timeObserverToken: Any?
-    @State private var timeControlStatusObserver: NSKeyValueObservation?
-
-    init(url: URL) {
-        self.url = url
-        _player = State(initialValue: AVPlayer(url: url))
-    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
@@ -79,25 +68,22 @@ struct NoteAudioPlayerView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(appSettings.themeSeparator(defaultOpacity: 0.72), lineWidth: 0.7)
         )
-        .onAppear {
-            configurePlaybackObservers()
-            updateDurationFromCurrentItem()
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)
-        ) { notification in
-            guard let endedItem = notification.object as? AVPlayerItem,
-                  endedItem == player.currentItem else { return }
-            isPlaying = false
-            currentTime = 0
-            dragProgress = nil
-            player.seek(to: .zero)
-        }
-        .onDisappear {
-            player.pause()
-            isPlaying = false
-            removePlaybackObservers()
-        }
+    }
+
+    private var isCurrentAudio: Bool {
+        playback.isCurrent(url)
+    }
+
+    private var isPlaying: Bool {
+        isCurrentAudio && playback.isPlaying
+    }
+
+    private var currentTime: Double {
+        isCurrentAudio ? playback.currentTime : 0
+    }
+
+    private var duration: Double {
+        isCurrentAudio ? playback.duration : 0
     }
 
     private var audioPlayerBackground: Color {
@@ -136,66 +122,12 @@ struct NoteAudioPlayerView: View {
     }
 
     private func togglePlayback() {
-        if isPlaying {
-            player.pause()
-            isPlaying = false
-        } else {
-            NoteVideoPlaybackAudioSession.activateIfNeeded()
-            player.play()
-            isPlaying = true
-        }
+        playback.toggle(url: url)
     }
 
     private func seek(toProgress progress: Double) {
         guard hasPlayableDuration else { return }
-        let seconds = NoteAudioPlayerLayout.seekSeconds(
-            forProgress: progress,
-            duration: duration
-        )
-        currentTime = seconds
-        let target = CMTime(seconds: seconds, preferredTimescale: 600)
-        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
-    }
-
-    private func configurePlaybackObservers() {
-        guard timeObserverToken == nil else { return }
-
-        timeControlStatusObserver = player.observe(\.timeControlStatus, options: [.initial, .new]) { observedPlayer, _ in
-            DispatchQueue.main.async {
-                isPlaying = observedPlayer.timeControlStatus == .playing
-            }
-        }
-
-        timeObserverToken = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.12, preferredTimescale: 600),
-            queue: .main
-        ) { time in
-            guard dragProgress == nil else { return }
-            let seconds = time.seconds
-            if seconds.isFinite {
-                currentTime = seconds
-            }
-            updateDurationFromCurrentItem()
-        }
-    }
-
-    private func removePlaybackObservers() {
-        if let timeObserverToken {
-            player.removeTimeObserver(timeObserverToken)
-            self.timeObserverToken = nil
-        }
-
-        timeControlStatusObserver?.invalidate()
-        timeControlStatusObserver = nil
-    }
-
-    private func updateDurationFromCurrentItem() {
-        guard let seconds = player.currentItem?.duration.seconds,
-              seconds.isFinite,
-              seconds > 0 else {
-            return
-        }
-        duration = seconds
+        playback.seek(url: url, toProgress: progress)
     }
 }
 

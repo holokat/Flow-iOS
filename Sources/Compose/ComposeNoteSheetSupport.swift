@@ -510,6 +510,11 @@ final class ComposeNoteViewModel: ObservableObject {
     }
 
     func finishPublication(_ prepared: ComposePreparedPublication) async -> Bool {
+        HaloPerformanceMonitor.shared.transition(.publishing, signedIn: true)
+        defer {
+            HaloPerformanceMonitor.shared.transition(.composer, signedIn: true)
+        }
+
         do {
             switch prepared {
             case .note(let prepared), .poll(let prepared):

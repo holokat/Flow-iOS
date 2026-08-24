@@ -99,6 +99,7 @@ struct FlowApp: App {
             .tint(appSettings.primaryColor)
             .preferredColorScheme(appSettings.preferredColorScheme)
             .task {
+                HaloPerformanceMonitor.shared.start(signedIn: authManager.isLoggedIn)
                 appSettings.configure(accountPubkey: authManager.currentAccount?.pubkey)
                 relaySettings.configure(
                     accountPubkey: authManager.currentAccount?.pubkey,
@@ -107,6 +108,10 @@ struct FlowApp: App {
                 await presentLaunchSplashIfNeeded()
                 updateGlobalNavigationAppearance()
                 updateBreakReminderMonitoring()
+                HaloPerformanceMonitor.shared.transition(
+                    authManager.isLoggedIn ? .home : .onboarding,
+                    signedIn: authManager.isLoggedIn
+                )
 
                 Task(priority: .utility) {
                     await appSettings.refreshNotificationAuthorizationStatus()
@@ -121,6 +126,10 @@ struct FlowApp: App {
                     nsec: authManager.currentNsec
                 )
                 updateBreakReminderMonitoring()
+                HaloPerformanceMonitor.shared.transition(
+                    newValue == nil ? .onboarding : .home,
+                    signedIn: newValue != nil
+                )
                 Task {
                     await presentPendingSharedComposeDraftIfPossible()
                 }
@@ -155,8 +164,15 @@ struct FlowApp: App {
                 updateBreakReminderMonitoring()
                 if newValue == .background {
                     didEnterBackground = true
+                    HaloPerformanceMonitor.shared.transition(
+                        .background,
+                        signedIn: authManager.isLoggedIn
+                    )
                 }
                 guard newValue == .active else { return }
+                HaloPerformanceMonitor.shared.sceneDidBecomeActive(
+                    signedIn: authManager.isLoggedIn
+                )
                 recoverRelayConnectionsAfterBackgroundIfNeeded()
                 Task(priority: .utility) {
                     await presentPendingSharedComposeDraftIfPossible()

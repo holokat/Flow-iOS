@@ -50,6 +50,7 @@
 		23C26BB0ED40C91FCF76F669 /* CrawlCursorStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEB82ADDAF2014F1EFC7A16F /* CrawlCursorStoreTests.swift */; };
 		23E86DFE95582F9656D78467 /* DMSans.ttf in Resources */ = {isa = PBXBuildFile; fileRef = E304D4E8ED48016DD1E5DFEA /* DMSans.ttf */; };
 		2421A4241E58BA6A273C0E23 /* FlowLayoutGuardrailsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CC25D9B28CD86D0D614512E /* FlowLayoutGuardrailsTests.swift */; };
+		24BBEAEEE5AEAD64145CC476 /* HaloPerformanceMonitoring.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337729F5EA5048DB49A3B340 /* HaloPerformanceMonitoring.swift */; };
 		26725AD373B892D2B989A5C9 /* SettingsAppearanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF207C026ABEFA8EEC5F36AF /* SettingsAppearanceView.swift */; };
 		27FD0AAFE54262EB93C36527 /* PollModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 151A65BB15F10295225A7D6A /* PollModelsTests.swift */; };
 		2F8184A1622F2852891CF9C4 /* HomeFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BF58C9E17E69DC8787A73BC /* HomeFeedView.swift */; };
@@ -195,6 +196,7 @@
 		CBE12418B2EF573FEAFB06AD /* ComposePollModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 685358727DA5E170BB9AE805 /* ComposePollModels.swift */; };
 		CC7ADDDBDE4AEEBB871DB73A /* ProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1480B5E7A53CAE02D9D677C1 /* ProfileViewModel.swift */; };
 		D0016D02B1C4E7C644166C47 /* NostrArchivesSearchServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11B0AE37EFE1E6A07DF93296 /* NostrArchivesSearchServiceTests.swift */; };
+		D0BFF94F948FAF634CE6D6DB /* HaloAudioPlaybackCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51845B2B52C7FA719299524C /* HaloAudioPlaybackCoordinator.swift */; };
 		D2194AE6438D861CC9AFEB79 /* FollowStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C79C9AF2B774553CEEF8299 /* FollowStore.swift */; };
 		D424A84308B9D6A70CC57FBC /* ReactionButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D961155CF6467EAA934FDBA /* ReactionButton.swift */; };
 		D56D1CAA7AD09E392DA35AB0 /* ProfileEventService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92745AAE627B22A05C5801E1 /* ProfileEventService.swift */; };
@@ -335,6 +337,7 @@
 		31A7D4B5649CF06E87EC4A57 /* Nacelle-SemiBold.otf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Nacelle-SemiBold.otf"; sourceTree = "<group>"; };
 		31BCB7CCA172D72EA49D0D8B /* FeedVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedVisibilityTests.swift; sourceTree = "<group>"; };
 		3345ED4662B6C65B45A50BDD /* DeviceOwnerAuthenticationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceOwnerAuthenticationGate.swift; sourceTree = "<group>"; };
+		337729F5EA5048DB49A3B340 /* HaloPerformanceMonitoring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaloPerformanceMonitoring.swift; sourceTree = "<group>"; };
 		34E0E4C03AE499A85957C356 /* aura.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = aura.json; sourceTree = "<group>"; };
 		373455F6CDF99124C3D9A51F /* AppThemePalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppThemePalette.swift; sourceTree = "<group>"; };
 		392BF0CBA726B8A166A0B0AB /* PollResultsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollResultsStoreTests.swift; sourceTree = "<group>"; };
@@ -364,6 +367,7 @@
 		4F0D053675BBAFEE56D8B9BC /* NostrFeedServiceTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrFeedServiceTypes.swift; sourceTree = "<group>"; };
 		505A7CDC9E3F0A15A1C4F5F8 /* NoteReportSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteReportSheetView.swift; sourceTree = "<group>"; };
 		511060E12B55934D1299527C /* SignupOnboardingFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignupOnboardingFlowTests.swift; sourceTree = "<group>"; };
+		51845B2B52C7FA719299524C /* HaloAudioPlaybackCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaloAudioPlaybackCoordinator.swift; sourceTree = "<group>"; };
 		52DF640ED9A2F870EE31FEB7 /* ElmsSans.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = ElmsSans.ttf; sourceTree = "<group>"; };
 		52F39CB18BE7884FB0A8A159 /* AuthorRelayPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorRelayPlannerTests.swift; sourceTree = "<group>"; };
 		53F5DA9D089C96CC1B1C4188 /* ActivityRowPreviewDisplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRowPreviewDisplayTests.swift; sourceTree = "<group>"; };
@@ -584,6 +588,7 @@
 				0C5B7161C48261146444A8EB /* FlowNetworkPathMonitor.swift */,
 				596CFEA9874FDBFE4D5E84D7 /* FlowTransitionMotion.swift */,
 				A1A181E457D4306F4E511681 /* HaloAppIntents.swift */,
+				337729F5EA5048DB49A3B340 /* HaloPerformanceMonitoring.swift */,
 				77161437C3B39FD4CCBA513C /* HaloSystemEntities.swift */,
 				83706ED9BF5E74A06B80F976 /* HaloSystemNavigation.swift */,
 				C7B874FC316FCC359286E9F7 /* HaloSystemRouteView.swift */,
@@ -924,6 +929,7 @@
 				63D554ED3C23A4F578BBAB7C /* CompactMediaAttachmentPreview.swift */,
 				88E10288F9317E8E9959E77E /* FeedRowView.swift */,
 				1ED5C6EF9F220A3E121ECE2E /* FlowCapsuleTabBar.swift */,
+				51845B2B52C7FA719299524C /* HaloAudioPlaybackCoordinator.swift */,
 				FB8E0B2EBA2BA6A0BA1C44D8 /* ImageRemixEditorControls.swift */,
 				BD4A3A69CDBE8348D50E5A7D /* ImageRemixEditorModels.swift */,
 				419BE95AAE93709A1913E5F5 /* ImageRemixEditorProcessing.swift */,
@@ -1208,9 +1214,11 @@
 				B3A52A2C4320116B348414E5 /* FollowingListView.swift in Sources */,
 				F4D2C1E16E8E755F5B5A9279 /* FollowingListViewModel.swift in Sources */,
 				EC4F165366B43A20B9DC2998 /* HaloAppIntents.swift in Sources */,
+				D0BFF94F948FAF634CE6D6DB /* HaloAudioPlaybackCoordinator.swift in Sources */,
 				A0EA6C6AC32C2824CF83CAB3 /* HaloLinkModels.swift in Sources */,
 				97B6720D10BEEA901409A302 /* HaloLinkStore.swift in Sources */,
 				4BC2FFFAC8379D8E310409DF /* HaloLinkThreadView.swift in Sources */,
+				24BBEAEEE5AEAD64145CC476 /* HaloPerformanceMonitoring.swift in Sources */,
 				ED93BF572F9FF52D017108A8 /* HaloReactionBonus.swift in Sources */,
 				3F0F1B8F737A7B2A3FECD082 /* HaloSystemEntities.swift in Sources */,
 				B8C448AF8680823CE5182F06 /* HaloSystemNavigation.swift in Sources */,
