@@ -44,6 +44,14 @@ enum MediaUploadPreparationError: LocalizedError {
 }
 
 enum MediaUploadPreparation {
+    private final class UncheckedSendableBox<Value>: @unchecked Sendable {
+        let value: Value
+
+        init(_ value: Value) {
+            self.value = value
+        }
+    }
+
     private static let lightCompressionThresholdBytes = 24 * 1_024 * 1_024
     private static let aggressiveCompressionThresholdBytes = 80 * 1_024 * 1_024
     private static let maxStillImageUploadBytes = 1_500 * 1_024
@@ -412,7 +420,7 @@ enum MediaUploadPreparation {
         }
 
         let asset = AVURLAsset(url: sourceURL)
-        let presets = preferredExportPresets(for: asset, originalSize: originalSize)
+        let presets = await preferredExportPresets(for: asset, originalSize: originalSize)
 
         for presetName in presets {
             let candidateURL = try? await exportCompressedVideo(
@@ -450,30 +458,38 @@ enum MediaUploadPreparation {
         let outputExtension = fileExtension(for: outputFileType) ?? fallbackFileExtension.lowercased()
         let outputURL = temporaryFileURL(prefix: "video-upload-", fileExtension: outputExtension)
 
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = outputFileType
         exportSession.shouldOptimizeForNetworkUse = true
 
-        try await export(session: exportSession)
+        try await export(session: exportSession, to: outputURL, as: outputFileType)
         return outputURL
     }
 
-    private static func preferredExportPresets(for asset: AVAsset, originalSize: Int) -> [String] {
-        let presets = AVAssetExportSession.exportPresets(compatibleWith: asset)
-        var preferredPresets = [
+    private static func preferredExportPresets(for asset: AVAsset, originalSize: Int) async -> [String] {
+        var candidatePresets = [
             AVAssetExportPresetPassthrough,
             AVAssetExportPresetHighestQuality
         ]
 
         if originalSize >= aggressiveCompressionThresholdBytes {
-            preferredPresets.append(contentsOf: [
+            candidatePresets.append(contentsOf: [
                 AVAssetExportPreset1920x1080,
                 AVAssetExportPreset1280x720,
                 AVAssetExportPresetMediumQuality
             ])
         }
 
-        return preferredPresets.filter { presets.contains($0) }
+        var compatiblePresets: [String] = []
+        for preset in candidatePresets {
+            let isCompatible = await AVAssetExportSession.compatibility(
+                ofExportPreset: preset,
+                with: asset,
+                outputFileType: nil
+            )
+            if isCompatible {
+                compatiblePresets.append(preset)
+            }
+        }
+        return compatiblePresets
     }
 
     private static func preferredOutputFileType(for exportSession: AVAssetExportSession) -> AVFileType? {
@@ -486,9 +502,22 @@ enum MediaUploadPreparation {
         return exportSession.supportedFileTypes.first
     }
 
-    private static func export(session: AVAssetExportSession) async throws {
+    private static func export(
+        session: AVAssetExportSession,
+        to outputURL: URL,
+        as outputFileType: AVFileType
+    ) async throws {
+        if #available(iOS 18.0, *) {
+            try await session.export(to: outputURL, as: outputFileType)
+            return
+        }
+
+        session.outputURL = outputURL
+        session.outputFileType = outputFileType
+        let sessionBox = UncheckedSendableBox(session)
         try await withCheckedThrowingContinuation { continuation in
             session.exportAsynchronously {
+                let session = sessionBox.value
                 switch session.status {
                 case .completed:
                     continuation.resume()
@@ -919,8 +948,10 @@ enum MediaUploadPreparation {
 
         input.markAsFinished()
 
+        let writerBox = UncheckedSendableBox(writer)
         try await withCheckedThrowingContinuation { continuation in
             writer.finishWriting {
+                let writer = writerBox.value
                 switch writer.status {
                 case .completed:
                     continuation.resume()

@@ -115,7 +115,7 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         }
     }
 
-    func testShareExtensionDeploymentTargetMatchesProjectSpec() throws {
+    func testGeneratedDeploymentTargetsMatchProjectSpec() throws {
         let projectSpec = try Self.sourceText(at: "project.yml")
         let generatedProject = try Self.sourceText(at: "Flow.xcodeproj/project.pbxproj")
         let extensionStart = try XCTUnwrap(projectSpec.range(of: "  FlowShareExtension:"))
@@ -123,17 +123,27 @@ final class ComposeNoteSheetModeTests: XCTestCase {
             projectSpec.range(of: "  FlowTests:", range: extensionStart.upperBound..<projectSpec.endIndex)
         )
         let extensionSpec = projectSpec[extensionStart.lowerBound..<testsStart.lowerBound]
+        let uiTestsStart = try XCTUnwrap(projectSpec.range(of: "  FlowUITests:"))
+        let schemesStart = try XCTUnwrap(
+            projectSpec.range(of: "schemes:", range: uiTestsStart.upperBound..<projectSpec.endIndex)
+        )
+        let uiTestsSpec = projectSpec[uiTestsStart.lowerBound..<schemesStart.lowerBound]
         let generatedDeploymentTargets = generatedProject
             .split(separator: "\n")
             .filter { $0.contains("IPHONEOS_DEPLOYMENT_TARGET =") }
 
         XCTAssertTrue(extensionSpec.contains("deploymentTarget: \"17.0\""))
+        XCTAssertTrue(uiTestsSpec.contains("deploymentTarget: \"27.0\""))
         XCTAssertFalse(generatedDeploymentTargets.isEmpty)
-        XCTAssertTrue(
-            generatedDeploymentTargets.allSatisfy {
-                $0.contains("IPHONEOS_DEPLOYMENT_TARGET = 17.0;")
-            },
-            "The generated project deployment targets must stay aligned with the iOS 17 spec."
+        XCTAssertEqual(
+            generatedDeploymentTargets.filter { $0.contains("IPHONEOS_DEPLOYMENT_TARGET = 17.0;") }.count,
+            6,
+            "The app, Share Extension, and unit-test Debug and Release configurations must stay on iOS 17."
+        )
+        XCTAssertEqual(
+            generatedDeploymentTargets.filter { $0.contains("IPHONEOS_DEPLOYMENT_TARGET = 27.0;") }.count,
+            2,
+            "Only the App Intents UI-test Debug and Release configurations should require iOS 27."
         )
     }
 
