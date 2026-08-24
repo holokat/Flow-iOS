@@ -34,4 +34,26 @@ final class HaloSystemNavigationTests: XCTestCase {
         let parsed = HaloDeepLinkRoute.parse(HaloDeepLinkRoute.search(query: longQuery).url)
         XCTAssertEqual(parsed, .search(query: String(longQuery.prefix(500))))
     }
+
+    func testHaloLinkPendingDraftIsConsumedOnce() {
+        let recipient = String(repeating: "d", count: 64)
+        _ = HaloLinkPendingDraftStore.take(recipientPubkey: recipient)
+
+        HaloLinkPendingDraftStore.save("  Review before sending  ", recipientPubkey: recipient)
+
+        XCTAssertEqual(
+            HaloLinkPendingDraftStore.take(recipientPubkey: recipient),
+            "Review before sending"
+        )
+        XCTAssertNil(HaloLinkPendingDraftStore.take(recipientPubkey: recipient))
+    }
+
+    func testHaloLinkPendingDraftRejectsEmptyText() {
+        let recipient = String(repeating: "e", count: 64)
+        _ = HaloLinkPendingDraftStore.take(recipientPubkey: recipient)
+
+        HaloLinkPendingDraftStore.save(" \n ", recipientPubkey: recipient)
+
+        XCTAssertNil(HaloLinkPendingDraftStore.take(recipientPubkey: recipient))
+    }
 }

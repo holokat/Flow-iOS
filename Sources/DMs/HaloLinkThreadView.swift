@@ -59,6 +59,7 @@ struct HaloLinkThreadView: View {
             }
             .task {
                 store.markConversationAsRead(route.id)
+                applyPendingSystemDraftIfNeeded()
             }
             .onChange(of: lastMessageID) { _, newValue in
                 guard let newValue else { return }
@@ -381,6 +382,21 @@ struct HaloLinkThreadView: View {
         } else {
             draftText += draftText.hasSuffix(" ") ? cleaned : " \(cleaned)"
         }
+    }
+
+    private func applyPendingSystemDraftIfNeeded() {
+        guard route.participantPubkeys.count == 1,
+              let recipientPubkey = route.participantPubkeys.first,
+              let pendingDraft = HaloLinkPendingDraftStore.take(recipientPubkey: recipientPubkey) else {
+            return
+        }
+
+        if draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draftText = pendingDraft
+        } else {
+            draftText += draftText.hasSuffix(" ") ? pendingDraft : " \(pendingDraft)"
+        }
+        isComposerFocused = true
     }
 
     private func sendDraft() async {
