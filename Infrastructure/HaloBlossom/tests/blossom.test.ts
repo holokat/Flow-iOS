@@ -78,6 +78,36 @@ describe("Blossom authorization", () => {
   });
 });
 
+describe("Crawler controls", () => {
+  it("serves a subdomain-wide crawl denial", async () => {
+    const response = await handleBlossomRequest(
+      new Request(`${BASE_URL}/robots.txt`),
+      testBindings(),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toBe(
+      "User-agent: *\nDisallow: /\nContent-Signal: search=no, ai-input=no, ai-train=no\n",
+    );
+    expect(response.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+    expect(response.headers.get("X-Robots-Tag")).toBe(
+      "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    );
+  });
+
+  it("adds no-index instructions to non-HTML responses", async () => {
+    const response = await handleBlossomRequest(
+      new Request(`${BASE_URL}/${"0".repeat(64)}.jpg`, { method: "HEAD" }),
+      testBindings(),
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("X-Robots-Tag")).toBe(
+      "noindex, nofollow, noarchive, nosnippet, noimageindex",
+    );
+  });
+});
+
 describe("Blossom blob lifecycle", () => {
   it("uploads, reads, serves ranges, and deletes an owner blob", async () => {
     const body = new TextEncoder().encode("%PDF-1.4\n%%EOF\n");
@@ -113,6 +143,9 @@ describe("Blossom blob lifecycle", () => {
     expect(new Uint8Array(await download.arrayBuffer())).toEqual(body);
     expect(download.headers.get("Cache-Control")).toBe(
       "public, max-age=31536000, immutable",
+    );
+    expect(download.headers.get("X-Robots-Tag")).toBe(
+      "noindex, nofollow, noarchive, nosnippet, noimageindex",
     );
 
     const range = await handleBlossomRequest(

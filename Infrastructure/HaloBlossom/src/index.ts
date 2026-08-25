@@ -1,4 +1,4 @@
-import { handleBlossomRequest } from "./blossom";
+import { handleBlossomRequest, X_ROBOTS_TAG } from "./blossom";
 
 export { handleBlossomRequest } from "./blossom";
 
@@ -24,6 +24,7 @@ export default {
             "Access-Control-Allow-Origin": "*",
             "Cache-Control": "no-store",
             "X-Reason": "The Blossom server could not complete this request.",
+            "X-Robots-Tag": X_ROBOTS_TAG,
           },
         },
       );

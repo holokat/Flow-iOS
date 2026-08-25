@@ -31,6 +31,11 @@ export type BlossomBindings = {
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const BLOB_PATH_PATTERN = /^\/([0-9a-f]{64})(?:\.([a-z0-9]{1,12}))?$/;
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
+const ROBOTS_TXT = `User-agent: *
+Disallow: /
+Content-Signal: search=no, ai-input=no, ai-train=no
+`;
+export const X_ROBOTS_TAG = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
 const EXTENSION_BY_MIME_TYPE = new Map<string, string>([
   ["application/octet-stream", "bin"],
@@ -77,6 +82,10 @@ export async function handleBlossomRequest(
     );
   }
 
+  if (url.pathname === "/robots.txt") {
+    return handleRobotsTxt(request);
+  }
+
   if (url.pathname === "/") {
     return handleServerInformation(request, env);
   }
@@ -107,6 +116,22 @@ export async function handleBlossomRequest(
     default:
       return methodNotAllowed("GET, HEAD, DELETE, OPTIONS");
   }
+}
+
+function handleRobotsTxt(request: Request): Response {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return methodNotAllowed("GET, HEAD, OPTIONS");
+  }
+
+  return withStandardHeaders(
+    new Response(request.method === "HEAD" ? null : ROBOTS_TXT, {
+      headers: {
+        "Cache-Control": "public, max-age=3600",
+        "Content-Length": String(new TextEncoder().encode(ROBOTS_TXT).byteLength),
+        "Content-Type": "text/plain; charset=utf-8",
+      },
+    }),
+  );
 }
 
 async function handleServerInformation(
@@ -478,6 +503,7 @@ function withStandardHeaders(response: Response): Response {
   headers.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, ETag, X-Reason");
   headers.set("Cross-Origin-Resource-Policy", "cross-origin");
   headers.set("Referrer-Policy", "no-referrer");
+  headers.set("X-Robots-Tag", X_ROBOTS_TAG);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

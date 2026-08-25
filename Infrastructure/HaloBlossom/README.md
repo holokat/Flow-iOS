@@ -36,3 +36,7 @@ Publish a replaceable Nostr event with kind `10063` from the owner key:
 ```
 
 Clients that support BUD-03 can discover the server from that event. Clients with an exclusive-server setting should also set `https://media.21media.to` to prevent their own fallback behavior.
+
+## Crawler controls
+
+The Worker serves `robots.txt` with a site-wide `Disallow: /` directive and sends `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet, noimageindex` on every response. These controls apply only to `media.21media.to`. Public reads remain available to Nostr clients, so non-compliant scrapers can still request a known blob URL.
