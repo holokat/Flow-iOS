@@ -194,6 +194,11 @@ struct ThreadDetailView: View {
                     UIPasteboard.general.string = rootCopyableNoteText
                     toastCenter.show("Copied text")
                 },
+                canCopyRawContent: NoteClipboardContent.canCopyRawContent(from: viewModel.rootItem.displayEvent),
+                onCopyRawContent: {
+                    UIPasteboard.general.string = NoteClipboardContent.rawContent(for: viewModel.rootItem.displayEvent)
+                    toastCenter.show("Copied raw content")
+                },
                 onCopyEventID: {
                     UIPasteboard.general.string = rootCopyableEventIdentifier
                     toastCenter.show("Copied event ID")
@@ -226,7 +231,7 @@ struct ThreadDetailView: View {
                     presentRootReportFlow()
                 }
             )
-            .presentationDetents([.height(rootCanTranslateNote ? 710 : 655), .medium])
+            .presentationDetents([.height(rootCanTranslateNote ? 762 : 707), .medium])
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $isShowingRootReportSheet) {

@@ -27,6 +27,38 @@ final class UserFacingCopyTests: XCTestCase {
     }
 }
 
+final class NoteClipboardContentTests: XCTestCase {
+    func testRawContentPreservesWhitespaceLineEndingsAndMediaURL() {
+        let rawContent = "\nTest\r\nhttps://media.21media.to/image.jpg  \n"
+        let event = NostrEvent(
+            id: String(repeating: "1", count: 64),
+            pubkey: String(repeating: "a", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 1,
+            tags: [],
+            content: rawContent,
+            sig: String(repeating: "f", count: 128)
+        )
+
+        XCTAssertEqual(NoteClipboardContent.rawContent(for: event), rawContent)
+        XCTAssertTrue(NoteClipboardContent.canCopyRawContent(from: event))
+    }
+
+    func testEmptyRawContentCannotBeCopied() {
+        let event = NostrEvent(
+            id: String(repeating: "2", count: 64),
+            pubkey: String(repeating: "b", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 1,
+            tags: [],
+            content: "",
+            sig: String(repeating: "e", count: 128)
+        )
+
+        XCTAssertFalse(NoteClipboardContent.canCopyRawContent(from: event))
+    }
+}
+
 final class FollowCelebrationMotionTests: XCTestCase {
     func testRefollowAlwaysCreatesANewCelebrationTrigger() {
         var trigger = 0

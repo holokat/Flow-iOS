@@ -5,6 +5,16 @@ import Combine
 import Translation
 #endif
 
+enum NoteClipboardContent {
+    static func rawContent(for event: NostrEvent) -> String {
+        event.content
+    }
+
+    static func canCopyRawContent(from event: NostrEvent) -> Bool {
+        !event.content.isEmpty
+    }
+}
+
 struct ReplyContextPreviewPresentation: Equatable, Sendable {
     let parentItem: FeedItem
     let snippet: String?
@@ -348,6 +358,11 @@ struct FeedRowView: View {
                     UIPasteboard.general.string = copyableNoteText
                     toastCenter.show("Copied text")
                 },
+                canCopyRawContent: NoteClipboardContent.canCopyRawContent(from: item.displayEvent),
+                onCopyRawContent: {
+                    UIPasteboard.general.string = NoteClipboardContent.rawContent(for: item.displayEvent)
+                    toastCenter.show("Copied raw content")
+                },
                 onCopyEventID: {
                     UIPasteboard.general.string = copyableEventIdentifier
                     toastCenter.show("Copied event ID")
@@ -380,7 +395,7 @@ struct FeedRowView: View {
                     presentReportFlow()
                 }
             )
-            .presentationDetents([.height(canTranslateNote ? 710 : 655), .medium])
+            .presentationDetents([.height(canTranslateNote ? 762 : 707), .medium])
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $isShowingReportSheet) {
@@ -1121,6 +1136,8 @@ struct NoteOptionsBottomSheetView: View {
     let muteDisplayName: String
     let canCopyText: Bool
     let onCopyText: () -> Void
+    let canCopyRawContent: Bool
+    let onCopyRawContent: () -> Void
     let onCopyEventID: () -> Void
     let onCopyUserID: () -> Void
     let onCopyLink: () -> Void
@@ -1166,6 +1183,17 @@ struct NoteOptionsBottomSheetView: View {
                     tint: .primary
                 ) {
                     onCopyText()
+                }
+
+                sheetDivider
+
+                optionRow(
+                    title: "Copy Raw Content",
+                    icon: "doc.on.doc",
+                    isEnabled: canCopyRawContent,
+                    tint: .primary
+                ) {
+                    onCopyRawContent()
                 }
 
                 sheetDivider
