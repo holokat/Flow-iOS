@@ -33,3 +33,11 @@ x21.xcodeproj.legacy/
 
 # Local visual review artifacts
 design-qa.md
+
+# Halo Blossom Worker local dependencies and generated state
+Infrastructure/HaloBlossom/node_modules/
+Infrastructure/HaloBlossom/.wrangler/
+Infrastructure/HaloBlossom/dist/
+Infrastructure/HaloBlossom/.dev.vars*
+Infrastructure/HaloBlossom/.env*
+Infrastructure/HaloBlossom/worker-startup.cpuprofile

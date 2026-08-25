@@ -24,6 +24,41 @@ struct MediaUploadResult: Sendable {
     let imetaTag: [String]
 }
 
+enum HaloPersonalMediaRoutingPolicy {
+    static let ownerPublicKeyHex = "1bc70a0148b3f316da33fe3c89f23e3e71ac4ff998027ec712b905cd24f6a411"
+    static let blossomServerURL = URL(string: "https://media.21media.to/")!
+
+    static func exclusiveBlossomServer(for publicKeyHex: String) -> URL? {
+        let normalizedPublicKey = publicKeyHex
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalizedPublicKey == ownerPublicKeyHex ? blossomServerURL : nil
+    }
+}
+
+enum BlossomAuthorizationCoding {
+    static func uploadTags(
+        sha256Hex: String,
+        serverHost: String,
+        expiration: String
+    ) -> [[String]] {
+        [
+            ["t", "upload"],
+            ["expiration", expiration],
+            ["x", sha256Hex],
+            ["server", serverHost.lowercased()]
+        ]
+    }
+
+    static func headerValue(for eventData: Data) -> String {
+        let base64URL = eventData.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return "Nostr \(base64URL)"
+    }
+}
+
 enum MediaUploadError: LocalizedError {
     case invalidCredentials
     case missingFileData
@@ -103,6 +138,17 @@ actor MediaUploadService {
             throw MediaUploadError.invalidCredentials
         }
 
+        if let personalServer = HaloPersonalMediaRoutingPolicy.exclusiveBlossomServer(
+            for: keypair.publicKey.hex
+        ) {
+            return try await uploadToBlossomServer(
+                serverURL: personalServer,
+                data: data,
+                mimeType: mimeType,
+                keypair: keypair
+            )
+        }
+
         switch provider {
         case .blossom:
             do {
@@ -176,6 +222,9 @@ actor MediaUploadService {
         keypair: Keypair
     ) async throws -> MediaUploadResult {
         let uploadURL = URL(string: "/upload", relativeTo: serverURL)?.absoluteURL ?? serverURL.appendingPathComponent("upload")
+        guard let serverHost = uploadURL.host?.lowercased(), !serverHost.isEmpty else {
+            throw MediaUploadError.invalidUploadService
+        }
         let sha256Hex = sha256(data: data)
 
         let checkStatus = try await blossomHeadCheckStatus(
@@ -199,6 +248,7 @@ actor MediaUploadService {
         if shouldSendAuth {
             let authHeader = try makeBlossomAuthHeader(
                 sha256Hex: sha256Hex,
+                serverHost: serverHost,
                 keypair: keypair
             )
             uploadRequest.setValue(authHeader, forHTTPHeaderField: "Authorization")
@@ -213,6 +263,7 @@ actor MediaUploadService {
         if statusCode == 401 && !shouldSendAuth {
             let authHeader = try makeBlossomAuthHeader(
                 sha256Hex: sha256Hex,
+                serverHost: serverHost,
                 keypair: keypair
             )
 
@@ -383,15 +434,15 @@ actor MediaUploadService {
 
     private func makeBlossomAuthHeader(
         sha256Hex: String,
+        serverHost: String,
         keypair: Keypair
     ) throws -> String {
         let expiration = String(Int(Date().timeIntervalSince1970) + 3600)
-
-        let rawTags: [[String]] = [
-            ["t", "upload"],
-            ["expiration", expiration],
-            ["x", sha256Hex]
-        ]
+        let rawTags = BlossomAuthorizationCoding.uploadTags(
+            sha256Hex: sha256Hex,
+            serverHost: serverHost,
+            expiration: expiration
+        )
 
         let sdkTags = rawTags.compactMap(decodeSDKTag(from:))
         let authEvent = try NostrSDK.NostrEvent.Builder<NostrSDK.NostrEvent>(kind: .unknown(24_242))
@@ -400,7 +451,7 @@ actor MediaUploadService {
             .build(signedBy: keypair)
 
         let encoded = try JSONEncoder().encode(authEvent)
-        return "Nostr \(encoded.base64EncodedString())"
+        return BlossomAuthorizationCoding.headerValue(for: encoded)
     }
 
     private func extractNIP96UploadResult(from responseData: Data) -> (url: URL?, imetaComponents: [String]) {

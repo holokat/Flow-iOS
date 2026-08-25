@@ -11,6 +11,34 @@ final class MediaUploadPreparationTests: XCTestCase {
     private let legacyProfileBannerUploadBytes = 500 * 1_024
     private let maxProfileBannerUploadBytes = 2_500 * 1_024
 
+    func testPersonalMediaRoutingIsExclusiveToConfiguredOwner() throws {
+        let ownerPublicKey = "1BC70A0148B3F316DA33FE3C89F23E3E71AC4FF998027EC712B905CD24F6A411"
+
+        XCTAssertEqual(
+            HaloPersonalMediaRoutingPolicy.exclusiveBlossomServer(for: ownerPublicKey),
+            URL(string: "https://media.21media.to/")
+        )
+        XCTAssertNil(
+            HaloPersonalMediaRoutingPolicy.exclusiveBlossomServer(
+                for: String(repeating: "0", count: 64)
+            )
+        )
+    }
+
+    func testBlossomAuthorizationIsServerScopedAndBase64URLSafe() {
+        let tags = BlossomAuthorizationCoding.uploadTags(
+            sha256Hex: String(repeating: "a", count: 64),
+            serverHost: "MEDIA.21MEDIA.TO",
+            expiration: "2000000000"
+        )
+
+        XCTAssertTrue(tags.contains(["server", "media.21media.to"]))
+        XCTAssertEqual(
+            BlossomAuthorizationCoding.headerValue(for: Data([0xfb, 0xff])),
+            "Nostr -_8"
+        )
+    }
+
     func testPrepareUploadMediaOptimizesOversizedJPEGWithinUploadLimits() throws {
         let originalImage = makeLargeTestImage(size: CGSize(width: 4_000, height: 3_000))
         let originalData = try XCTUnwrap(originalImage.jpegData(compressionQuality: 0.92))

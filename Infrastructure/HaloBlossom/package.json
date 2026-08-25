@@ -1,0 +1,25 @@
+{
+  "name": "@halo/personal-blossom",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types worker-configuration.d.ts --env production",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run types && npm run typecheck && npm test",
+    "deploy:dry-run": "wrangler deploy --env production --dry-run --outdir dist",
+    "deploy:production": "wrangler deploy --env production",
+    "startup": "wrangler check startup --env production"
+  },
+  "dependencies": {
+    "nostr-tools": "2.25.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.0.0",
+    "@types/node": "26.3.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.125.0"
+  }
+}

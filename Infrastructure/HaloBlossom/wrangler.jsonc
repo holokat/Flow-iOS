@@ -1,0 +1,43 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "halo-personal-blossom",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.05
+    }
+  },
+  "env": {
+    "production": {
+      "name": "halo-personal-blossom-1bc70a01-production",
+      "vars": {
+        "PUBLIC_BASE_URL": "https://media.21media.to",
+        "OWNER_NPUB": "npub1r0rs5q2gk0e3dk3nlc7gnu378ec6cnlenqp8a3cjhyzu6f8k5sgs4sq9ac",
+        "OWNER_PUBKEY_HEX": "1bc70a0148b3f316da33fe3c89f23e3e71ac4ff998027ec712b905cd24f6a411",
+        "MAX_UPLOAD_BYTES": "99614720"
+      },
+      "r2_buckets": [
+        {
+          "binding": "MEDIA",
+          "bucket_name": "halo-media-1bc70a0148b3f316-production"
+        }
+      ],
+      "routes": [
+        {
+          "pattern": "media.21media.to",
+          "custom_domain": true
+        }
+      ]
+    }
+  }
+}
