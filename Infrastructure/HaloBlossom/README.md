@@ -40,3 +40,7 @@ Clients that support BUD-03 can discover the server from that event. Clients wit
 ## Crawler controls
 
 The Worker serves `robots.txt` with a site-wide `Disallow: /` directive and sends `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet, noimageindex` on every response. These controls apply only to `media.21media.to`. Public reads remain available to Nostr clients, so non-compliant scrapers can still request a known blob URL.
+
+## Retention
+
+The dedicated R2 bucket has an all-prefix lifecycle rule named `expire-media-after-60-days`. Every completed media object expires 60 days after upload. The original Nostr event remains after expiration, but its media URL will return `404` once Cloudflare removes the object.
