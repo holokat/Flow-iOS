@@ -177,7 +177,7 @@ struct RelaySettingsView: View {
 
     private var sourceList: some View {
         VStack(alignment: .leading, spacing: 12) {
-            FlowCapsuleTabBar(
+            FlowNativeGlassSegmentedPicker(
                 selection: $selectedSourceTab,
                 items: RelaySettingsSourceTab.allCases,
                 title: { $0.rawValue }
@@ -399,7 +399,7 @@ struct RelaySettingsView: View {
                         .stroke(appSettings.themeSeparator(defaultOpacity: 0.2), lineWidth: 1)
                 )
 
-            FlowCapsuleTabBar(
+            FlowNativeGlassSegmentedPicker(
                 selection: $relayScope,
                 items: RelayAddScope.allCases,
                 title: { $0.rawValue }

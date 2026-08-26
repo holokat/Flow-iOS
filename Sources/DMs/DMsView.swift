@@ -93,10 +93,9 @@ struct DMsView: View {
         VStack(spacing: 0) {
             header
 
-            FlowCapsuleTabBar(
+            FlowNativeGlassSegmentedPicker(
                 selection: $activeTab,
                 items: HaloLinkInboxTab.allCases,
-                selectedBackground: inboxTabSelectedBackground,
                 title: { $0.title }
             )
             .padding(.horizontal, 16)
@@ -158,12 +157,10 @@ struct DMsView: View {
             } label: {
                 Label("New", systemImage: "plus")
                     .font(appSettings.appFont(.headline, weight: .semibold))
-                    .foregroundStyle(appSettings.buttonTextColor)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
-                    .background(Capsule(style: .continuous).fill(appSettings.primaryGradient))
             }
-            .buttonStyle(.plain)
+            .haloNativeGlassButtonStyle()
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -212,15 +209,6 @@ struct DMsView: View {
         case .requests:
             return store.requests
         }
-    }
-
-    private var inboxTabSelectedBackground: Color {
-        if appSettings.activeTheme == .sakura {
-            return Color.white.opacity(0.88)
-        } else if appSettings.activeTheme == .gamer {
-            return appSettings.themePalette.chromeBackground.opacity(0.88)
-        }
-        return appSettings.themePalette.secondaryBackground
     }
 
     private var signedOutState: some View {
@@ -520,16 +508,12 @@ private struct HaloLinkInfoState: View {
             .flowHierarchyEntrance(index: 1)
 
             if let actionTitle, let action {
-                Button(action: action) {
-                    Text(actionTitle)
-                        .font(appSettings.appFont(.headline, weight: .semibold))
-                        .foregroundStyle(appSettings.buttonTextColor)
-                        .padding(.horizontal, 22)
-                        .frame(minHeight: 44)
-                        .background(appSettings.primaryGradient, in: Capsule(style: .continuous))
-                }
-                .buttonStyle(FlowPressScaleButtonStyle())
-                .flowHierarchyEntrance(index: 2)
+                Button(actionTitle, action: action)
+                    .font(appSettings.appFont(.headline, weight: .semibold))
+                    .haloNativeGlassButtonStyle(.prominent)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
+                    .flowHierarchyEntrance(index: 2)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -585,15 +569,9 @@ private struct HaloLinkNewConversationSheet: View {
                                             Image(systemName: "xmark.circle.fill")
                                         }
                                         .font(appSettings.appFont(.subheadline, weight: .medium))
-                                        .foregroundStyle(appSettings.themePalette.foreground)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(
-                                            Capsule(style: .continuous)
-                                                .fill(appSettings.themePalette.secondaryGroupedBackground)
-                                        )
                                     }
-                                    .buttonStyle(.plain)
+                                    .haloNativeGlassButtonStyle()
+                                    .buttonBorderShape(.capsule)
                                 }
                             }
                             .padding(.vertical, 4)

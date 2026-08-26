@@ -759,11 +759,11 @@ struct NostrZapReceiptCardView: View {
                             .font(.caption2.weight(.bold))
                     }
                     .font(appSettings.appFont(.caption1, weight: .semibold))
-                    .foregroundStyle(appSettings.primaryColor)
+                    .foregroundStyle(appSettings.linkColor)
                     .padding(.horizontal, 12)
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     .background(
-                        appSettings.primaryColor.opacity(0.09),
+                        appSettings.linkColor.opacity(0.09),
                         in: RoundedRectangle(cornerRadius: Self.actionCornerRadius, style: .continuous)
                     )
                     .contentShape(Rectangle())

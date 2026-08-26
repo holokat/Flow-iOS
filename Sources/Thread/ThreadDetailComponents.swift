@@ -286,7 +286,7 @@ struct ThreadDetailContentSection: View {
 
         var body: some View {
             VStack(alignment: .leading, spacing: 0) {
-                FlowCapsuleTabBar(
+                FlowNativeGlassSegmentedPicker(
                     selection: $selectedContentTab,
                     items: ThreadDetailContentTab.allCases,
                     title: { $0.title }

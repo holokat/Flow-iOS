@@ -1418,10 +1418,10 @@ private struct NostrAppHandlerCardView: View {
                                     .font(.caption.weight(.bold))
                             }
                             .font(appSettings.appFont(.caption1, weight: .semibold))
-                            .foregroundStyle(appSettings.primaryColor)
+                            .foregroundStyle(appSettings.linkColor)
                             .frame(minHeight: 40)
                             .padding(.horizontal, 12)
-                            .background(appSettings.primaryColor.opacity(0.10), in: Capsule())
+                            .background(appSettings.linkColor.opacity(0.10), in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }

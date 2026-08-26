@@ -274,7 +274,7 @@ struct ProfileView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             FlowNativeGlassSegmentedPicker(
                                 selection: $viewModel.mode,
-                                items: FeedMode.allCases,
+                                items: ProfileViewModel.availableFeedModes,
                                 title: { $0.title }
                             )
                         }
@@ -459,7 +459,7 @@ struct ProfileView: View {
             )
             .flowHorizontalPaging(
                 selection: $viewModel.mode,
-                items: FeedMode.allCases
+                items: ProfileViewModel.availableFeedModes
             )
         }
         .navigationTitle("")
@@ -979,7 +979,7 @@ struct ProfileView: View {
         case .postsAndReplies:
             return "No replies yet"
         case .articles:
-            return "No articles yet"
+            return "No posts yet"
         }
     }
 

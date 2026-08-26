@@ -702,23 +702,23 @@ struct LongFormArticleReaderView: View {
                         } label: {
                             Text(FlowLayoutGuardrails.softWrapped("#\(tag)", maxNonBreakingRunLength: 18))
                                 .font(appSettings.appFont(.subheadline, weight: .medium))
-                                .foregroundStyle(appSettings.primaryColor)
+                                .foregroundStyle(appSettings.linkColor)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
-                                .background(appSettings.primaryColor.opacity(0.08), in: Capsule())
+                                .background(appSettings.linkColor.opacity(0.08), in: Capsule())
                         }
                         .buttonStyle(.plain)
                     } else {
                         Text(FlowLayoutGuardrails.softWrapped("#\(tag)", maxNonBreakingRunLength: 18))
                             .font(appSettings.appFont(.subheadline, weight: .medium))
-                            .foregroundStyle(appSettings.primaryColor)
+                            .foregroundStyle(appSettings.themePalette.secondaryForeground)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(appSettings.primaryColor.opacity(0.08), in: Capsule())
+                            .background(appSettings.themePalette.tertiaryFill, in: Capsule())
                     }
                 }
             }

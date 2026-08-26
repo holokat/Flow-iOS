@@ -26,6 +26,37 @@ private struct HaloNativeGlassModifier<GlassShape: Shape>: ViewModifier {
     }
 }
 
+enum HaloNativeGlassButtonProminence {
+    case standard
+    case prominent
+}
+
+/// Keeps buttons system-owned across deployment targets. Current releases use
+/// Apple's Glass button styles while iOS 17-25 use the corresponding bordered
+/// system styles.
+private struct HaloNativeGlassButtonStyleModifier: ViewModifier {
+    let prominence: HaloNativeGlassButtonProminence
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            switch prominence {
+            case .standard:
+                content.buttonStyle(.glass)
+            case .prominent:
+                content.buttonStyle(.glassProminent)
+            }
+        } else {
+            switch prominence {
+            case .standard:
+                content.buttonStyle(.bordered)
+            case .prominent:
+                content.buttonStyle(.borderedProminent)
+            }
+        }
+    }
+}
+
 extension View {
     func haloNativeGlass<GlassShape: Shape>(
         tint: Color? = nil,
@@ -39,5 +70,11 @@ extension View {
                 shape: shape
             )
         )
+    }
+
+    func haloNativeGlassButtonStyle(
+        _ prominence: HaloNativeGlassButtonProminence = .standard
+    ) -> some View {
+        modifier(HaloNativeGlassButtonStyleModifier(prominence: prominence))
     }
 }

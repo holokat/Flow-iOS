@@ -445,16 +445,12 @@ struct ActivityView: View {
         systemImage: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(appSettings.appFont(.subheadline, weight: .semibold))
-                .foregroundStyle(appSettings.buttonTextColor)
-                .padding(.horizontal, 16)
-                .frame(minHeight: 44)
-                .background(appSettings.primaryGradient, in: Capsule(style: .continuous))
-        }
-        .buttonStyle(FlowPressScaleButtonStyle())
-        .flowHierarchyEntrance(index: 1)
+        Button(title, systemImage: systemImage, action: action)
+            .font(appSettings.appFont(.subheadline, weight: .semibold))
+            .haloNativeGlassButtonStyle(.prominent)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
+            .flowHierarchyEntrance(index: 1)
     }
 
     private var mutedNotificationsVisibilityBinding: Binding<Bool> {

@@ -122,7 +122,7 @@
 		711BCE1CD02B6E003FC62C51 /* AuthManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C29217F6EE35F0342114248 /* AuthManagerTests.swift */; };
 		71433B6825076C1A0A5ED5CD /* ComposeNoteSheetAccessoryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4DF9DB773FF382BB091EF96 /* ComposeNoteSheetAccessoryViews.swift */; };
 		730606E1AF0950CCED2EB328 /* NoteReportPublishService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C7487D6B05D6D1A7D2FA151 /* NoteReportPublishService.swift */; };
-		790EA013117A7F68FC636CC6 /* FlowCapsuleTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ED5C6EF9F220A3E121ECE2E /* FlowCapsuleTabBar.swift */; };
+		790EA013117A7F68FC636CC6 /* FlowNativeGlassSegmentedPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ED5C6EF9F220A3E121ECE2E /* FlowNativeGlassSegmentedPicker.swift */; };
 		7B5712CE93A6A7D0149F96CF /* MonaSans.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D8208785C057CB6B4C9D6684 /* MonaSans.ttf */; };
 		7BC3B98BBAA8EFC326B620E6 /* CrawlRelayPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0C538B848EB5BA8001573C /* CrawlRelayPlanner.swift */; };
 		7C06FF22A41B51DEC6AB475F /* AppSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3535F42ABCFA81A554B26FE /* AppSettingsStore.swift */; };
@@ -327,7 +327,7 @@
 		1B25E57D10DB1352577332F1 /* SettingsNotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNotificationsView.swift; sourceTree = "<group>"; };
 		1B91137F20962EF2F87CEB05 /* CrawlRelayPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrawlRelayPlannerTests.swift; sourceTree = "<group>"; };
 		1CF33E746504FBADB0B3F9C3 /* AuthPrivateKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthPrivateKeyStore.swift; sourceTree = "<group>"; };
-		1ED5C6EF9F220A3E121ECE2E /* FlowCapsuleTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowCapsuleTabBar.swift; sourceTree = "<group>"; };
+		1ED5C6EF9F220A3E121ECE2E /* FlowNativeGlassSegmentedPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowNativeGlassSegmentedPicker.swift; sourceTree = "<group>"; };
 		1F4A33EF482872BB750555EB /* HaloLinkModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaloLinkModels.swift; sourceTree = "<group>"; };
 		1F65D9596935C6B04798C5E0 /* NostrReferenceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrReferenceResolver.swift; sourceTree = "<group>"; };
 		208F8589194C51AD6888863E /* NostrLiveFeedSubscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrLiveFeedSubscriber.swift; sourceTree = "<group>"; };
@@ -946,7 +946,7 @@
 			children = (
 				63D554ED3C23A4F578BBAB7C /* CompactMediaAttachmentPreview.swift */,
 				88E10288F9317E8E9959E77E /* FeedRowView.swift */,
-				1ED5C6EF9F220A3E121ECE2E /* FlowCapsuleTabBar.swift */,
+				1ED5C6EF9F220A3E121ECE2E /* FlowNativeGlassSegmentedPicker.swift */,
 				51845B2B52C7FA719299524C /* HaloAudioPlaybackCoordinator.swift */,
 				F89AA3A96CF6DCEF464C0A29 /* HaloNativeGlass.swift */,
 				E4518BE49B2C27718F7B43E8 /* HaloSubjectSegmentation.swift */,
@@ -1225,7 +1225,7 @@
 				FADAB31E8F6C736D855C84D2 /* FeedRowView.swift in Sources */,
 				16B4C8F585E531A97EAA1618 /* FeedStorageProtocols.swift in Sources */,
 				B71D2BA3782242DAD9267933 /* FlowApp.swift in Sources */,
-				790EA013117A7F68FC636CC6 /* FlowCapsuleTabBar.swift in Sources */,
+				790EA013117A7F68FC636CC6 /* FlowNativeGlassSegmentedPicker.swift in Sources */,
 				9E3894E91B74C335846B06E5 /* FlowClientAttribution.swift in Sources */,
 				863D8F5E77A252D216D3BAF9 /* FlowMediaCache.swift in Sources */,
 				A0B8FABB8AC0332AEF968B18 /* FlowNetworkPathMonitor.swift in Sources */,

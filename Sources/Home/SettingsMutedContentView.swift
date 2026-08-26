@@ -22,7 +22,7 @@ struct SettingsMutedContentView: View {
     var body: some View {
         ThemedSettingsForm {
             Section {
-                FlowCapsuleTabBar(
+                FlowNativeGlassSegmentedPicker(
                     selection: $selectedTab,
                     items: MutedContentTab.allCases,
                     title: { $0.rawValue }

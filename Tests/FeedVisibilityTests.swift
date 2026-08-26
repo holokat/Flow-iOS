@@ -15,21 +15,20 @@ final class FeedVisibilityTests: XCTestCase {
         XCTAssertEqual(authors, [currentUserPubkey, hex("b"), hex("c")])
     }
 
-    func testProfileFeedRequestedKindsIncludeStandardPollsAndHideZapPolls() {
+    func testProfileFeedRequestedKindsExcludeArticlesAndZapPolls() {
         XCTAssertTrue(ProfileViewModel.requestedFeedKinds.contains(FeedKindFilters.poll))
-        XCTAssertTrue(ProfileViewModel.requestedFeedKinds.contains(FeedKindFilters.longFormArticle))
+        XCTAssertFalse(ProfileViewModel.requestedFeedKinds.contains(FeedKindFilters.longFormArticle))
         XCTAssertFalse(ProfileViewModel.requestedFeedKinds.contains(FeedKindFilters.legacyZapPoll))
         XCTAssertEqual(FeedKindFilters.pollKinds, [FeedKindFilters.poll])
         XCTAssertFalse(FeedKindFilters.supportedKinds.contains(FeedKindFilters.legacyZapPoll))
         XCTAssertFalse(FeedKindFilters.normalizedKinds([FeedKindFilters.poll, FeedKindFilters.legacyZapPoll]).contains(FeedKindFilters.legacyZapPoll))
     }
 
-    func testProfileFeedModesIncludeArticlesAfterReplies() {
-        XCTAssertEqual(FeedMode.allCases, [.posts, .postsAndReplies, .articles])
-        XCTAssertEqual(FeedMode.articles.title, "Articles")
+    func testProfileFeedModesOnlyIncludeNotesAndReplies() {
+        XCTAssertEqual(ProfileViewModel.availableFeedModes, [.posts, .postsAndReplies])
     }
 
-    func testProfileArticleModeShowsOnlyDirectLongFormArticles() {
+    func testProfileVisibilityNeverSurfacesArticles() {
         let author = hex("a")
         let note = makeEvent(id: hex("1"), pubkey: author, kind: FeedKindFilters.shortTextNote, tags: [])
         let reply = makeEvent(
@@ -52,12 +51,13 @@ final class FeedVisibilityTests: XCTestCase {
 
         XCTAssertTrue(ProfileFeedVisibility.isVisible(FeedItem(event: note, profile: nil), in: .posts))
         XCTAssertFalse(ProfileFeedVisibility.isVisible(FeedItem(event: article, profile: nil), in: .posts))
+        XCTAssertFalse(ProfileFeedVisibility.isVisible(articleRepost, in: .posts))
         XCTAssertTrue(ProfileFeedVisibility.isVisible(FeedItem(event: reply, profile: nil), in: .postsAndReplies))
-        XCTAssertTrue(ProfileFeedVisibility.isVisible(FeedItem(event: article, profile: nil), in: .articles))
+        XCTAssertFalse(ProfileFeedVisibility.isVisible(FeedItem(event: article, profile: nil), in: .articles))
         XCTAssertFalse(ProfileFeedVisibility.isVisible(articleRepost, in: .articles))
     }
 
-    func testProfileArticleModeFetchesArticlesEvenWhenAuthorHasManyNewerNotes() async throws {
+    func testProfileRejectsArticleModeAndNeverRequestsArticleEvents() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FeedVisibilityTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -110,7 +110,10 @@ final class FeedVisibilityTests: XCTestCase {
         viewModel.mode = .articles
         await viewModel.refresh()
 
-        XCTAssertEqual(viewModel.visibleItems.map(\.id), [article.id])
+        XCTAssertEqual(viewModel.mode, .posts)
+        XCTAssertFalse(viewModel.visibleItems.contains(where: { $0.event.kind == FeedKindFilters.longFormArticle }))
+        let didRequestArticles = await relayClient.didRequestKind(FeedKindFilters.longFormArticle)
+        XCTAssertFalse(didRequestArticles)
     }
 
     func testProfilePostsModeUsesConfiguredReadRelaysDirectlyInsteadOfOutboxRecovery() async throws {
@@ -288,7 +291,7 @@ final class FeedVisibilityTests: XCTestCase {
         await refreshTask.value
     }
 
-    func testProfileArticlesModeUsesConfiguredReadRelaysDirectlyInsteadOfOutboxRecovery() async throws {
+    func testRejectedProfileArticleModeDoesNotUseOutboxRecovery() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FeedVisibilityProfileOutboxArticles-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -351,10 +354,13 @@ final class FeedVisibilityTests: XCTestCase {
         viewModel.mode = .articles
         await viewModel.refresh()
 
+        XCTAssertEqual(viewModel.mode, .posts)
         XCTAssertTrue(viewModel.visibleItems.isEmpty)
+        let didRequestArticles = await relayClient.didRequestKind(FeedKindFilters.longFormArticle)
+        XCTAssertFalse(didRequestArticles)
     }
 
-    func testProfileArticlesModeRefreshesAfterInitialNotesLoadReachesEnd() async throws {
+    func testRejectedProfileArticleModeKeepsTheNotesFeed() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("FeedVisibilityProfileArticleModeSwitch-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -410,7 +416,10 @@ final class FeedVisibilityTests: XCTestCase {
         viewModel.mode = .articles
         await viewModel.prepareForSelectedModeIfNeeded()
 
-        XCTAssertEqual(viewModel.visibleItems.map(\.id), [article.id])
+        XCTAssertEqual(viewModel.mode, .posts)
+        XCTAssertEqual(viewModel.visibleItems.map(\.id), [note.id])
+        let didRequestArticles = await relayClient.didRequestKind(FeedKindFilters.longFormArticle)
+        XCTAssertFalse(didRequestArticles)
     }
 }
 
@@ -444,6 +453,7 @@ private func makeEvent(
 private actor ProfileArticleRelayClient: NostrRelayEventFetching {
     private let eventsByRelay: [String: [Flow.NostrEvent]]
     private let delaysByKind: [Int: UInt64]
+    private var requestedKindSets: [Set<Int>] = []
 
     init(
         eventsByRelay: [URL: [Flow.NostrEvent]],
@@ -462,6 +472,8 @@ private actor ProfileArticleRelayClient: NostrRelayEventFetching {
         filter: NostrFilter,
         timeout: TimeInterval
     ) async throws -> [Flow.NostrEvent] {
+        requestedKindSets.append(Set(filter.kinds ?? []))
+
         if let requestedKinds = filter.kinds,
            let delay = requestedKinds.compactMap({ delaysByKind[$0] }).max(),
            delay > 0 {
@@ -492,6 +504,10 @@ private actor ProfileArticleRelayClient: NostrRelayEventFetching {
             return Array(matched.prefix(limit))
         }
         return matched
+    }
+
+    func didRequestKind(_ kind: Int) -> Bool {
+        requestedKindSets.contains(where: { $0.contains(kind) })
     }
 }
 

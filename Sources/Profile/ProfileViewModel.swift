@@ -50,7 +50,12 @@ final class ProfileViewModel: ObservableObject {
         }
     }
     @Published var mode: FeedMode = .posts {
-        didSet { clearVisibleItemsCache() }
+        didSet {
+            if !Self.availableFeedModes.contains(mode) {
+                mode = .posts
+            }
+            clearVisibleItemsCache()
+        }
     }
     @Published private(set) var isLoading = false
     @Published private(set) var hasCompletedInitialLoad = false
@@ -70,14 +75,14 @@ final class ProfileViewModel: ObservableObject {
     private let relayClient: any NostrRelayEventPublishing
     private let seenEventStore: any SeenEventStoring
     private let mediaUploadService: ProfileMediaUploadService
+    static let availableFeedModes: [FeedMode] = [.posts, .postsAndReplies]
     static let requestedFeedKinds = [
         FeedKindFilters.shortTextNote,
         FeedKindFilters.repost,
         16,
         FeedKindFilters.poll,
         FeedKindFilters.comment,
-        FeedKindFilters.voiceComment,
-        FeedKindFilters.longFormArticle
+        FeedKindFilters.voiceComment
     ]
 
     private static let fastProfileFetchTimeout: TimeInterval = 8
@@ -759,7 +764,7 @@ final class ProfileViewModel: ObservableObject {
         moderationSnapshot: MuteFilterSnapshot? = nil
     ) async throws -> FeedWindow {
         let targetMode = mode
-        let requestedKinds = Self.feedKinds(for: targetMode)
+        let requestedKinds = Self.requestedFeedKinds
         let batchSize = max(pageSize, 100)
         let maxBatches = 4
 
@@ -885,22 +890,9 @@ final class ProfileViewModel: ObservableObject {
         return ordered
     }
 
-    private static func feedKinds(for mode: FeedMode) -> [Int] {
-        switch mode {
-        case .posts, .postsAndReplies:
-            return requestedFeedKinds.filter { $0 != FeedKindFilters.longFormArticle }
-        case .articles:
-            return [FeedKindFilters.longFormArticle]
-        }
-    }
 }
 
 enum ProfileFeedVisibility {
-    private static func isVisibleArticleContent(_ event: NostrEvent) -> Bool {
-        event.kind == FeedKindFilters.longFormArticle &&
-            !event.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
     static func isVisible(_ event: NostrEvent, in mode: FeedMode) -> Bool {
         switch mode {
         case .posts:
@@ -909,19 +901,19 @@ enum ProfileFeedVisibility {
         case .postsAndReplies:
             return event.isReplyNote
         case .articles:
-            return isVisibleArticleContent(event)
+            return false
         }
     }
 
     static func isVisible(_ item: FeedItem, in mode: FeedMode) -> Bool {
         switch mode {
         case .posts:
-            return item.event.kind != FeedKindFilters.longFormArticle &&
+            return item.displayEvent.kind != FeedKindFilters.longFormArticle &&
                 !item.displayEvent.isReplyNote
         case .postsAndReplies:
             return item.displayEvent.isReplyNote
         case .articles:
-            return isVisibleArticleContent(item.event)
+            return false
         }
     }
 }

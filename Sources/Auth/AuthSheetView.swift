@@ -447,33 +447,14 @@ struct AuthSheetView: View {
     }
 
     private var authTabBarCard: some View {
-        Group {
-            if #available(iOS 26.0, *) {
-                FlowCapsuleTabBar(
-                    selection: $selectedTab,
-                    items: availableTabs,
-                    selectedBackground: Color.white.opacity(0.98),
-                    selectedForeground: authInk,
-                    selectedStroke: Color.white.opacity(0.72),
-                    title: { $0.rawValue }
-                )
-                .padding(.horizontal, AuthSheetChromeLayout.tabCardHorizontalPadding)
-                .padding(.vertical, AuthSheetChromeLayout.tabCardVerticalPadding)
-                .background(authTabBarBackground)
-            } else {
-                FlowCapsuleTabBar(
-                    selection: $selectedTab,
-                    items: availableTabs,
-                    selectedBackground: Color.white.opacity(0.98),
-                    selectedForeground: authInk,
-                    selectedStroke: Color.white.opacity(0.72),
-                    title: { $0.rawValue }
-                )
-                .padding(.horizontal, AuthSheetChromeLayout.tabCardHorizontalPadding)
-                .padding(.vertical, AuthSheetChromeLayout.tabCardVerticalPadding)
-                .background(authTabBarBackground)
-            }
-        }
+        FlowNativeGlassSegmentedPicker(
+            selection: $selectedTab,
+            items: availableTabs,
+            title: { $0.rawValue }
+        )
+        .padding(.horizontal, AuthSheetChromeLayout.tabCardHorizontalPadding)
+        .padding(.vertical, AuthSheetChromeLayout.tabCardVerticalPadding)
+        .background(authTabBarBackground)
         .frame(maxWidth: .infinity)
     }
 

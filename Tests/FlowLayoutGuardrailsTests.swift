@@ -789,19 +789,22 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         )
     }
 
-    func testHomeAndProfileFeedModesUseTheNativeSegmentedPicker() throws {
-        let controlSource = try Self.sourceText(at: "Sources/Design/FlowCapsuleTabBar.swift")
+    func testAllModeTabsUseTheNativeSegmentedPicker() throws {
+        let controlSource = try Self.sourceText(at: "Sources/Design/FlowNativeGlassSegmentedPicker.swift")
+        let allSources = try Self.sourceTexts(under: "Sources")
         let homeSource = try Self.sourceText(at: "Sources/Home/HomeFeedView.swift")
         let profileSource = try Self.sourceText(at: "Sources/Profile/ProfileView.swift")
-        let nativeStart = try XCTUnwrap(controlSource.range(of: "struct FlowNativeGlassSegmentedPicker"))
-        let capsuleStart = try XCTUnwrap(controlSource.range(of: "struct FlowCapsuleTabBar"))
-        let nativeSource = controlSource[nativeStart.lowerBound..<capsuleStart.lowerBound]
+        let threadSource = try Self.sourceText(at: "Sources/Thread/ThreadDetailComponents.swift")
+        let messagesSource = try Self.sourceText(at: "Sources/DMs/DMsView.swift")
 
         XCTAssertTrue(homeSource.contains("FlowNativeGlassSegmentedPicker("))
         XCTAssertTrue(profileSource.contains("FlowNativeGlassSegmentedPicker("))
-        XCTAssertTrue(nativeSource.contains("Picker(selection: $selection)"))
-        XCTAssertTrue(nativeSource.contains(".pickerStyle(.segmented)"))
-        XCTAssertFalse(nativeSource.contains(".glassEffect("))
+        XCTAssertTrue(threadSource.contains("FlowNativeGlassSegmentedPicker("))
+        XCTAssertTrue(messagesSource.contains("FlowNativeGlassSegmentedPicker("))
+        XCTAssertTrue(controlSource.contains("Picker(selection: $selection)"))
+        XCTAssertTrue(controlSource.contains(".pickerStyle(.segmented)"))
+        XCTAssertFalse(controlSource.contains(".glassEffect("))
+        XCTAssertFalse(allSources.contains("FlowCapsuleTabBar("))
     }
 
     func testFollowingEmptyStateActionsUseOneVerticalEqualWidthStack() throws {
@@ -889,6 +892,18 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(source.contains("content.glassEffect(nativeGlass, in: shape)"))
         XCTAssertTrue(source.contains("content.background(.ultraThinMaterial, in: shape)"))
         XCTAssertTrue(source.contains("Glass.regular.interactive(isInteractive)"))
+        XCTAssertTrue(source.contains("content.buttonStyle(.glass)"))
+        XCTAssertTrue(source.contains("content.buttonStyle(.glassProminent)"))
+        XCTAssertTrue(source.contains("content.buttonStyle(.bordered)"))
+        XCTAssertTrue(source.contains("content.buttonStyle(.borderedProminent)"))
+    }
+
+    func testAppControlAndButtonColorsUseAdaptiveAssetTokens() throws {
+        let source = try Self.sourceText(at: "Sources/App/AppSettingsStore.swift")
+
+        XCTAssertTrue(source.contains("Color(\"AccentColor\")"))
+        XCTAssertTrue(source.contains("Color(\"PrimaryButtonForeground\")"))
+        XCTAssertTrue(source.contains("Color(uiColor: .link)"))
     }
 
     func testOnlySharedAdapterUsesLegacySwiftUIMaterial() throws {

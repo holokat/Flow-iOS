@@ -713,7 +713,7 @@ private struct HaloLinkMessageRow: View {
             if let displayText {
                 Text(displayText)
                     .font(appSettings.appFont(.body))
-                    .foregroundStyle(message.isOutgoing ? Color.white : appSettings.themePalette.foreground)
+                    .foregroundStyle(message.isOutgoing ? appSettings.buttonTextColor : appSettings.themePalette.foreground)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -848,10 +848,10 @@ private struct HaloLinkMessageReactionPickerSheet: View {
                         } label: {
                             Text(emoji)
                                 .font(.system(size: 28))
-                                .frame(width: 56, height: 56)
-                                .haloNativeGlass(interactive: true, in: Circle())
                         }
-                        .buttonStyle(.plain)
+                        .haloNativeGlassButtonStyle()
+                        .buttonBorderShape(.circle)
+                        .controlSize(.large)
                     }
                 }
                 .padding(.vertical, 2)
@@ -907,13 +907,10 @@ private struct HaloLinkMessageReactionPickerSheet: View {
                                 } label: {
                                     Text(entry.emoji)
                                         .font(.system(size: 24))
-                                        .frame(width: 44, height: 44)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                .fill(appSettings.themePalette.secondaryGroupedBackground)
-                                        )
                                 }
-                                .buttonStyle(.plain)
+                                .haloNativeGlassButtonStyle()
+                                .buttonBorderShape(.roundedRectangle(radius: 14))
+                                .controlSize(.large)
                             }
                         }
                         .padding(.bottom, 8)
@@ -930,7 +927,7 @@ private struct HaloLinkMessageReactionPickerSheet: View {
     }
 
     private var gridColumns: [GridItem] {
-        Array(repeating: GridItem(.flexible(minimum: 0, maximum: 44), spacing: 10), count: 6)
+        [GridItem(.adaptive(minimum: 52, maximum: 60), spacing: 10)]
     }
 
     private var normalizedSearchQuery: String {

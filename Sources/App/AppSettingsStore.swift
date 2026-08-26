@@ -1228,27 +1228,10 @@ final class AppSettingsStore: ObservableObject {
     nonisolated static let defaultNewsRelayURLs = [URL(string: "wss://news.utxo.one")!]
     nonisolated static let availablePrimaryColorOptions = AppPrimaryColorOption.all
     nonisolated static var defaultPrimaryColor: Color {
-        Color(
-            UIColor { traits in
-                if traits.userInterfaceStyle == .dark {
-                    return UIColor(
-                        red: 63.0 / 255.0,
-                        green: 142.0 / 255.0,
-                        blue: 247.0 / 255.0,
-                        alpha: 1
-                    )
-                }
-                return UIColor(
-                    red: 40.0 / 255.0,
-                    green: 95.0 / 255.0,
-                    blue: 244.0 / 255.0,
-                    alpha: 1
-                )
-            }
-        )
+        Color("AccentColor")
     }
     nonisolated static var defaultButtonTextColor: Color {
-        Color.white
+        Color("PrimaryButtonForeground")
     }
     nonisolated static let legacyStorageKey = "x21.app.settings"
     nonisolated static let legacyScopedStorageKeyPrefix = "x21.app.settings.v2"
@@ -1624,7 +1607,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     var linkColor: Color {
-        primaryColor
+        Color(uiColor: .link)
     }
 
     var clickSoundEffect: AppClickSoundEffect {

@@ -68,17 +68,26 @@ final class AppThemeOptionTests: XCTestCase {
     }
 
     @MainActor
-    func testFixedAccentMatchesLightAndDarkProductBlue() {
-        assertColor(
-            AppSettingsStore.defaultPrimaryColor,
-            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1),
-            style: .light
+    func testFixedAccentUsesAdaptiveMonochromeColors() throws {
+        let lightTraits = UITraitCollection(userInterfaceStyle: .light)
+        let darkTraits = UITraitCollection(userInterfaceStyle: .dark)
+        let lightAccent = try XCTUnwrap(
+            UIColor(named: "AccentColor", in: .main, compatibleWith: lightTraits)
         )
-        assertColor(
-            AppSettingsStore.defaultPrimaryColor,
-            matches: UIColor(red: 63.0 / 255.0, green: 142.0 / 255.0, blue: 247.0 / 255.0, alpha: 1),
-            style: .dark
+        let darkAccent = try XCTUnwrap(
+            UIColor(named: "AccentColor", in: .main, compatibleWith: darkTraits)
         )
+        let lightButtonForeground = try XCTUnwrap(
+            UIColor(named: "PrimaryButtonForeground", in: .main, compatibleWith: lightTraits)
+        )
+        let darkButtonForeground = try XCTUnwrap(
+            UIColor(named: "PrimaryButtonForeground", in: .main, compatibleWith: darkTraits)
+        )
+
+        assertUIColor(lightAccent, matches: .black, style: .light)
+        assertUIColor(darkAccent, matches: .white, style: .dark)
+        assertUIColor(lightButtonForeground, matches: .white, style: .light)
+        assertUIColor(darkButtonForeground, matches: .black, style: .dark)
     }
 
     @MainActor
@@ -100,11 +109,11 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertNil(reloaded.activeHolographicGradientOption)
         assertColor(
             reloaded.primaryColor,
-            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
+            matches: .black
         )
         assertColor(
             reloaded.linkColor,
-            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
+            matches: .link
         )
         XCTAssertFalse(reloaded.canCustomizePrimaryColor)
     }
@@ -126,11 +135,11 @@ final class AppThemeOptionTests: XCTestCase {
 
         assertColor(
             reloaded.primaryColor,
-            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
+            matches: .black
         )
         assertColor(
             reloaded.linkColor,
-            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
+            matches: .link
         )
         XCTAssertNil(reloaded.selectedPrimaryColorOption)
 
@@ -138,7 +147,7 @@ final class AppThemeOptionTests: XCTestCase {
 
         assertColor(
             reloaded.primaryColor,
-            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
+            matches: .black
         )
         XCTAssertNil(reloaded.selectedPrimaryColorOption)
     }
@@ -243,7 +252,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertNil(reloaded.activeHolographicGradientOption)
         assertColor(
             reloaded.primaryColor,
-            matches: UIColor(red: 40.0 / 255.0, green: 95.0 / 255.0, blue: 244.0 / 255.0, alpha: 1)
+            matches: .black
         )
     }
 
@@ -1779,6 +1788,43 @@ final class AppThemeOptionTests: XCTestCase {
     ) {
         let traitCollection = UITraitCollection(userInterfaceStyle: style)
         let actual = UIColor(color).resolvedColor(with: traitCollection)
+        let expected = expected.resolvedColor(with: traitCollection)
+
+        var actualRed: CGFloat = 0
+        var actualGreen: CGFloat = 0
+        var actualBlue: CGFloat = 0
+        var actualAlpha: CGFloat = 0
+        XCTAssertTrue(
+            actual.getRed(&actualRed, green: &actualGreen, blue: &actualBlue, alpha: &actualAlpha),
+            file: file,
+            line: line
+        )
+
+        var expectedRed: CGFloat = 0
+        var expectedGreen: CGFloat = 0
+        var expectedBlue: CGFloat = 0
+        var expectedAlpha: CGFloat = 0
+        XCTAssertTrue(
+            expected.getRed(&expectedRed, green: &expectedGreen, blue: &expectedBlue, alpha: &expectedAlpha),
+            file: file,
+            line: line
+        )
+
+        XCTAssertEqual(actualRed, expectedRed, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actualGreen, expectedGreen, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actualBlue, expectedBlue, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actualAlpha, expectedAlpha, accuracy: 0.001, file: file, line: line)
+    }
+
+    private func assertUIColor(
+        _ color: UIColor,
+        matches expected: UIColor,
+        style: UIUserInterfaceStyle,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let traitCollection = UITraitCollection(userInterfaceStyle: style)
+        let actual = color.resolvedColor(with: traitCollection)
         let expected = expected.resolvedColor(with: traitCollection)
 
         var actualRed: CGFloat = 0
