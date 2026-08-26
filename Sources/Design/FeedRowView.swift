@@ -1132,6 +1132,8 @@ struct FeedRowView: View {
 struct NoteOptionsBottomSheetView: View {
     @Environment(\.dismiss) private var dismiss
 
+    private static let optionIconOpacity: Double = 0.58
+
     let muteDisplayName: String
     let canCopyText: Bool
     let onCopyText: () -> Void
@@ -1282,7 +1284,12 @@ struct NoteOptionsBottomSheetView: View {
                 dismiss()
             }
         } label: {
-            Label(title, systemImage: icon)
+            Label {
+                Text(title)
+            } icon: {
+                Image(systemName: icon)
+                    .opacity(Self.optionIconOpacity)
+            }
         }
         .disabled(!isEnabled)
     }

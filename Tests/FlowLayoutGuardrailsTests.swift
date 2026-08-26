@@ -1067,7 +1067,10 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
 
         XCTAssertTrue(optionsSource.contains("List {"))
         XCTAssertFalse(optionsSource.contains(".buttonStyle(.plain)"))
-        XCTAssertFalse(optionsSource.contains(".opacity("))
+        XCTAssertTrue(optionsSource.contains("private static let optionIconOpacity: Double = 0.58"))
+        XCTAssertTrue(optionsSource.contains("Image(systemName: icon)"))
+        XCTAssertTrue(optionsSource.contains(".opacity(Self.optionIconOpacity)"))
+        XCTAssertTrue(optionsSource.contains("Text(title)"))
         XCTAssertTrue(reasonSource.contains("Form {"))
         XCTAssertFalse(reasonSource.contains("FlowPressScaleButtonStyle"))
         XCTAssertFalse(reasonSource.contains("RoundedRectangle("))
