@@ -142,7 +142,7 @@ struct HomeSlideoutMenuView: View {
                     menuButton(
                         title: "Log Out",
                         icon: "rectangle.portrait.and.arrow.right",
-                        tint: .red,
+                        tint: appSettings.themePalette.secondaryForeground,
                         action: onLogout
                     )
                 }
@@ -208,12 +208,10 @@ struct HomeSlideoutMenuView: View {
             Image(systemName: "qrcode")
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(appSettings.themePalette.foreground.opacity(0.88))
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(
-            SideMenuPressButtonStyle(reduceMotion: accessibilityReduceMotion)
-        )
+        .haloNativeGlassButtonStyle()
+        .buttonBorderShape(.circle)
+        .controlSize(.large)
         .accessibilityLabel("Show profile QR")
     }
 

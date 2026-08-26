@@ -1287,6 +1287,33 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(source.contains("Text(accountHandle)"))
     }
 
+    func testHomeSlideoutMenuUsesNeutralLogoutAndNativeGlassQRButton() throws {
+        let source = try Self.sourceText(at: "Sources/Home/HomeSlideoutMenuView.swift")
+        let footerStart = try XCTUnwrap(source.range(of: "private var menuFooter: some View"))
+        let footerEnd = try XCTUnwrap(
+            source.range(
+                of: "private func accountProfileHeader",
+                range: footerStart.upperBound..<source.endIndex
+            )
+        )
+        let footerSource = source[footerStart.lowerBound..<footerEnd.lowerBound]
+        let qrStart = try XCTUnwrap(source.range(of: "private var profileQRButton: some View"))
+        let qrEnd = try XCTUnwrap(
+            source.range(
+                of: "private func accountHeaderAvatar",
+                range: qrStart.upperBound..<source.endIndex
+            )
+        )
+        let qrSource = source[qrStart.lowerBound..<qrEnd.lowerBound]
+
+        XCTAssertTrue(footerSource.contains("tint: appSettings.themePalette.secondaryForeground"))
+        XCTAssertFalse(footerSource.contains("tint: .red"))
+        XCTAssertTrue(qrSource.contains(".haloNativeGlassButtonStyle()"))
+        XCTAssertTrue(qrSource.contains(".buttonBorderShape(.circle)"))
+        XCTAssertTrue(qrSource.contains(".controlSize(.large)"))
+        XCTAssertFalse(qrSource.contains("SideMenuPressButtonStyle"))
+    }
+
     func testAuthSheetSignInAndAccountsUseStableSharedChrome() {
         XCTAssertEqual(AuthSheetChromeLayout.navigationTitle(for: .signIn), "Account")
         XCTAssertEqual(AuthSheetChromeLayout.navigationTitle(for: .accounts), "Account")
