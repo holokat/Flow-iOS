@@ -81,8 +81,6 @@ struct ComposeDraftLibraryToolbarButton: View {
                 Button(action: action) {
                     label
                 }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: Capsule(style: .continuous))
             } else {
                 Button(action: action) {
                     label
@@ -137,8 +135,6 @@ struct ComposeCancelToolbarButton: View {
                 Button(action: action) {
                     label
                 }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: Capsule(style: .continuous))
             } else {
                 Button(action: action) {
                     label
@@ -476,19 +472,9 @@ struct ComposePublishToolbarButton: View {
         Group {
             if #available(iOS 26.0, *) {
                 Button(action: action) {
-                    label(
-                        foreground: isProminent
-                            ? appSettings.buttonTextColor
-                            : appSettings.primaryColor
-                    )
+                    label(foreground: appSettings.buttonTextColor)
                 }
-                .buttonStyle(.plain)
-                .glassEffect(
-                    isProminent
-                        ? .regular.tint(appSettings.primaryColor).interactive()
-                        : .regular.interactive(),
-                    in: Capsule(style: .continuous)
-                )
+                .buttonStyle(.borderedProminent)
             } else {
                 Button(action: action) {
                     Group {

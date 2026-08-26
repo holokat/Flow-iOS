@@ -534,14 +534,19 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertLessThanOrEqual(ComposeToolbarLayout.trailingItemSpacing, 8)
     }
 
-    func testComposeToolbarUsesIndependentNativeGlassControls() throws {
+    func testComposeToolbarLetsTheSystemOwnEachGlassSurface() throws {
         let sheetSource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheet.swift")
         let accessorySource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheetAccessoryViews.swift")
+        let draftStart = try XCTUnwrap(accessorySource.range(of: "struct ComposeDraftLibraryToolbarButton"))
+        let composerCardStart = try XCTUnwrap(accessorySource.range(of: "struct ComposeComposerCardView"))
+        let draftAndCancelSource = accessorySource[draftStart.lowerBound..<composerCardStart.lowerBound]
+        let publishStart = try XCTUnwrap(accessorySource.range(of: "struct ComposePublishToolbarButton"))
+        let publishSource = accessorySource[publishStart.lowerBound...]
 
         XCTAssertTrue(sheetSource.contains("ToolbarSpacer(.fixed, placement: .topBarLeading)"))
-        XCTAssertTrue(accessorySource.contains(".glassEffect("))
-        XCTAssertFalse(accessorySource.contains(".buttonStyle(.glass)"))
-        XCTAssertFalse(accessorySource.contains(".buttonStyle(.glassProminent)"))
+        XCTAssertFalse(draftAndCancelSource.contains(".glassEffect("))
+        XCTAssertFalse(publishSource.contains(".glassEffect("))
+        XCTAssertTrue(publishSource.contains(".buttonStyle(.borderedProminent)"))
         XCTAssertTrue(accessorySource.contains(".haloNativeGlass(interactive: true, in: Capsule())"))
     }
 
@@ -784,13 +789,19 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         )
     }
 
-    func testHomeFeedModeTabsUseNotificationCapsuleTabSelectionStyling() {
-        XCTAssertNil(FlowCapsuleTabBarStylePreset.NotificationTabs.selectedBackground)
-        XCTAssertNil(FlowCapsuleTabBarStylePreset.NotificationTabs.selectedForeground)
-        XCTAssertNil(FlowCapsuleTabBarStylePreset.NotificationTabs.selectedStroke)
-        XCTAssertNil(FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedBackground)
-        XCTAssertNil(FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedForeground)
-        XCTAssertNil(FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedStroke)
+    func testHomeAndProfileFeedModesUseTheNativeSegmentedPicker() throws {
+        let controlSource = try Self.sourceText(at: "Sources/Design/FlowCapsuleTabBar.swift")
+        let homeSource = try Self.sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let profileSource = try Self.sourceText(at: "Sources/Profile/ProfileView.swift")
+        let nativeStart = try XCTUnwrap(controlSource.range(of: "struct FlowNativeGlassSegmentedPicker"))
+        let capsuleStart = try XCTUnwrap(controlSource.range(of: "struct FlowCapsuleTabBar"))
+        let nativeSource = controlSource[nativeStart.lowerBound..<capsuleStart.lowerBound]
+
+        XCTAssertTrue(homeSource.contains("FlowNativeGlassSegmentedPicker("))
+        XCTAssertTrue(profileSource.contains("FlowNativeGlassSegmentedPicker("))
+        XCTAssertTrue(nativeSource.contains("Picker(selection: $selection)"))
+        XCTAssertTrue(nativeSource.contains(".pickerStyle(.segmented)"))
+        XCTAssertFalse(nativeSource.contains(".glassEffect("))
     }
 
     func testFollowingEmptyStateActionsUseOneVerticalEqualWidthStack() throws {

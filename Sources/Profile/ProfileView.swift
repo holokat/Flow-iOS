@@ -272,7 +272,7 @@ struct ProfileView: View {
 
                     Section {
                         VStack(alignment: .leading, spacing: 10) {
-                            FlowCapsuleTabBar(
+                            FlowNativeGlassSegmentedPicker(
                                 selection: $viewModel.mode,
                                 items: FeedMode.allCases,
                                 title: { $0.title }

@@ -422,12 +422,9 @@ struct HomeFeedView: View {
                         .font(.footnote.weight(.medium))
                         .foregroundStyle(appSettings.themePalette.secondaryForeground)
                 } else if viewModel.supportsModeTabsForCurrentSource {
-                    FlowCapsuleTabBar(
+                    FlowNativeGlassSegmentedPicker(
                         selection: $viewModel.mode,
                         items: HomeFeedMode.allCases,
-                        selectedBackground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedBackground,
-                        selectedForeground: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedForeground,
-                        selectedStroke: FlowCapsuleTabBarStylePreset.HomeFeedModeTabs.selectedStroke,
                         title: { $0.title }
                     )
                 }
