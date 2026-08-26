@@ -115,44 +115,48 @@ struct ComposeNoteSheet: View {
     var body: some View {
         NavigationStack {
             standardComposerLayout
-            .navigationTitle(composerNavigationTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if #available(iOS 26.0, *) {
-                    ToolbarItem(placement: .topBarLeading) {
-                        ComposeCancelToolbarButton {
-                            dismiss()
-                        }
-                    }
-
-                    ToolbarSpacer(.fixed, placement: .topBarLeading)
-
-                    ToolbarItem(placement: .topBarLeading) {
-                        draftLibraryToolbarButton
-                    }
-
-                    ToolbarItem(placement: .topBarTrailing) {
-                        publishToolbarButton
-                    }
-                } else {
-                    ToolbarItem(placement: .topBarLeading) {
-                        HStack(spacing: ComposeToolbarLayout.leadingItemSpacing) {
+                .background(composeSheetBackground)
+                .navigationTitle(composerNavigationTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    if #available(iOS 26.0, *) {
+                        ToolbarItem(placement: .topBarLeading) {
                             ComposeCancelToolbarButton {
                                 dismiss()
                             }
+                        }
+
+                        ToolbarSpacer(.fixed, placement: .topBarLeading)
+
+                        ToolbarItem(placement: .topBarLeading) {
                             draftLibraryToolbarButton
                         }
-                    }
 
-                    ToolbarItem(placement: .topBarTrailing) {
-                        publishToolbarButton
+                        ToolbarItem(placement: .topBarTrailing) {
+                            publishToolbarButton
+                        }
+                    } else {
+                        ToolbarItem(placement: .topBarLeading) {
+                            HStack(spacing: ComposeToolbarLayout.leadingItemSpacing) {
+                                ComposeCancelToolbarButton {
+                                    dismiss()
+                                }
+                                draftLibraryToolbarButton
+                            }
+                        }
+
+                        ToolbarItem(placement: .topBarTrailing) {
+                            publishToolbarButton
+                        }
                     }
                 }
-            }
+                .toolbarBackground(composeSheetBackground, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.hidden)
         .interactiveDismissDisabled()
+        .presentationBackground(composeSheetBackground)
         .task {
             applyInitialContextIfNeeded()
             applyInitialDraftIfNeeded()
@@ -286,6 +290,10 @@ struct ComposeNoteSheet: View {
         availableSavedDrafts.count
     }
 
+    private var composeSheetBackground: Color {
+        ComposeSurfaceStyle.background(for: colorScheme)
+    }
+
     private var draftLibraryToolbarButton: some View {
         ComposeDraftLibraryToolbarButton(savedDraftCount: availableSavedDraftCount) {
             isShowingDraftLibrary = true
@@ -352,6 +360,7 @@ struct ComposeNoteSheet: View {
 
             composeAttachmentToolbar
         }
+        .background(composeSheetBackground)
     }
 
     private var composeAttachmentToolbar: some View {

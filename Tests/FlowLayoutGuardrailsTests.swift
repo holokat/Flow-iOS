@@ -1023,7 +1023,6 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
             "Sources/Activity/ActivityView.swift",
             "Sources/Compose/ComposeImageAltTextSheet.swift",
             "Sources/Compose/ComposeKlipyGIFPickerSheet.swift",
-            "Sources/Compose/ComposeNoteSheet.swift",
             "Sources/Compose/ComposeNoteSheetAccessoryViews.swift",
             "Sources/Design/FeedRowView.swift",
             "Sources/Design/NoteReportSheetView.swift",

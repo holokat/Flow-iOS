@@ -163,6 +163,31 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         XCTAssertFalse(accessorySource.contains("Swipe a composer down"))
     }
 
+    func testComposerUsesOneAdaptiveSurfaceAcrossTheWholeSheet() throws {
+        let source = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheet.swift")
+
+        XCTAssertEqual(ComposeSurfaceStyle.background(for: .dark), Color.black)
+        XCTAssertEqual(ComposeSurfaceStyle.background(for: .light), Color.white)
+        XCTAssertTrue(source.contains("private var composeSheetBackground: Color"))
+        XCTAssertTrue(source.contains("ComposeSurfaceStyle.background(for: colorScheme)"))
+        XCTAssertTrue(source.contains("standardComposerLayout\n                .background(composeSheetBackground)"))
+        XCTAssertTrue(source.contains(".toolbarBackground(composeSheetBackground, for: .navigationBar)"))
+        XCTAssertTrue(source.contains(".presentationBackground(composeSheetBackground)"))
+
+        let accessoryBarStart = try XCTUnwrap(
+            source.range(of: "private var composeBottomAccessoryBar: some View")
+        )
+        let attachmentToolbarStart = try XCTUnwrap(
+            source.range(
+                of: "private var composeAttachmentToolbar: some View",
+                range: accessoryBarStart.upperBound..<source.endIndex
+            )
+        )
+        let accessoryBarSource = source[accessoryBarStart.lowerBound..<attachmentToolbarStart.lowerBound]
+
+        XCTAssertTrue(accessoryBarSource.contains(".background(composeSheetBackground)"))
+    }
+
     @MainActor
     func testAppCoordinatorOwnsLiveComposeTextForPresentedDraft() throws {
         let coordinator = AppComposeSheetCoordinator()
