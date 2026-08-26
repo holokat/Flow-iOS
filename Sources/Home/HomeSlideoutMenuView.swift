@@ -73,7 +73,6 @@ struct HomeSlideoutMenuView: View {
                         onOpenScannedProfile(pubkey)
                     }
                 )
-                .presentationBackground(menuBackground)
             }
         }
         .task(id: accountHeaderLookupID) {

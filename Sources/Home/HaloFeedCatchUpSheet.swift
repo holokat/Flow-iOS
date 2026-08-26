@@ -26,7 +26,6 @@ struct HaloFeedCatchUpSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(18)
             }
-            .background(appSettings.themePalette.sheetBackground)
             .navigationTitle("Catch Up")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -36,12 +35,9 @@ struct HaloFeedCatchUpSheet: View {
                     }
                 }
             }
-            .toolbarBackground(appSettings.themePalette.sheetBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(appSettings.themePalette.sheetBackground)
     }
 
     private var privacyLabel: some View {

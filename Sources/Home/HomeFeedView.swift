@@ -849,102 +849,42 @@ struct HomeFeedView: View {
                 Color.clear
                     .frame(width: 46, height: 46)
                     .accessibilityHidden(true)
-            } else {
-                Button {
+            } else if #available(iOS 26.0, *) {
+                Button("Feed filters", systemImage: feedFilterButtonSystemImage) {
                     isShowingFilterSheet = true
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .font(.system(size: 19, weight: .medium))
-                        .foregroundStyle(
-                            viewModel.isUsingCustomFilters
-                                ? appSettings.primaryColor
-                                : appSettings.themePalette.mutedForeground
-                        )
-                        .frame(width: 44, height: 44)
-                    .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
-                .haloNativeGlass(
-                    tint: viewModel.isUsingCustomFilters ? appSettings.primaryColor.opacity(0.14) : nil,
-                    interactive: true,
-                    in: Circle()
-                )
-                .accessibilityLabel("Feed filters")
+                .labelStyle(.iconOnly)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .accessibilityAddTraits(viewModel.isUsingCustomFilters ? [.isSelected] : [])
+            } else {
+                Button("Feed filters", systemImage: feedFilterButtonSystemImage) {
+                    isShowingFilterSheet = true
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
                 .accessibilityAddTraits(viewModel.isUsingCustomFilters ? [.isSelected] : [])
             }
         }
     }
 
-    private var filterSheet: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    kindsFilterSection
-                    contentFilterSection
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 44)
-            }
-            .navigationTitle("Feed Filters")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    ThemedToolbarDoneButton {
-                        isShowingFilterSheet = false
-                    }
-                }
-            }
-            .background(appSettings.themePalette.sheetBackground)
-            .toolbarBackground(appSettings.themePalette.sheetBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-        }
-        .presentationDetents([.fraction(0.7), .large])
-        .presentationDragIndicator(.visible)
-        .presentationBackground(appSettings.themePalette.sheetBackground)
+    private var feedFilterButtonSystemImage: String {
+        viewModel.isUsingCustomFilters
+            ? "line.3.horizontal.decrease.circle.fill"
+            : "line.3.horizontal.decrease"
     }
 
-    private var kindsFilterSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(spacing: 0) {
-                ForEach(Array(viewModel.kindFilterOptions.enumerated()), id: \.element.id) { index, option in
-                    Toggle(isOn: kindFilterBinding(for: option)) {
-                        Label(option.title, systemImage: filterIconName(for: option))
-                            .font(appSettings.appFont(.subheadline, weight: .medium))
-                            .foregroundStyle(appSettings.themePalette.foreground)
-                    }
-                    .toggleStyle(.switch)
-                    .tint(appSettings.primaryColor)
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 52)
-
-                    if index < viewModel.kindFilterOptions.count - 1 {
-                        Divider()
-                            .padding(.leading, 48)
-                            .foregroundStyle(appSettings.themeSeparator(defaultOpacity: 0.35))
-                    }
-                }
+    private var filterSheet: some View {
+        HomeFeedFilterSheet(
+            options: viewModel.kindFilterOptions,
+            kindFilterBinding: kindFilterBinding(for:),
+            mediaOnlyBinding: mediaOnlyBinding,
+            onSelectAll: viewModel.selectAllKinds,
+            onDismiss: {
+                isShowingFilterSheet = false
             }
-            .background(
-                appSettings.themePalette.secondaryBackground,
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-            )
-
-            Button {
-                viewModel.selectAllKinds()
-            } label: {
-                Label("Select All", systemImage: "line.3.horizontal.decrease.circle")
-                    .font(appSettings.appFont(.footnote, weight: .semibold))
-                    .foregroundStyle(appSettings.themePalette.foreground)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .haloNativeGlass(
-                        interactive: true,
-                        in: Capsule(style: .continuous)
-                    )
-            }
-            .buttonStyle(.plain)
-        }
+        )
     }
 
     private func kindFilterBinding(for option: FeedKindFilterOption) -> Binding<Bool> {
@@ -968,48 +908,6 @@ struct HomeFeedView: View {
                 viewModel.setMediaOnly(isEnabled)
             }
         )
-    }
-
-    private var contentFilterSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Content")
-                .font(.headline)
-
-            Toggle(isOn: mediaOnlyBinding) {
-                Text("Only notes with media")
-                    .font(appSettings.appFont(.subheadline, weight: .medium))
-                    .foregroundStyle(appSettings.themePalette.foreground)
-            }
-            .toggleStyle(.switch)
-            .tint(appSettings.primaryColor)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 52)
-            .background(
-                appSettings.themePalette.secondaryBackground,
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-            )
-        }
-    }
-
-    private func filterIconName(for option: FeedKindFilterOption) -> String {
-        switch option.id {
-        case "posts":
-            return "text.bubble"
-        case "reposts":
-            return "arrow.triangle.2.circlepath"
-        case "articles":
-            return "doc.text"
-        case "polls":
-            return "chart.bar.xaxis"
-        case "voice":
-            return "waveform"
-        case "photos":
-            return "photo"
-        case "videos":
-            return "video"
-        default:
-            return "line.3.horizontal.decrease.circle"
-        }
     }
 
     private var filteredOutState: some View {
@@ -1571,6 +1469,64 @@ struct HomeFeedView: View {
         }
     }
 
+}
+
+struct HomeFeedFilterSheet: View {
+    let options: [FeedKindFilterOption]
+    let kindFilterBinding: (FeedKindFilterOption) -> Binding<Bool>
+    let mediaOnlyBinding: Binding<Bool>
+    let onSelectAll: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Post Types") {
+                    ForEach(options) { option in
+                        Toggle(isOn: kindFilterBinding(option)) {
+                            Label(option.title, systemImage: filterIconName(for: option))
+                        }
+                    }
+
+                    Button("Select All", systemImage: "line.3.horizontal.decrease.circle", action: onSelectAll)
+                }
+
+                Section("Content") {
+                    Toggle("Only notes with media", isOn: mediaOnlyBinding)
+                }
+            }
+            .navigationTitle("Feed Filters")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ThemedToolbarDoneButton(action: onDismiss)
+                }
+            }
+        }
+        .presentationDetents([.fraction(0.7), .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func filterIconName(for option: FeedKindFilterOption) -> String {
+        switch option.id {
+        case "posts":
+            return "text.bubble"
+        case "reposts":
+            return "arrow.triangle.2.circlepath"
+        case "articles":
+            return "doc.text"
+        case "polls":
+            return "chart.bar.xaxis"
+        case "voice":
+            return "waveform"
+        case "photos":
+            return "photo"
+        case "videos":
+            return "video"
+        default:
+            return "line.3.horizontal.decrease.circle"
+        }
+    }
 }
 
 private struct HomeFeedRootContent<

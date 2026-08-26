@@ -85,7 +85,6 @@ struct ComposeImageAltTextSheet: View {
                 }
                 .padding(16)
             }
-            .background(appSettings.themePalette.sheetBackground)
             .navigationTitle("Alt Text")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -104,12 +103,9 @@ struct ComposeImageAltTextSheet: View {
                     .disabled(!canSave)
                 }
             }
-            .toolbarBackground(appSettings.themePalette.sheetBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(appSettings.themePalette.sheetBackground)
     }
 
     private var imagePreview: some View {

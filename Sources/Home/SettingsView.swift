@@ -104,7 +104,6 @@ struct SettingsView: View {
                 }
             }
         }
-        .presentationBackground(settingsSurfaceStyle.formBackground)
         .preferredColorScheme(appSettings.preferredColorScheme)
     }
 

@@ -24,24 +24,19 @@ struct ProfileQRCodeSheet: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                appSettings.themePalette.sheetBackground
-                    .ignoresSafeArea()
-
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 18) {
-                        profileHeader
-                        qrCard
-                        actionRow
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                    .padding(.bottom, 56)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 18) {
+                    profileHeader
+                    qrCard
+                    actionRow
                 }
-                .safeAreaInset(edge: .bottom) {
-                    Color.clear
-                        .frame(height: 24)
-                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 56)
+            }
+            .safeAreaInset(edge: .bottom) {
+                Color.clear
+                    .frame(height: 24)
             }
             .navigationTitle("Profile QR")
             .navigationBarTitleDisplayMode(.inline)
@@ -52,12 +47,9 @@ struct ProfileQRCodeSheet: View {
                     }
                 }
             }
-            .toolbarBackground(appSettings.themePalette.sheetBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(appSettings.themePalette.sheetBackground)
         .task(id: qrPayload) {
             let payload = qrPayload
             qrCodeImage = await QRCodeRenderer.renderAsync(payload: payload)

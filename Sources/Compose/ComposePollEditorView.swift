@@ -41,7 +41,6 @@ struct ComposePollEditorView: View {
 
             Toggle("Allow multiple choices", isOn: $draft.allowsMultipleChoice)
                 .font(.subheadline)
-                .tint(.accentColor)
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .center, spacing: 12) {

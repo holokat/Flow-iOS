@@ -204,7 +204,6 @@ struct ComposeKlipyGIFPickerSheet: View {
             .padding(.top, 16)
             .padding(.bottom, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(appSettings.themePalette.sheetBackground)
             .navigationTitle("GIFs")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -214,12 +213,9 @@ struct ComposeKlipyGIFPickerSheet: View {
                     }
                 }
             }
-            .toolbarBackground(appSettings.themePalette.sheetBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(appSettings.themePalette.sheetBackground)
         .task {
             await viewModel.loadInitialIfNeeded()
         }

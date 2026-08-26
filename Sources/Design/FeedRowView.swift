@@ -1131,7 +1131,6 @@ struct FeedRowView: View {
 
 struct NoteOptionsBottomSheetView: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var appSettings: AppSettingsStore
 
     let muteDisplayName: String
     let canCopyText: Bool
@@ -1174,152 +1173,97 @@ struct NoteOptionsBottomSheetView: View {
     }
 
     private var optionsList: some View {
-        VStack(spacing: 12) {
-            VStack(spacing: 0) {
+        List {
+            Section {
                 optionRow(
                     title: "Copy Text",
                     icon: "text.alignleft",
-                    isEnabled: canCopyText,
-                    tint: .primary
+                    isEnabled: canCopyText
                 ) {
                     onCopyText()
                 }
 
-                sheetDivider
-
                 optionRow(
                     title: "Copy Raw Content",
                     icon: "doc.on.doc",
-                    isEnabled: canCopyRawContent,
-                    tint: .primary
+                    isEnabled: canCopyRawContent
                 ) {
                     onCopyRawContent()
                 }
 
-                sheetDivider
-
                 optionRow(
                     title: "Copy Event ID",
                     icon: "number",
-                    isEnabled: true,
-                    tint: .primary
+                    isEnabled: true
                 ) {
                     onCopyEventID()
                 }
 
-                sheetDivider
-
                 optionRow(
                     title: "Copy User ID",
                     icon: "person.text.rectangle",
-                    isEnabled: true,
-                    tint: .primary
+                    isEnabled: true
                 ) {
                     onCopyUserID()
                 }
 
-                sheetDivider
-
                 optionRow(
                     title: "Copy Link",
                     icon: "link",
-                    isEnabled: true,
-                    tint: .primary
+                    isEnabled: true
                 ) {
                     onCopyLink()
                 }
 
                 if showsTranslateAction {
-                    sheetDivider
-
                     optionRow(
                         title: "Translate Note",
                         icon: "globe",
-                        isEnabled: true,
-                        tint: .primary
+                        isEnabled: true
                     ) {
                         onTranslate?()
                     }
                 }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(appSettings.themePalette.sheetCardBackground)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(appSettings.themeSeparator(defaultOpacity: 0.18), lineWidth: 0.8)
-            )
 
-            VStack(spacing: 0) {
+            Section {
                 optionRow(
                     title: "Mute",
                     icon: "speaker.slash",
                     isEnabled: true,
-                    tint: .primary,
                     dismissAfterAction: false
                 ) {
                     isEnteringMuteReason = true
                 }
 
                 if let onMuteThread {
-                    sheetDivider
-
                     optionRow(
                         title: "Mute Thread",
                         icon: "bell.slash",
-                        isEnabled: true,
-                        tint: .primary
+                        isEnabled: true
                     ) {
                         onMuteThread()
                     }
                 }
 
-                sheetDivider
-
                 optionRow(
                     title: spamMarkTitle,
                     icon: spamMarkIcon,
-                    isEnabled: canToggleSpamMark,
-                    tint: .orange
+                    isEnabled: canToggleSpamMark
                 ) {
                     onToggleSpamMark()
                 }
-
-                sheetDivider
 
                 optionRow(
                     title: "Report",
                     icon: "exclamationmark.bubble",
                     isEnabled: true,
-                    tint: .red
+                    role: .destructive
                 ) {
                     onReport()
                 }
             }
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(appSettings.themePalette.sheetCardBackground)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(appSettings.themeSeparator(defaultOpacity: 0.18), lineWidth: 0.8)
-            )
-
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 16)
-        .background(appSettings.themePalette.sheetBackground)
-        .presentationBackground(appSettings.themePalette.sheetBackground)
-    }
-
-    private var sheetDivider: some View {
-        Rectangle()
-            .fill(appSettings.themeSeparator(defaultOpacity: 0.18))
-            .frame(height: 0.75)
-            .padding(.leading, 16)
     }
 
     @ViewBuilder
@@ -1327,35 +1271,20 @@ struct NoteOptionsBottomSheetView: View {
         title: String,
         icon: String,
         isEnabled: Bool,
-        tint: Color,
+        role: ButtonRole? = nil,
         dismissAfterAction: Bool = true,
         action: (() -> Void)? = nil
     ) -> some View {
-        Button {
+        Button(role: role) {
             guard isEnabled else { return }
             action?()
             if dismissAfterAction {
                 dismiss()
             }
         } label: {
-            HStack(spacing: 12) {
-                Text(title)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(isEnabled ? tint : appSettings.themePalette.mutedForeground)
-
-                Spacer(minLength: 0)
-
-                Image(systemName: icon)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(isEnabled ? tint : appSettings.themePalette.mutedForeground)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 15)
-            .contentShape(Rectangle())
+            Label(title, systemImage: icon)
         }
-        .buttonStyle(.plain)
         .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.45)
     }
 }
 

@@ -166,64 +166,17 @@ struct NotificationPreferencesView: View {
 
     var navigationTitleText: String = "Notifications"
     var showsMutedNotifications: Binding<Bool>? = nil
+    var usesSystemFormSurface = false
 
     var body: some View {
-        ThemedSettingsForm {
-            Section("System Notifications") {
-                NotificationPreferencesToggleRow(
-                    title: "Enable Notifications",
-                    isOn: Binding(
-                        get: { false },
-                        set: { _ in appSettings.notificationsEnabled = false }
-                    ),
-                    footer: appSettings.notificationsStatusDescription,
-                    badge: "Coming soon",
-                    isDisabled: true
-                )
-            }
-
-            Section {
-                Toggle("Mentions", isOn: Binding(
-                    get: { appSettings.activityMentionNotificationsEnabled },
-                    set: { appSettings.activityMentionNotificationsEnabled = $0 }
-                ))
-
-                Toggle("Reactions", isOn: Binding(
-                    get: { appSettings.activityReactionNotificationsEnabled },
-                    set: { appSettings.activityReactionNotificationsEnabled = $0 }
-                ))
-
-                Toggle("Replies", isOn: Binding(
-                    get: { appSettings.activityReplyNotificationsEnabled },
-                    set: { appSettings.activityReplyNotificationsEnabled = $0 }
-                ))
-
-                Toggle("Reshares", isOn: Binding(
-                    get: { appSettings.activityReshareNotificationsEnabled },
-                    set: { appSettings.activityReshareNotificationsEnabled = $0 }
-                ))
-
-                Toggle("Quote Shares", isOn: Binding(
-                    get: { appSettings.activityQuoteShareNotificationsEnabled },
-                    set: { appSettings.activityQuoteShareNotificationsEnabled = $0 }
-                ))
-            } header: {
-                Text("Pulse Alerts")
-            } footer: {
-                Text("These controls decide which activity triggers the in-app bell badge and future notifications.")
-            }
-
-            if let showsMutedNotifications {
-                Section {
-                    Toggle("Show muted activity", isOn: showsMutedNotifications)
-                        .accessibilityHint(
-                            "Shows muted activity as private placeholders without changing your mute settings."
-                        )
-                        .accessibilityIdentifier("pulse-show-muted-notifications")
-                } header: {
-                    Text("Activity visibility")
-                } footer: {
-                    Text("Muted activity stays out of your unread count.")
+        Group {
+            if usesSystemFormSurface {
+                Form {
+                    preferenceSections
+                }
+            } else {
+                ThemedSettingsForm {
+                    preferenceSections
                 }
             }
         }
@@ -231,6 +184,67 @@ struct NotificationPreferencesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await appSettings.refreshNotificationAuthorizationStatus()
+        }
+    }
+
+    @ViewBuilder
+    private var preferenceSections: some View {
+        Section("System Notifications") {
+            NotificationPreferencesToggleRow(
+                title: "Enable Notifications",
+                isOn: Binding(
+                    get: { false },
+                    set: { _ in appSettings.notificationsEnabled = false }
+                ),
+                footer: appSettings.notificationsStatusDescription,
+                badge: "Coming soon",
+                isDisabled: true
+            )
+        }
+
+        Section {
+            Toggle("Mentions", isOn: Binding(
+                get: { appSettings.activityMentionNotificationsEnabled },
+                set: { appSettings.activityMentionNotificationsEnabled = $0 }
+            ))
+
+            Toggle("Reactions", isOn: Binding(
+                get: { appSettings.activityReactionNotificationsEnabled },
+                set: { appSettings.activityReactionNotificationsEnabled = $0 }
+            ))
+
+            Toggle("Replies", isOn: Binding(
+                get: { appSettings.activityReplyNotificationsEnabled },
+                set: { appSettings.activityReplyNotificationsEnabled = $0 }
+            ))
+
+            Toggle("Reshares", isOn: Binding(
+                get: { appSettings.activityReshareNotificationsEnabled },
+                set: { appSettings.activityReshareNotificationsEnabled = $0 }
+            ))
+
+            Toggle("Quote Shares", isOn: Binding(
+                get: { appSettings.activityQuoteShareNotificationsEnabled },
+                set: { appSettings.activityQuoteShareNotificationsEnabled = $0 }
+            ))
+        } header: {
+            Text("Pulse Alerts")
+        } footer: {
+            Text("These controls decide which activity triggers the in-app bell badge and future notifications.")
+        }
+
+        if let showsMutedNotifications {
+            Section {
+                Toggle("Show muted activity", isOn: showsMutedNotifications)
+                    .accessibilityHint(
+                        "Shows muted activity as private placeholders without changing your mute settings."
+                    )
+                    .accessibilityIdentifier("pulse-show-muted-notifications")
+            } header: {
+                Text("Activity visibility")
+            } footer: {
+                Text("Muted activity stays out of your unread count.")
+            }
         }
     }
 }
@@ -414,10 +428,6 @@ struct ThemedSettingsForm<Content: View>: View {
         .tint(appSettings.primaryColor)
         .listRowSeparatorTint(surfaceStyle.cardBorder)
         .listSectionSeparatorTint(surfaceStyle.cardBorder)
-        .toolbarBackground(surfaceStyle.navigationBackground, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(effectiveColorScheme, for: .navigationBar)
-        .presentationBackground(surfaceStyle.formBackground)
         .preferredColorScheme(appSettings.preferredColorScheme)
     }
 }
@@ -479,19 +489,23 @@ struct ThemedToolbarDoneButton: View {
     var title: String = "Done"
     let action: () -> Void
 
+    @ViewBuilder
     var body: some View {
-        Button {
-            action()
-        } label: {
-            Image(systemName: "xmark")
-                .font(appSettings.appFont(.footnote, weight: .semibold))
-                .foregroundStyle(appSettings.themePalette.foreground)
-                .frame(width: 40, height: 40)
-                .haloNativeGlass(interactive: true, in: Circle())
-                .contentShape(Circle())
+        if #available(iOS 26.0, *) {
+            Button(title, systemImage: "xmark", action: action)
+                .labelStyle(.iconOnly)
+        } else {
+            Button(action: action) {
+                Image(systemName: "xmark")
+                    .font(appSettings.appFont(.footnote, weight: .semibold))
+                    .foregroundStyle(appSettings.themePalette.foreground)
+                    .frame(width: 40, height: 40)
+                    .haloNativeGlass(interactive: true, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
     }
 }
 
@@ -592,6 +606,5 @@ private struct NotificationPreferencesToggleRow: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, 4)
-        .opacity(isDisabled ? 0.68 : 1)
     }
 }

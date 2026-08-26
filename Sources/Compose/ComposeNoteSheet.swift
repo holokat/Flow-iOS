@@ -115,7 +115,6 @@ struct ComposeNoteSheet: View {
     var body: some View {
         NavigationStack {
             standardComposerLayout
-                .background(composeSheetBackground)
             .navigationTitle(composerNavigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -150,13 +149,10 @@ struct ComposeNoteSheet: View {
                     }
                 }
             }
-            .toolbarBackground(composeSheetBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.hidden)
         .interactiveDismissDisabled()
-        .presentationBackground(composeSheetBackground)
         .task {
             applyInitialContextIfNeeded()
             applyInitialDraftIfNeeded()
@@ -290,10 +286,6 @@ struct ComposeNoteSheet: View {
         availableSavedDrafts.count
     }
 
-    private var composeSheetBackground: Color {
-        ComposeSurfaceStyle.background(for: colorScheme)
-    }
-
     private var draftLibraryToolbarButton: some View {
         ComposeDraftLibraryToolbarButton(savedDraftCount: availableSavedDraftCount) {
             isShowingDraftLibrary = true
@@ -360,7 +352,6 @@ struct ComposeNoteSheet: View {
 
             composeAttachmentToolbar
         }
-        .background(composeSheetBackground)
     }
 
     private var composeAttachmentToolbar: some View {

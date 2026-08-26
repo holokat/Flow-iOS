@@ -84,8 +84,6 @@ struct NoteReportSheetView: View {
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(appSettings.themePalette.sheetBackground)
             .navigationTitle("Report Note")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -106,7 +104,6 @@ struct NoteReportSheetView: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(appSettings.themePalette.sheetBackground)
         .accessibilityLabel("Report note from \(noteAuthorName)")
     }
 

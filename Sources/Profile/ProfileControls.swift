@@ -189,17 +189,13 @@ struct MuteReasonSheetView: View {
                     }
                 }
             }
-            .toolbarBackground(appSettings.themePalette.sheetBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(appSettings.themePalette.sheetBackground)
     }
 }
 
 struct MuteReasonEditorView: View {
-    @EnvironmentObject private var appSettings: AppSettingsStore
     @FocusState private var isReasonFocused: Bool
 
     let displayName: String
@@ -261,145 +257,52 @@ struct MuteReasonEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        Form {
             if let onCancel {
-                Button {
+                Button("Back", systemImage: "chevron.left") {
                     isReasonFocused = false
                     onCancel()
-                } label: {
-                    Label("Back", systemImage: "chevron.left")
-                        .font(appSettings.appFont(.subheadline, weight: .semibold))
-                        .foregroundStyle(appSettings.themePalette.foreground)
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(FlowPressScaleButtonStyle())
-            }
-
-            HStack(alignment: .top, spacing: 14) {
-                Image(systemName: mode == .mute ? "speaker.slash.fill" : "note.text")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(appSettings.primaryColor)
-                    .frame(width: 44, height: 44)
-                    .background(
-                        Circle()
-                            .fill(appSettings.primaryColor.opacity(0.14))
-                    )
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(editorTitle)
-                        .font(appSettings.appFont(.title3, weight: .semibold))
-                        .foregroundStyle(appSettings.themePalette.foreground)
-                        .lineLimit(2)
-
-                    Text(editorSubtitle)
-                        .font(appSettings.appFont(.subheadline))
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 9) {
-                Text("Reason (optional)")
-                    .font(appSettings.appFont(.footnote, weight: .semibold))
-                    .foregroundStyle(appSettings.themePalette.secondaryForeground)
-
+            Section {
                 TextField(
                     "Why are you muting this person?",
                     text: $reason,
                     axis: .vertical
                 )
-                .font(appSettings.appFont(.body))
                 .lineLimit(3...5)
                 .focused($isReasonFocused)
                 .textInputAutocapitalization(.sentences)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(appSettings.themePalette.sheetInsetBackground)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(
-                            isReasonFocused
-                                ? appSettings.primaryColor.opacity(0.72)
-                                : appSettings.themePalette.separator.opacity(0.5),
-                            lineWidth: isReasonFocused ? 1.2 : 0.8
-                        )
-                )
-
+            } header: {
+                Label(editorTitle, systemImage: mode == .mute ? "speaker.slash.fill" : "note.text")
+            } footer: {
+                Text(editorSubtitle)
                 Label("Saved locally. Never sent to relays.", systemImage: "lock.fill")
-                    .font(appSettings.appFont(.caption1))
-                    .foregroundStyle(appSettings.themePalette.tertiaryForeground)
             }
 
-            Spacer(minLength: 0)
-
-            VStack(spacing: 10) {
-                Button {
+            Section {
+                Button(primaryButtonTitle) {
                     onConfirm(normalizedReason)
-                } label: {
-                    Text(primaryButtonTitle)
-                        .font(appSettings.appFont(.body, weight: .semibold))
-                        .foregroundStyle(appSettings.buttonTextColor)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(
-                                    normalizedReason == nil
-                                        ? appSettings.primaryColor.opacity(0.42)
-                                        : appSettings.primaryColor
-                                )
-                        )
                 }
-                .buttonStyle(FlowPressScaleButtonStyle())
                 .disabled(normalizedReason == nil)
 
                 if mode == .mute {
-                    secondaryButton(
-                        title: "Skip reason and mute",
-                        foreground: appSettings.themePalette.foreground
-                    ) {
+                    Button("Skip reason and mute") {
                         onConfirm(nil)
                     }
                 } else if normalizedInitialReason != nil {
-                    secondaryButton(
-                        title: "Remove reason",
-                        foreground: appSettings.themePalette.errorForeground
-                    ) {
+                    Button("Remove reason", role: .destructive) {
                         onConfirm(nil)
                     }
                 }
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .padding(.bottom, 14)
-        .background(appSettings.themePalette.sheetBackground)
         .onAppear {
             DispatchQueue.main.async {
                 isReasonFocused = true
             }
         }
-    }
-
-    private func secondaryButton(
-        title: String,
-        foreground: Color,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(appSettings.appFont(.body, weight: .semibold))
-                .foregroundStyle(foreground)
-                .frame(maxWidth: .infinity, minHeight: 46)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(appSettings.themePalette.secondaryGroupedBackground)
-                )
-        }
-        .buttonStyle(FlowPressScaleButtonStyle())
     }
 }
 

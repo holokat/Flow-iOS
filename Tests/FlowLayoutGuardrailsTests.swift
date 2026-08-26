@@ -937,6 +937,136 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(noteSource.contains(".haloNativeGlass(interactive: true, in: Capsule())"))
     }
 
+    func testPulseSettingsUsesOneSystemManagedSheetSurface() throws {
+        let activitySource = try Self.sourceText(at: "Sources/Activity/ActivityView.swift")
+        let settingsSource = try Self.sourceText(at: "Sources/Home/SettingsComponents.swift")
+        let sheetStart = try XCTUnwrap(activitySource.range(of: "private var notificationSettingsSheet"))
+        let emptyStateStart = try XCTUnwrap(
+            activitySource.range(of: "private var emptyStateRow", range: sheetStart.upperBound..<activitySource.endIndex)
+        )
+        let sheetSource = activitySource[sheetStart.lowerBound..<emptyStateStart.lowerBound]
+
+        XCTAssertTrue(activitySource.contains("FlowNativeGlassSegmentedPicker("))
+        XCTAssertFalse(activitySource.contains("FlowCapsuleTabBar("))
+        XCTAssertTrue(sheetSource.contains("usesSystemFormSurface: true"))
+        XCTAssertTrue(sheetSource.contains("ToolbarItem(placement: .topBarTrailing)"))
+        XCTAssertFalse(sheetSource.contains(".toolbarBackground("))
+        XCTAssertFalse(sheetSource.contains(".presentationBackground("))
+        XCTAssertTrue(settingsSource.contains("if usesSystemFormSurface {\n                Form {"))
+        XCTAssertFalse(settingsSource.contains(".toggleStyle("))
+        XCTAssertFalse(settingsSource.contains(".opacity(isDisabled"))
+    }
+
+    func testModernToolbarDoneButtonDoesNotNestGlassInsideSystemGlass() throws {
+        let settingsSource = try Self.sourceText(at: "Sources/Home/SettingsComponents.swift")
+        let buttonStart = try XCTUnwrap(settingsSource.range(of: "struct ThemedToolbarDoneButton"))
+        let sectionStart = try XCTUnwrap(
+            settingsSource.range(of: "struct ThemedSettingsSection", range: buttonStart.upperBound..<settingsSource.endIndex)
+        )
+        let buttonSource = settingsSource[buttonStart.lowerBound..<sectionStart.lowerBound]
+        let modernStart = try XCTUnwrap(buttonSource.range(of: "if #available(iOS 26.0, *)"))
+        let legacyStart = try XCTUnwrap(buttonSource.range(of: "} else {", range: modernStart.upperBound..<buttonSource.endIndex))
+        let modernSource = buttonSource[modernStart.lowerBound..<legacyStart.lowerBound]
+        let legacySource = buttonSource[legacyStart.lowerBound...]
+
+        XCTAssertFalse(modernSource.contains(".haloNativeGlass("))
+        XCTAssertFalse(modernSource.contains(".buttonStyle(.plain)"))
+        XCTAssertTrue(modernSource.contains("Button(title, systemImage: \"xmark\", action: action)"))
+        XCTAssertFalse(modernSource.contains(".font("))
+        XCTAssertFalse(modernSource.contains(".foregroundStyle("))
+        XCTAssertTrue(legacySource.contains(".haloNativeGlass(interactive: true, in: Circle())"))
+    }
+
+    func testHomeFeedFiltersUseNativeAdaptiveControls() throws {
+        let source = try Self.sourceText(at: "Sources/Home/HomeFeedView.swift")
+        let filterButtonStart = try XCTUnwrap(source.range(of: "private var filterButton"))
+        let filteredOutStart = try XCTUnwrap(
+            source.range(of: "private var filteredOutState", range: filterButtonStart.upperBound..<source.endIndex)
+        )
+        let buttonSource = source[filterButtonStart.lowerBound..<filteredOutStart.lowerBound]
+        let sheetStart = try XCTUnwrap(source.range(of: "struct HomeFeedFilterSheet"))
+        let sheetEnd = try XCTUnwrap(
+            source.range(of: "private struct HomeFeedRootContent", range: sheetStart.upperBound..<source.endIndex)
+        )
+        let sheetSource = source[sheetStart.lowerBound..<sheetEnd.lowerBound]
+
+        XCTAssertTrue(buttonSource.contains(".buttonStyle(.glass)"))
+        XCTAssertTrue(buttonSource.contains(".buttonStyle(.bordered)"))
+        XCTAssertTrue(buttonSource.contains(".buttonBorderShape(.circle)"))
+        XCTAssertFalse(buttonSource.contains(".haloNativeGlass("))
+        XCTAssertTrue(sheetSource.contains("Form {"))
+        XCTAssertTrue(sheetSource.contains("Section(\"Post Types\")"))
+        XCTAssertTrue(sheetSource.contains("Section(\"Content\")"))
+        XCTAssertTrue(sheetSource.contains("Toggle("))
+        XCTAssertFalse(sheetSource.contains(".toggleStyle("))
+        XCTAssertFalse(sheetSource.contains(".toolbarBackground("))
+        XCTAssertFalse(sheetSource.contains(".presentationBackground("))
+    }
+
+    func testStandardBottomSheetsDoNotForceCustomPresentationChrome() throws {
+        let sheetPaths = [
+            "Sources/Activity/ActivityView.swift",
+            "Sources/Compose/ComposeImageAltTextSheet.swift",
+            "Sources/Compose/ComposeKlipyGIFPickerSheet.swift",
+            "Sources/Compose/ComposeNoteSheet.swift",
+            "Sources/Compose/ComposeNoteSheetAccessoryViews.swift",
+            "Sources/Design/FeedRowView.swift",
+            "Sources/Design/NoteReportSheetView.swift",
+            "Sources/Design/ReshareActionSheetView.swift",
+            "Sources/Home/HaloFeedCatchUpSheet.swift",
+            "Sources/Home/HomeFeedView.swift",
+            "Sources/Home/SettingsComponents.swift",
+            "Sources/Home/SettingsView.swift",
+            "Sources/Profile/ProfileControls.swift",
+            "Sources/Profile/ProfileEditorSheet.swift",
+            "Sources/Profile/ProfileQRCodeSheet.swift",
+            "Sources/Profile/ProfileView.swift"
+        ]
+
+        for path in sheetPaths {
+            let source = try Self.sourceText(at: path)
+            XCTAssertFalse(source.contains(".presentationBackground("), path)
+            XCTAssertFalse(
+                source.contains(".toolbarBackground(appSettings.themePalette.sheetBackground"),
+                path
+            )
+        }
+    }
+
+    func testBottomSheetChoicesAndMuteReasonsUseNativeContainers() throws {
+        let feedRowSource = try Self.sourceText(at: "Sources/Design/FeedRowView.swift")
+        let optionsStart = try XCTUnwrap(feedRowSource.range(of: "struct NoteOptionsBottomSheetView"))
+        let optionsEnd = try XCTUnwrap(
+            feedRowSource.range(of: "extension View", range: optionsStart.upperBound..<feedRowSource.endIndex)
+        )
+        let optionsSource = feedRowSource[optionsStart.lowerBound..<optionsEnd.lowerBound]
+
+        let profileSource = try Self.sourceText(at: "Sources/Profile/ProfileControls.swift")
+        let reasonStart = try XCTUnwrap(profileSource.range(of: "struct MuteReasonEditorView"))
+        let reasonEnd = try XCTUnwrap(
+            profileSource.range(of: "struct MutedProfileReasonCard", range: reasonStart.upperBound..<profileSource.endIndex)
+        )
+        let reasonSource = profileSource[reasonStart.lowerBound..<reasonEnd.lowerBound]
+
+        let reshareSource = try Self.sourceText(at: "Sources/Design/ReshareActionSheetView.swift")
+
+        XCTAssertTrue(optionsSource.contains("List {"))
+        XCTAssertFalse(optionsSource.contains(".buttonStyle(.plain)"))
+        XCTAssertFalse(optionsSource.contains(".opacity("))
+        XCTAssertTrue(reasonSource.contains("Form {"))
+        XCTAssertFalse(reasonSource.contains("FlowPressScaleButtonStyle"))
+        XCTAssertFalse(reasonSource.contains("RoundedRectangle("))
+        XCTAssertTrue(reshareSource.contains("List {"))
+        XCTAssertFalse(reshareSource.contains("RoundedRectangle("))
+        XCTAssertFalse(reshareSource.contains(".buttonStyle("))
+    }
+
+    func testAppDoesNotOverrideNativeToggleStyles() throws {
+        let allSources = try Self.sourceTexts(under: "Sources")
+
+        XCTAssertFalse(allSources.contains(".toggleStyle("))
+    }
+
     func testCreateAccountCloseButtonUsesGlassInsteadOfPrimaryFill() {
         XCTAssertTrue(ManageAccountsAppearance.closeButtonUsesGlassSurface)
         XCTAssertFalse(ManageAccountsAppearance.closeButtonUsesPrimaryColorFill)

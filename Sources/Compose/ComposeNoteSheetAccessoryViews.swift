@@ -710,8 +710,6 @@ struct ComposeDraftLibrarySheet: View {
                                     dismiss()
                                 } : nil
                             )
-                            .listRowBackground(appSettings.themePalette.sheetBackground)
-                            .listRowSeparatorTint(appSettings.themePalette.separator.opacity(0.12))
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
                                     onDeleteDraft(draft)
@@ -721,11 +719,8 @@ struct ComposeDraftLibrarySheet: View {
                             }
                         }
                     }
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
                 }
             }
-            .background(appSettings.themePalette.sheetBackground)
             .navigationTitle("Drafts")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -745,16 +740,12 @@ struct ComposeDraftLibrarySheet: View {
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .foregroundStyle(appSettings.primaryColor)
                     .accessibilityLabel("New draft")
                 }
             }
-            .toolbarBackground(appSettings.themePalette.sheetBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(appSettings.themePalette.sheetBackground)
     }
 
     private var emptyState: some View {

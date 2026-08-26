@@ -1094,10 +1094,9 @@ private struct ProfileConnectionsSheet: View {
                         .foregroundStyle(appSettings.themePalette.foreground)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    FlowCapsuleTabBar(
+                    FlowNativeGlassSegmentedPicker(
                         selection: $selectedTab,
                         items: ProfileConnectionSourceTab.allCases,
-                        selectedBackground: appSettings.themePalette.secondaryBackground,
                         title: { $0.title }
                     )
 
@@ -1115,7 +1114,6 @@ private struct ProfileConnectionsSheet: View {
                 .padding(.top, 18)
                 .padding(.bottom, 34)
             }
-            .background(appSettings.themePalette.background)
             .navigationTitle("Connections")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1131,7 +1129,6 @@ private struct ProfileConnectionsSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(appSettings.themePalette.background)
     }
 
     private var selectedRelays: [URL] {

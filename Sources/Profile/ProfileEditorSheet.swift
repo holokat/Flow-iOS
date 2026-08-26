@@ -70,11 +70,8 @@ struct ProfileEditorSheet: View {
                 .padding(.top, 18)
                 .padding(.bottom, 120)
             }
-            .background(appSettings.themePalette.sheetBackground.ignoresSafeArea())
             .navigationTitle("Edit Profile")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(appSettings.themePalette.sheetBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
@@ -89,7 +86,6 @@ struct ProfileEditorSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(appSettings.themePalette.sheetBackground)
         .onChange(of: selectedAvatarItem) { _, newItem in
             guard let newItem else { return }
             Task {
@@ -274,7 +270,6 @@ struct ProfileEditorSheet: View {
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 14)
-        .background(appSettings.themePalette.sheetBackground)
     }
 
     private var saveButtonBackground: AnyShapeStyle {

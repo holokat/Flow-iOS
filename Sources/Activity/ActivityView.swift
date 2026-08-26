@@ -66,7 +66,7 @@ struct ActivityView: View {
 
                             List {
                                 Section {
-                                    FlowCapsuleTabBar(
+                                    FlowNativeGlassSegmentedPicker(
                                         selection: $viewModel.selectedFilter,
                                         items: ActivityFilter.allCases,
                                         title: { $0.title }
@@ -377,7 +377,8 @@ struct ActivityView: View {
         NavigationStack {
             NotificationPreferencesView(
                 navigationTitleText: "Pulse Settings",
-                showsMutedNotifications: mutedNotificationsVisibilityBinding
+                showsMutedNotifications: mutedNotificationsVisibilityBinding,
+                usesSystemFormSurface: true
             )
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -386,12 +387,9 @@ struct ActivityView: View {
                         }
                     }
                 }
-                .toolbarBackground(appSettings.themePalette.sheetBackground, for: .navigationBar)
-                .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(appSettings.themePalette.sheetBackground)
     }
 
     private var emptyStateRow: some View {
