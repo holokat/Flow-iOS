@@ -488,6 +488,7 @@ struct MainTabShellView: View {
             isRootVisible: $isActivityRootVisible,
             isTabActive: selectedTab == .activity
         )
+        .environment(\.flowBottomTabBarHeight, bottomTabBarHeight)
         .id(activityRootResetID)
     }
 
@@ -532,7 +533,7 @@ struct MainTabShellView: View {
 
     private var usesOverlayBottomTabBar: Bool {
         isBottomTabBarVisible && ScrollChromeLayout.usesOverlayBottomTabBar(
-            selectedTabIsHome: selectedTab == .home,
+            selectedTabUsesEdgeToEdgeChrome: selectedTab == .home || selectedTab == .activity,
             isHomeSideMenuPresented: isHomeSideMenuPresented
         )
     }
@@ -831,9 +832,9 @@ private extension View {
         self.toolbar(.hidden, for: .tabBar)
     }
 
-    // Home uses edge-to-edge overlay chrome; the other tabs reserve a safe-area
-    // inset for the same custom navigation. Hide the automatic edge fade so the
-    // Home feed remains visible beneath its transparent chrome.
+    // Home and Pulse use edge-to-edge overlay chrome; the other tabs reserve a
+    // safe-area inset for the same custom navigation. Hide the automatic edge
+    // fade so scrolling content remains visible beneath transparent chrome.
     @ViewBuilder
     func flowHiddenBottomScrollEdgeEffect() -> some View {
         if #available(iOS 26.0, *) {
@@ -969,10 +970,10 @@ struct ScrollChromeLayout {
     }
 
     static func usesOverlayBottomTabBar(
-        selectedTabIsHome: Bool,
+        selectedTabUsesEdgeToEdgeChrome: Bool,
         isHomeSideMenuPresented: Bool
     ) -> Bool {
-        selectedTabIsHome && !isHomeSideMenuPresented
+        selectedTabUsesEdgeToEdgeChrome && !isHomeSideMenuPresented
     }
 
     static func reservesBottomTabBarInsetSpace(

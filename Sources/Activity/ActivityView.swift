@@ -4,6 +4,7 @@ import SwiftUI
 struct ActivityView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.flowBottomTabBarHeight) private var bottomTabBarHeight
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
     @EnvironmentObject private var relaySettings: RelaySettingsStore
@@ -43,6 +44,7 @@ struct ActivityView: View {
         NavigationStack {
             GeometryReader { geometry in
                 let safeAreaTop = max(0, geometry.safeAreaInsets.top)
+                let safeAreaBottom = max(0, geometry.safeAreaInsets.bottom)
 
                 SideMenuContainer(
                     isOpen: $isShowingSideMenu,
@@ -108,6 +110,11 @@ struct ActivityView: View {
                                 }
                             }
                             .listStyle(.plain)
+                            .contentMargins(
+                                .bottom,
+                                bottomTabBarHeight + safeAreaBottom,
+                                for: .scrollContent
+                            )
                             .scrollContentBackground(.hidden)
                             .background(Color.clear)
                             .refreshable {
@@ -125,6 +132,7 @@ struct ActivityView: View {
                             }
                         }
                         .padding(.top, safeAreaTop)
+                        .ignoresSafeArea(edges: .bottom)
                     }
                     .flowHorizontalPaging(
                         selection: $viewModel.selectedFilter,

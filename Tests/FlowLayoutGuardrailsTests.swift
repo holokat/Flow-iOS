@@ -384,7 +384,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(cardSource.contains(".frame(maxWidth: .infinity"))
     }
 
-    func testMainTabShellInsetsCustomNavigationOutsideEdgeToEdgeHome() throws {
+    func testMainTabShellOverlaysCustomNavigationForEdgeToEdgeTabs() throws {
         let source = try Self.sourceText(at: "Sources/App/MainTabShellView.swift")
         let start = try XCTUnwrap(source.range(of: "var body: some View")?.lowerBound)
         let end = try XCTUnwrap(source.range(of: "@ViewBuilder\n    private var nativeTabView")?.lowerBound)
@@ -394,6 +394,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(bodySource.contains(".overlay(alignment: .bottom)"))
         XCTAssertTrue(bodySource.contains("if reservesBottomTabBarInsetSpace"))
         XCTAssertTrue(bodySource.contains("if usesOverlayBottomTabBar"))
+        XCTAssertTrue(source.contains("selectedTab == .home || selectedTab == .activity"))
     }
 
     func testProfileHeaderWidthUsesFiniteProposal() {
@@ -1394,7 +1395,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
 
         XCTAssertTrue(source.contains(".refreshable {\n            await refreshFeed()"))
         XCTAssertTrue(source.contains("ZStack(alignment: .top) {"))
-        XCTAssertTrue(source.contains("VStack(spacing: 0) {"))
+        XCTAssertFalse(source.contains("VStack(spacing: 0) {\n                HomeFeedTopNavigationChromeView("))
         XCTAssertFalse(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
         XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView("))
         XCTAssertTrue(source.contains("feedTopAnchor\n                .homeFeedListRow()\n                .environment(\\.defaultMinListRowHeight, 0)"))
@@ -1405,10 +1406,10 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(source.contains("feedTopAnchorRow"))
         XCTAssertFalse(source.contains("feedTopChromeClearance"))
         XCTAssertFalse(source.contains("feedTopPadding"))
-        XCTAssertFalse(source.contains("topContentPadding"))
+        XCTAssertTrue(source.contains("topContentPadding: CGFloat"))
         XCTAssertTrue(source.contains("if showsFeedModeHeader {\n                topTrackedRow(feedModeHeaderRow.homeFeedListRow(), isFirst: true)\n            }"))
         XCTAssertTrue(source.contains("private var showsFeedModeHeader: Bool {"))
-        XCTAssertTrue(source.contains("feedContent(\n                    contentPadding.bottom,\n                    0,\n                    safeAreaBottom\n                )"))
+        XCTAssertTrue(source.contains("feedContent(\n                contentPadding.bottom,\n                ScrollChromeLayout.defaultTopBarHeight,\n                contentPadding.top,\n                safeAreaBottom\n            )"))
         XCTAssertTrue(source.contains("safeAreaTop: safeAreaTop"))
         XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)"))
         XCTAssertFalse(topNavChromeSource.contains(".background("))
@@ -1421,11 +1422,11 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(source.contains("topHiddenOffset"))
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertFalse(topNavChromeSource.contains(".ignoresSafeArea(edges: .top)"))
-        XCTAssertFalse(topNavChromeSource.contains("topBarOffset"))
+        XCTAssertTrue(topNavChromeSource.contains("topBarOffset"))
         XCTAssertTrue(topNavChromeSource.contains("safeAreaTop"))
-        XCTAssertFalse(topNavChromeSource.contains(".offset(y:"))
-        XCTAssertFalse(topNavChromeSource.contains(".opacity("))
-        XCTAssertFalse(topNavChromeSource.contains(".allowsHitTesting("))
+        XCTAssertTrue(topNavChromeSource.contains(".offset(y: topBarOffset)"))
+        XCTAssertTrue(topNavChromeSource.contains(".opacity(visibleFraction)"))
+        XCTAssertTrue(topNavChromeSource.contains(".allowsHitTesting(visibleFraction > 0.05)"))
     }
 
     func testHomeFeedScrollChromeDoesNotRebuildBufferedFeedContent() throws {

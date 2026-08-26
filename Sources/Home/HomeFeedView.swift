@@ -262,12 +262,14 @@ struct HomeFeedView: View {
                 isShowingSideMenu: $isShowingSideMenu,
                 allowsSideMenuOpeningGesture: !viewModel.supportsModeTabsForCurrentSource
                     || viewModel.mode == HomeFeedMode.allCases.first,
+                scrollChromeStore: scrollChromeStore,
                 bottomTabBarHeight: bottomTabBarHeight,
                 topNavigationBar: { topNavigationBar },
-                feedContent: { bottomPadding, topBarHeight, safeAreaBottom in
+                feedContent: { bottomPadding, topBarHeight, topContentPadding, safeAreaBottom in
                     feedContent(
                         bottomContentPadding: bottomPadding,
                         topBarHeight: topBarHeight,
+                        topContentPadding: topContentPadding,
                         safeAreaBottom: safeAreaBottom
                     )
                 },
@@ -281,6 +283,7 @@ struct HomeFeedView: View {
     private func feedContent(
         bottomContentPadding: CGFloat,
         topBarHeight: CGFloat,
+        topContentPadding: CGFloat,
         safeAreaBottom: CGFloat
     ) -> some View {
         let visibleItems = viewModel.visibleItems
@@ -291,6 +294,7 @@ struct HomeFeedView: View {
                 visibleItems: visibleItems,
                 bottomContentPadding: bottomContentPadding,
                 topBarHeight: topBarHeight,
+                topContentPadding: topContentPadding,
                 safeAreaBottom: safeAreaBottom
             )
         }
@@ -302,6 +306,7 @@ struct HomeFeedView: View {
         visibleItems: [FeedItem],
         bottomContentPadding: CGFloat,
         topBarHeight: CGFloat,
+        topContentPadding: CGFloat,
         safeAreaBottom: CGFloat
     ) -> some View {
         let list = List {
@@ -326,7 +331,8 @@ struct HomeFeedView: View {
         }
         .listStyle(.plain)
         .environment(\.defaultMinListRowHeight, 0)
-        .contentMargins(.vertical, 0, for: .scrollContent)
+        .contentMargins(.top, max(0, topContentPadding), for: .scrollContent)
+        .contentMargins(.bottom, 0, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .background(Color.clear)
         .homeFeedNativeTabBarMinimizeBehavior()
@@ -1580,9 +1586,15 @@ private struct HomeFeedRootContent<
     @Binding var isShowingSideMenu: Bool
     let allowsSideMenuOpeningGesture: Bool
 
+    @ObservedObject var scrollChromeStore: ScrollChromeStore
     let bottomTabBarHeight: CGFloat
     let topNavigationBar: () -> TopNavigationBar
-    let feedContent: (_ bottomPadding: CGFloat, _ topBarHeight: CGFloat, _ safeAreaBottom: CGFloat) -> FeedContent
+    let feedContent: (
+        _ bottomPadding: CGFloat,
+        _ topBarHeight: CGFloat,
+        _ topContentPadding: CGFloat,
+        _ safeAreaBottom: CGFloat
+    ) -> FeedContent
     let sideMenuContent: () -> SideMenuContent
 
     var body: some View {
@@ -1629,32 +1641,52 @@ private struct HomeFeedRootContent<
             AppThemeBackgroundView(holographicSpotlight: .feed)
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                HomeFeedTopNavigationChromeView(
-                    safeAreaTop: safeAreaTop,
-                    topNavigationBar: topNavigationBar
-                )
-
-                feedContent(
-                    contentPadding.bottom,
-                    0,
-                    safeAreaBottom
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            feedContent(
+                contentPadding.bottom,
+                ScrollChromeLayout.defaultTopBarHeight,
+                contentPadding.top,
+                safeAreaBottom
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea(edges: .bottom)
+
+            HomeFeedTopNavigationChromeView(
+                scrollChromeStore: scrollChromeStore,
+                topBarHeight: ScrollChromeLayout.defaultTopBarHeight,
+                safeAreaTop: safeAreaTop,
+                topNavigationBar: topNavigationBar
+            )
         }
     }
 }
 
 private struct HomeFeedTopNavigationChromeView<TopNavigationBar: View>: View {
+    @ObservedObject var scrollChromeStore: ScrollChromeStore
+
+    let topBarHeight: CGFloat
     let safeAreaTop: CGFloat
     let topNavigationBar: () -> TopNavigationBar
 
     var body: some View {
         topNavigationBar()
             .padding(.top, safeAreaTop)
+            .offset(y: topBarOffset)
+            .opacity(visibleFraction)
+            .allowsHitTesting(visibleFraction > 0.05)
+            .accessibilityHidden(visibleFraction <= 0.05)
+    }
+
+    private var topBarOffset: CGFloat {
+        min(max(scrollChromeStore.offsets.topBarOffset, -max(0, topBarHeight)), 0)
+    }
+
+    private var visibleFraction: Double {
+        Double(
+            ScrollChromeLayout.visibleFraction(
+                offset: -topBarOffset,
+                hiddenOffset: topBarHeight
+            )
+        )
     }
 }
 

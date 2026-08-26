@@ -720,13 +720,25 @@ final class AppThemeOptionTests: XCTestCase {
         )
     }
 
-    func testHomeBottomBarUsesOverlayChrome() {
+    func testEdgeToEdgeTabsUseOverlayChrome() {
         XCTAssertTrue(
             ScrollChromeLayout.usesOverlayBottomTabBar(
-                selectedTabIsHome: true,
+                selectedTabUsesEdgeToEdgeChrome: true,
                 isHomeSideMenuPresented: false
             )
         )
+    }
+
+    func testPulseBottomChromeOverlaysContentWithScrollClearance() throws {
+        let shellSource = try sourceText(at: "Sources/App/MainTabShellView.swift")
+        let activitySource = try sourceText(at: "Sources/Activity/ActivityView.swift")
+
+        XCTAssertTrue(shellSource.contains("selectedTab == .home || selectedTab == .activity"))
+        XCTAssertTrue(shellSource.contains(".environment(\\.flowBottomTabBarHeight, bottomTabBarHeight)"))
+        XCTAssertTrue(activitySource.contains("@Environment(\\.flowBottomTabBarHeight) private var bottomTabBarHeight"))
+        XCTAssertTrue(activitySource.contains("bottomTabBarHeight + safeAreaBottom"))
+        XCTAssertTrue(activitySource.contains("for: .scrollContent"))
+        XCTAssertTrue(activitySource.contains(".ignoresSafeArea(edges: .bottom)"))
     }
 
     func testVisibleBottomBarReservesInsetSpace() {
@@ -935,7 +947,8 @@ final class AppThemeOptionTests: XCTestCase {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
 
         XCTAssertTrue(source.contains(".ignoresSafeArea(edges: [.top, .bottom])"))
-        XCTAssertTrue(source.contains(".contentMargins(.vertical, 0, for: .scrollContent)"))
+        XCTAssertTrue(source.contains(".contentMargins(.top, max(0, topContentPadding), for: .scrollContent)"))
+        XCTAssertTrue(source.contains(".contentMargins(.bottom, 0, for: .scrollContent)"))
         XCTAssertTrue(source.contains(".homeFeedNativeTabBarMinimizeBehavior()"))
     }
 
@@ -1002,7 +1015,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(profileSource.contains("@Environment(\\.flowScrollChromeOffsets)"))
     }
 
-    func testHomeTopChromeUsesPulseStyleStickyBar() throws {
+    func testHomeTopChromeOverlaysFeedAndFollowsScroll() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
         let topNavChromeStart = try XCTUnwrap(source.range(of: "private struct HomeFeedTopNavigationChromeView"))
         let topNavChromeEnd = try XCTUnwrap(source.range(of: "private struct HomeFeedNewNotesChromeOverlay"))
@@ -1010,14 +1023,15 @@ final class AppThemeOptionTests: XCTestCase {
 
         XCTAssertFalse(source.contains("topNavigationToTabsSpacing"))
         XCTAssertTrue(source.contains("ZStack(alignment: .top) {"))
-        XCTAssertTrue(source.contains("VStack(spacing: 0) {"))
+        XCTAssertFalse(source.contains("VStack(spacing: 0) {\n                HomeFeedTopNavigationChromeView("))
         XCTAssertFalse(source.contains(".safeAreaInset(edge: .top, spacing: 0)"))
-        XCTAssertTrue(source.contains("feedContent(\n                    contentPadding.bottom,\n                    0,\n                    safeAreaBottom\n                )"))
+        XCTAssertTrue(source.contains("feedContent(\n                contentPadding.bottom,\n                ScrollChromeLayout.defaultTopBarHeight,\n                contentPadding.top,\n                safeAreaBottom\n            )"))
         XCTAssertTrue(source.contains("feedTopAnchor\n                .homeFeedListRow()"))
-        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                    safeAreaTop: safeAreaTop,\n                    topNavigationBar: topNavigationBar\n                )"))
+        XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                scrollChromeStore: scrollChromeStore,\n                topBarHeight: ScrollChromeLayout.defaultTopBarHeight,\n                safeAreaTop: safeAreaTop,\n                topNavigationBar: topNavigationBar\n            )"))
         XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)"))
         XCTAssertFalse(topNavChromeSource.contains(".background("))
-        XCTAssertFalse(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
+        XCTAssertTrue(topNavChromeSource.contains(".offset(y: topBarOffset)"))
+        XCTAssertTrue(topNavChromeSource.contains("ScrollChromeLayout.visibleFraction("))
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertFalse(source.contains("let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)"))
         XCTAssertFalse(source.contains("topNavigationContentHeight"))
@@ -1026,7 +1040,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains("topNavigationContentHeight + topNavigationToTabsSpacing"))
         XCTAssertTrue(topNavChromeSource.contains("let safeAreaTop: CGFloat"))
         XCTAssertTrue(topNavChromeSource.contains(".padding(.top, safeAreaTop)"))
-        XCTAssertFalse(topNavChromeSource.contains(".offset(y: topBarOffset)"))
+        XCTAssertTrue(topNavChromeSource.contains(".offset(y: topBarOffset)"))
     }
 
     func testHomeFeedUsesPulseStyleSafeAreaBehavior() throws {
@@ -1079,18 +1093,18 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains(".haloNativeGlass("))
     }
 
-    func testHomeTopChromeDoesNotFadeWithHiddenOffset() throws {
+    func testHomeTopChromeFadesAndDisablesInteractionWhileHidden() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
         let topNavChromeStart = try XCTUnwrap(source.range(of: "private struct HomeFeedTopNavigationChromeView"))
         let topNavChromeEnd = try XCTUnwrap(source.range(of: "private struct HomeFeedNewNotesChromeOverlay"))
         let topNavChromeSource = source[topNavChromeStart.lowerBound..<topNavChromeEnd.lowerBound]
 
-        XCTAssertFalse(source.contains("topNavigationBarVisibleFraction"))
-        XCTAssertFalse(source.contains("ScrollChromeLayout.visibleFraction"))
-        XCTAssertFalse(source.contains("offset: -topBarOffset"))
-        XCTAssertFalse(topNavChromeSource.contains("private var chromeOpacity: Double"))
+        XCTAssertTrue(source.contains("ScrollChromeLayout.visibleFraction"))
+        XCTAssertTrue(source.contains("offset: -topBarOffset"))
         XCTAssertFalse(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
-        XCTAssertFalse(topNavChromeSource.contains(".opacity("))
+        XCTAssertTrue(topNavChromeSource.contains(".opacity(visibleFraction)"))
+        XCTAssertTrue(topNavChromeSource.contains(".allowsHitTesting(visibleFraction > 0.05)"))
+        XCTAssertTrue(topNavChromeSource.contains(".accessibilityHidden(visibleFraction <= 0.05)"))
     }
 
     func testHomePullToRefreshUsesNativeRefreshControl() throws {
@@ -1260,7 +1274,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains("feedTopAnchorRow"))
         XCTAssertFalse(source.contains("feedTopChromeClearance"))
         XCTAssertFalse(source.contains("feedTopPadding"))
-        XCTAssertFalse(source.contains("topContentPadding"))
+        XCTAssertTrue(source.contains("topContentPadding: CGFloat"))
         XCTAssertLessThan(trackedHeaderRange.lowerBound, rowsRange.lowerBound)
         XCTAssertFalse(source.contains("LazyVStack(alignment: .leading, spacing: 0)"))
     }
@@ -1275,7 +1289,8 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("scrollProxy.scrollTo(Self.feedTopAnchorID, anchor: .top)"))
         XCTAssertFalse(source.contains("@State private var feedScrollTarget: String?"))
         XCTAssertFalse(source.contains(".scrollPosition(id: $feedScrollTarget, anchor: .top)"))
-        XCTAssertTrue(source.contains(".contentMargins(.vertical, 0, for: .scrollContent)"))
+        XCTAssertTrue(source.contains(".contentMargins(.top, max(0, topContentPadding), for: .scrollContent)"))
+        XCTAssertTrue(source.contains(".contentMargins(.bottom, 0, for: .scrollContent)"))
         XCTAssertTrue(source.contains("feedTopAnchor\n                .homeFeedListRow()\n                .environment(\\.defaultMinListRowHeight, 0)"))
         XCTAssertTrue(source.contains(".listStyle(.plain)\n        .environment(\\.defaultMinListRowHeight, 0)"))
         XCTAssertTrue(source.contains(".homeFeedNativeTabBarMinimizeBehavior()"))
