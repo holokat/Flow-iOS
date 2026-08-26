@@ -1968,6 +1968,24 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(source.contains("var compactTitle: String"))
     }
 
+    func testReferencedNotesUseTransparentAdaptiveHairlineChrome() throws {
+        let source = try Self.sourceText(at: "Sources/Design/NoteContentReferencedEventSupport.swift")
+        let modifierStart = try XCTUnwrap(source.range(of: "private struct ReferencedNoteCardChromeModifier"))
+        let modifierEnd = try XCTUnwrap(
+            source.range(of: "actor EmbeddedReferencedNoteCache", range: modifierStart.upperBound..<source.endIndex)
+        )
+        let modifierSource = source[modifierStart.lowerBound..<modifierEnd.lowerBound]
+
+        XCTAssertTrue(modifierSource.contains("@Environment(\\.colorScheme) private var colorScheme"))
+        XCTAssertTrue(modifierSource.contains("shape.strokeBorder("))
+        XCTAssertTrue(modifierSource.contains("Color.white.opacity(0.05)"))
+        XCTAssertTrue(modifierSource.contains("Color.black.opacity(0.05)"))
+        XCTAssertFalse(modifierSource.contains(".background"))
+        XCTAssertFalse(modifierSource.contains(".fill("))
+        XCTAssertFalse(modifierSource.contains(".shadow("))
+        XCTAssertFalse(modifierSource.contains("holographic"))
+    }
+
     func testSearchFollowButtonKeepsVisibleCapsulePaddingAndFullHitArea() throws {
         let source = try Self.sourceText(at: "Sources/Search/SearchViewComponents.swift")
         let rowStart = try XCTUnwrap(source.range(of: "struct SearchProfileResultRow: View"))
