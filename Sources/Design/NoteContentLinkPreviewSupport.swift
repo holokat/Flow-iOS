@@ -10,22 +10,17 @@ struct WebsiteLinkCardView: View {
     private static let compactFeedChromeAllowance: CGFloat = 118
     private static let detailChromeAllowance: CGFloat = 48
 
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
     let url: URL
-    let backgroundColor: Color
-    let borderColor: Color
     let layout: NoteContentMediaLayout
     @StateObject private var loader: LinkMetadataLoader
 
     init(
         url: URL,
-        backgroundColor: Color,
-        borderColor: Color,
         layout: NoteContentMediaLayout = .feed
     ) {
         self.url = url
-        self.backgroundColor = backgroundColor
-        self.borderColor = borderColor
         self.layout = layout
         _loader = StateObject(wrappedValue: LinkMetadataLoader(url: url))
     }
@@ -61,16 +56,16 @@ struct WebsiteLinkCardView: View {
                     .padding(.vertical, 11)
             }
             .frame(maxWidth: boundedCardWidth, alignment: .leading)
-            .background(backgroundColor)
             .clipShape(cardShape)
-            .overlay(cardShape.stroke(borderColor, lineWidth: 0.7))
+            .contentShape(cardShape)
+            .overlay(cardShape.strokeBorder(cardBorderColor, lineWidth: 1))
         } else {
             compactMetadataBlock
                 .padding(12)
                 .frame(maxWidth: boundedCardWidth, alignment: .leading)
-                .background(backgroundColor)
                 .clipShape(cardShape)
-                .overlay(cardShape.stroke(borderColor, lineWidth: 0.7))
+                .contentShape(cardShape)
+                .overlay(cardShape.strokeBorder(cardBorderColor, lineWidth: 1))
         }
     }
 
@@ -168,6 +163,12 @@ struct WebsiteLinkCardView: View {
 
     private var cardShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+    }
+
+    private var cardBorderColor: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.05)
+            : Color.black.opacity(0.05)
     }
 
     private var shouldUseLargeImagePreview: Bool {
@@ -275,7 +276,6 @@ private struct WebsiteLinkCardWidthLayout: Layout {
 struct YouTubeInlinePlayerView: View {
     let url: URL
     let layout: NoteContentMediaLayout
-    @EnvironmentObject private var appSettings: AppSettingsStore
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -297,8 +297,6 @@ struct YouTubeInlinePlayerView: View {
         } else {
             WebsiteLinkCardView(
                 url: url,
-                backgroundColor: appSettings.themePalette.linkPreviewBackground,
-                borderColor: appSettings.themePalette.linkPreviewBorder,
                 layout: layout
             )
         }

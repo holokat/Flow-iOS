@@ -470,8 +470,6 @@ struct NoteContentView: View {
                     if !isCollapsedPreviewActive, let websitePreviewURL, !appSettings.textOnlyMode {
                         WebsiteLinkCardView(
                             url: websitePreviewURL,
-                            backgroundColor: appSettings.themePalette.linkPreviewBackground,
-                            borderColor: appSettings.themePalette.linkPreviewBorder,
                             layout: mediaLayout
                         )
                     }

@@ -2001,6 +2001,30 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(modifierSource.contains("holographic"))
     }
 
+    func testWebsitePreviewsUseTransparentAdaptiveHairlineChrome() throws {
+        let previewSource = try Self.sourceText(at: "Sources/Design/NoteContentLinkPreviewSupport.swift")
+        let contentSource = try Self.sourceText(at: "Sources/Design/NoteContentView.swift")
+        let cardStart = try XCTUnwrap(previewSource.range(of: "struct WebsiteLinkCardView"))
+        let cardEnd = try XCTUnwrap(
+            previewSource.range(
+                of: "private struct WebsiteLinkCardWidthLayout",
+                range: cardStart.upperBound..<previewSource.endIndex
+            )
+        )
+        let cardSource = previewSource[cardStart.lowerBound..<cardEnd.lowerBound]
+
+        XCTAssertTrue(cardSource.contains("@Environment(\\.colorScheme) private var colorScheme"))
+        XCTAssertTrue(cardSource.contains("cardShape.strokeBorder(cardBorderColor, lineWidth: 1)"))
+        XCTAssertTrue(cardSource.contains("Color.white.opacity(0.05)"))
+        XCTAssertTrue(cardSource.contains("Color.black.opacity(0.05)"))
+        XCTAssertTrue(cardSource.contains(".contentShape(cardShape)"))
+        XCTAssertFalse(cardSource.contains("let backgroundColor: Color"))
+        XCTAssertFalse(cardSource.contains("let borderColor: Color"))
+        XCTAssertFalse(cardSource.contains(".background(backgroundColor)"))
+        XCTAssertFalse(contentSource.contains("backgroundColor: appSettings.themePalette.linkPreviewBackground"))
+        XCTAssertFalse(contentSource.contains("borderColor: appSettings.themePalette.linkPreviewBorder"))
+    }
+
     func testSearchFollowButtonKeepsVisibleCapsulePaddingAndFullHitArea() throws {
         let source = try Self.sourceText(at: "Sources/Search/SearchViewComponents.swift")
         let rowStart = try XCTUnwrap(source.range(of: "struct SearchProfileResultRow: View"))
