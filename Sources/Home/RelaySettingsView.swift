@@ -91,8 +91,8 @@ struct RelaySettingsView: View {
                             Image(systemName: "info.circle")
                                 .font(.title3)
                                 .foregroundStyle(.secondary)
-                                .frame(width: 32, height: 32)
-                                .background(settingsSurfaceStyle.controlBackground.opacity(0.9), in: Circle())
+                                .frame(width: 40, height: 40)
+                                .haloNativeGlass(interactive: true, in: Circle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("What are sources?")

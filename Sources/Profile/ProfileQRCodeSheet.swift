@@ -184,14 +184,7 @@ struct ProfileQRCodeSheet: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .foregroundStyle(appSettings.themePalette.foreground)
-                        .background(
-                            Capsule()
-                                .fill(appSettings.themePalette.secondaryBackground)
-                        )
-                        .overlay(
-                            Capsule()
-                                .stroke(appSettings.themePalette.separator.opacity(0.6), lineWidth: 0.8)
-                        )
+                        .haloNativeGlass(interactive: true, in: Capsule())
                 }
                 .buttonStyle(.plain)
 
@@ -214,14 +207,7 @@ struct ProfileQRCodeSheet: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .foregroundStyle(appSettings.themePalette.foreground)
-                    .background(
-                        Capsule()
-                            .fill(appSettings.themePalette.secondaryBackground)
-                    )
-                    .overlay(
-                        Capsule()
-                            .stroke(appSettings.themePalette.separator.opacity(0.6), lineWidth: 0.8)
-                    )
+                        .haloNativeGlass(interactive: true, in: Capsule())
             }
             .buttonStyle(.plain)
         }

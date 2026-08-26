@@ -101,15 +101,11 @@ struct WelcomeOnboardingView: View {
             } label: {
                 welcomeButtonLabel("Sign In")
                     .foregroundStyle(.white)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(Color.white.opacity(0.16))
+                    .haloNativeGlass(
+                        tint: Color.white.opacity(0.10),
+                        interactive: true,
+                        in: Capsule(style: .continuous)
                     )
-                    .overlay {
-                        Capsule(style: .continuous)
-                            .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-                    }
-                    .shadow(color: Color.black.opacity(0.14), radius: 16, y: 8)
             }
             .buttonStyle(.plain)
             .opacity(hasAnimatedIn ? 1 : 0)

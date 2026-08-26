@@ -796,7 +796,7 @@ private struct FollowCelebrationReducedMotionFeedback: View {
             .font(.system(size: 22, weight: .semibold))
             .foregroundStyle(accentColor)
             .padding(6)
-            .background(.ultraThinMaterial, in: Circle())
+            .haloNativeGlass(in: Circle())
             .opacity(isVisible ? 1 : 0)
             .allowsHitTesting(false)
             .accessibilityHidden(true)

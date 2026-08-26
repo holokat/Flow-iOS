@@ -9,23 +9,14 @@ enum AuthSheetTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum ManageAccountsGlassStyle {
-    static let darkSurfaceWhiteOpacity: Double = 0.46
-    static let lightSurfaceWhiteOpacity: Double = 0.88
+enum ManageAccountsAppearance {
     static let darkBorderWhiteOpacity: Double = 0.28
     static let lightBorderBlackOpacity: Double = 0.04
-    static let signInCardDarkSurfaceWhiteOpacity = darkSurfaceWhiteOpacity
-    static let signInCardLightSurfaceWhiteOpacity = lightSurfaceWhiteOpacity
-    static let signInTabContainerDarkSurfaceWhiteOpacity = darkSurfaceWhiteOpacity
-    static let signInTabContainerLightSurfaceWhiteOpacity = lightSurfaceWhiteOpacity
     static let signInPrivateKeyLabelUsesInkColor = true
     static let primaryTextWhiteOpacity: Double = 0.96
     static let secondaryTextWhiteOpacity: Double = 0.80
     static let textShadowOpacity: Double = 0.24
-    static let darkShadowOpacity: Double = 0.18
-    static let lightShadowOpacity: Double = 0.08
     static let controlWhiteTintOpacity: Double = 0.44
-    static let legacyControlWhiteTintDarkOpacity: Double = 0.18
     static let closeButtonUsesGlassSurface = true
     static let closeButtonUsesPrimaryColorFill = false
     static let closeButtonLightWhiteTintOpacity: Double = 0.34
@@ -452,7 +443,7 @@ struct AuthSheetView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(authBlurCardBackground(cornerRadius: 28))
+        .background(authCardBackground(cornerRadius: 28))
     }
 
     private var authTabBarCard: some View {
@@ -585,14 +576,10 @@ struct AuthSheetView: View {
             .autocorrectionDisabled()
             .padding(.horizontal, 16)
             .padding(.vertical, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.10 : 0.22))
+            .haloNativeGlass(
+                interactive: true,
+                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
             )
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(authBorderColor(darkOpacity: 0.18), lineWidth: 1.15)
-            }
     }
 
     private var signInPrimaryButton: some View {
@@ -660,7 +647,7 @@ struct AuthSheetView: View {
                         .padding(.vertical, 14)
                 }
                 .buttonStyle(.plain)
-                .background(authBlurCardBackground(cornerRadius: 24))
+                .background(authCardBackground(cornerRadius: 24))
             } else {
                 legacyRestoreCard
             }
@@ -700,7 +687,7 @@ struct AuthSheetView: View {
             signInPrimaryButton
         }
         .padding(18)
-        .background(authBlurCardBackground(cornerRadius: 28))
+        .background(authCardBackground(cornerRadius: 28))
     }
 
     private var legacyRestoreCard: some View {
@@ -712,100 +699,29 @@ struct AuthSheetView: View {
             signInRestoreLabel
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
-                .background(authBlurCardBackground(cornerRadius: 24))
+                .background(authCardBackground(cornerRadius: 24))
         }
         .buttonStyle(.plain)
     }
 
-    private func authBlurCardBackground(cornerRadius: CGFloat) -> some View {
+    private func authCardBackground(cornerRadius: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-
         return shape
-            .fill(.ultraThinMaterial)
-            .overlay {
-                shape
-                    .fill(Color.white.opacity(
-                        colorScheme == .dark
-                            ? ManageAccountsGlassStyle.signInCardDarkSurfaceWhiteOpacity
-                            : ManageAccountsGlassStyle.signInCardLightSurfaceWhiteOpacity
-                    ))
-            }
-            .overlay {
-                shape
-                    .stroke(
-                        authBorderColor(darkOpacity: ManageAccountsGlassStyle.darkBorderWhiteOpacity),
-                        lineWidth: 1.1
-                    )
-            }
-            .shadow(
-                color: Color.black.opacity(
-                    colorScheme == .dark
-                        ? ManageAccountsGlassStyle.darkShadowOpacity
-                        : ManageAccountsGlassStyle.lightShadowOpacity
-                ),
-                radius: colorScheme == .dark ? 20 : 16,
-                y: colorScheme == .dark ? 10 : 8
-            )
+            .fill(Color.clear)
+            .haloNativeGlass(in: shape)
     }
 
     private func accountsSurfaceBackground(cornerRadius: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-
         return shape
-            .fill(.ultraThinMaterial)
-            .overlay {
-                shape
-                    .fill(Color.white.opacity(
-                        colorScheme == .dark
-                            ? ManageAccountsGlassStyle.darkSurfaceWhiteOpacity
-                            : ManageAccountsGlassStyle.lightSurfaceWhiteOpacity
-                    ))
-            }
-            .overlay {
-                shape
-                    .stroke(
-                        authBorderColor(darkOpacity: ManageAccountsGlassStyle.darkBorderWhiteOpacity),
-                        lineWidth: 1.1
-                    )
-            }
-            .shadow(
-                color: Color.black.opacity(
-                    colorScheme == .dark
-                        ? ManageAccountsGlassStyle.darkShadowOpacity
-                        : ManageAccountsGlassStyle.lightShadowOpacity
-                ),
-                radius: colorScheme == .dark ? 20 : 16,
-                y: colorScheme == .dark ? 10 : 8
-            )
+            .fill(Color.clear)
+            .haloNativeGlass(in: shape)
     }
 
-    private var authBlurCapsuleBackground: some View {
+    private var authCapsuleBackground: some View {
         Capsule(style: .continuous)
-            .fill(.ultraThinMaterial)
-            .overlay {
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(
-                        colorScheme == .dark
-                            ? ManageAccountsGlassStyle.signInTabContainerDarkSurfaceWhiteOpacity
-                            : ManageAccountsGlassStyle.signInTabContainerLightSurfaceWhiteOpacity
-                    ))
-            }
-            .overlay {
-                Capsule(style: .continuous)
-                    .stroke(
-                        authBorderColor(darkOpacity: ManageAccountsGlassStyle.darkBorderWhiteOpacity),
-                        lineWidth: 1.1
-                    )
-            }
-            .shadow(
-                color: Color.black.opacity(
-                    colorScheme == .dark
-                        ? ManageAccountsGlassStyle.darkShadowOpacity
-                        : ManageAccountsGlassStyle.lightShadowOpacity
-                ),
-                radius: colorScheme == .dark ? 20 : 16,
-                y: colorScheme == .dark ? 10 : 8
-            )
+            .fill(Color.clear)
+            .haloNativeGlass(in: Capsule(style: .continuous))
     }
 
     private var authTabBarBackground: some View {
@@ -813,38 +729,15 @@ struct AuthSheetView: View {
             if selectedTab == .accounts {
                 accountsCapsuleBackground
             } else {
-                authBlurCapsuleBackground
+                authCapsuleBackground
             }
         }
     }
 
     private var accountsCapsuleBackground: some View {
         Capsule(style: .continuous)
-            .fill(.ultraThinMaterial)
-            .overlay {
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(
-                        colorScheme == .dark
-                            ? ManageAccountsGlassStyle.darkSurfaceWhiteOpacity
-                            : ManageAccountsGlassStyle.lightSurfaceWhiteOpacity
-                    ))
-            }
-            .overlay {
-                Capsule(style: .continuous)
-                    .stroke(
-                        authBorderColor(darkOpacity: ManageAccountsGlassStyle.darkBorderWhiteOpacity),
-                        lineWidth: 1.1
-                    )
-            }
-            .shadow(
-                color: Color.black.opacity(
-                    colorScheme == .dark
-                        ? ManageAccountsGlassStyle.darkShadowOpacity
-                        : ManageAccountsGlassStyle.lightShadowOpacity
-                ),
-                radius: colorScheme == .dark ? 20 : 16,
-                y: colorScheme == .dark ? 10 : 8
-            )
+            .fill(Color.clear)
+            .haloNativeGlass(in: Capsule(style: .continuous))
     }
 
     private var authInk: Color {
@@ -853,19 +746,19 @@ struct AuthSheetView: View {
 
     private var accountsPrimaryTextColor: Color {
         colorScheme == .dark
-            ? Color.white.opacity(ManageAccountsGlassStyle.primaryTextWhiteOpacity)
+            ? Color.white.opacity(ManageAccountsAppearance.primaryTextWhiteOpacity)
             : authInk
     }
 
     private var accountsSecondaryTextColor: Color {
         colorScheme == .dark
-            ? Color.white.opacity(ManageAccountsGlassStyle.secondaryTextWhiteOpacity)
+            ? Color.white.opacity(ManageAccountsAppearance.secondaryTextWhiteOpacity)
             : authInk.opacity(0.62)
     }
 
     private var accountsTextShadowColor: Color {
         colorScheme == .dark
-            ? Color.black.opacity(ManageAccountsGlassStyle.textShadowOpacity)
+            ? Color.black.opacity(ManageAccountsAppearance.textShadowOpacity)
             : .clear
     }
 
@@ -924,33 +817,15 @@ struct AuthSheetView: View {
     private var closeButtonBackground: Color {
         Color.white.opacity(
             colorScheme == .dark
-                ? ManageAccountsGlassStyle.closeButtonDarkWhiteTintOpacity
-                : ManageAccountsGlassStyle.closeButtonLightWhiteTintOpacity
+                ? ManageAccountsAppearance.closeButtonDarkWhiteTintOpacity
+                : ManageAccountsAppearance.closeButtonLightWhiteTintOpacity
         )
     }
 
-    private var closeButtonBorder: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(ManageAccountsGlassStyle.darkBorderWhiteOpacity)
-            : Color.black.opacity(0.08)
-    }
-
-    private var closeButtonGlassBackground: some View {
+    private var closeButtonFallbackBackground: some View {
         Circle()
-            .fill(.ultraThinMaterial)
-            .overlay {
-                Circle()
-                    .fill(closeButtonBackground)
-            }
-            .overlay {
-                Circle()
-                    .stroke(closeButtonBorder, lineWidth: 1)
-            }
-            .shadow(
-                color: Color.black.opacity(colorScheme == .dark ? 0.16 : 0.08),
-                radius: colorScheme == .dark ? 18 : 14,
-                y: colorScheme == .dark ? 8 : 6
-            )
+            .fill(Color.clear)
+            .haloNativeGlass(tint: closeButtonBackground, in: Circle())
     }
 
     private var closeToolbarButton: some View {
@@ -980,7 +855,7 @@ struct AuthSheetView: View {
                         .foregroundStyle(closeButtonForeground)
                         .frame(width: 36, height: 36)
                         .background {
-                            closeButtonGlassBackground
+                            closeButtonFallbackBackground
                         }
                 }
                 .buttonStyle(.plain)
@@ -1163,21 +1038,9 @@ struct AuthSheetView: View {
         .foregroundStyle(accountsPrimaryTextColor)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(
-            Capsule(style: .continuous)
-                .fill(Color.white.opacity(colorScheme == .dark ? 0.20 : 0.68))
-        )
-        .overlay {
-            Capsule(style: .continuous)
-                .stroke(
-                    appSettings.primaryColor.opacity(colorScheme == .dark ? 0.46 : 0.20),
-                    lineWidth: 1
-                )
-        }
-        .shadow(
-            color: accountsTextShadowColor,
-            radius: accountsTextShadowRadius,
-            y: accountsTextShadowYOffset
+        .haloNativeGlass(
+            tint: appSettings.primaryColor.opacity(colorScheme == .dark ? 0.18 : 0.10),
+            in: Capsule(style: .continuous)
         )
         .accessibilityLabel("Active account")
     }
@@ -1215,7 +1078,7 @@ struct AuthSheetView: View {
             .overlay {
                 Circle()
                     .stroke(
-                        authBorderColor(darkOpacity: ManageAccountsGlassStyle.darkBorderWhiteOpacity),
+                        authBorderColor(darkOpacity: ManageAccountsAppearance.darkBorderWhiteOpacity),
                         lineWidth: 0.95
                     )
             }
@@ -1229,7 +1092,7 @@ struct AuthSheetView: View {
             .buttonStyle(.plain)
             .glassEffect(
                 .regular
-                    .tint(Color.white.opacity(ManageAccountsGlassStyle.controlWhiteTintOpacity))
+                    .tint(Color.white.opacity(ManageAccountsAppearance.controlWhiteTintOpacity))
                     .interactive(),
                 in: Circle()
             )
@@ -1239,25 +1102,9 @@ struct AuthSheetView: View {
                 pendingAccountRemoval = account
             } label: {
                 label
-                    .background(
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .overlay {
-                                Circle()
-                                    .fill(Color.white.opacity(
-                                        colorScheme == .dark
-                                            ? ManageAccountsGlassStyle.legacyControlWhiteTintDarkOpacity
-                                            : 0.10
-                                    ))
-                            }
-                    )
+                    .haloNativeGlass(interactive: true, in: Circle())
             }
             .buttonStyle(.plain)
-            .shadow(
-                color: Color.black.opacity(colorScheme == .dark ? 0.12 : 0.06),
-                radius: colorScheme == .dark ? 16 : 12,
-                y: colorScheme == .dark ? 8 : 6
-            )
             .accessibilityLabel("Remove account")
         }
     }
@@ -1269,7 +1116,7 @@ struct AuthSheetView: View {
         .font(.headline.weight(.semibold))
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .background(authBlurCardBackground(cornerRadius: 24))
+        .background(authCardBackground(cornerRadius: 24))
         .buttonStyle(.plain)
     }
 
@@ -1397,7 +1244,7 @@ struct AuthSheetView: View {
     private func authBorderColor(darkOpacity: Double) -> Color {
         colorScheme == .dark
             ? Color.white.opacity(darkOpacity)
-            : Color.black.opacity(ManageAccountsGlassStyle.lightBorderBlackOpacity)
+            : Color.black.opacity(ManageAccountsAppearance.lightBorderBlackOpacity)
     }
 
     private var resolvedSignUpSeedPrimaryColorOption: AppPrimaryColorOption {

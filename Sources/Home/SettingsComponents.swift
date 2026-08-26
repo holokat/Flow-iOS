@@ -326,11 +326,7 @@ private struct SettingsDetailNavigationHeader: View {
                             width: SettingsDetailNavigationLayout.backButtonSize,
                             height: SettingsDetailNavigationLayout.backButtonSize
                         )
-                        .background(surfaceStyle.controlBackground.opacity(0.92), in: Circle())
-                        .overlay {
-                            Circle()
-                                .stroke(appSettings.themeSeparator(defaultOpacity: 0.16), lineWidth: 0.7)
-                        }
+                        .haloNativeGlass(interactive: true, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Back")
@@ -490,7 +486,8 @@ struct ThemedToolbarDoneButton: View {
             Image(systemName: "xmark")
                 .font(appSettings.appFont(.footnote, weight: .semibold))
                 .foregroundStyle(appSettings.themePalette.foreground)
-                .frame(width: 32, height: 32)
+                .frame(width: 40, height: 40)
+                .haloNativeGlass(interactive: true, in: Circle())
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)

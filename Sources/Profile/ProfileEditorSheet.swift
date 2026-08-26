@@ -367,7 +367,6 @@ struct ProfileEditorSheet: View {
         onRemove: @escaping () -> Void
     ) -> some View {
         let uploadButtonFont = appSettings.appFont(.footnote, weight: .semibold)
-        let uploadButtonBackground = appSettings.themePalette.tertiaryFill
         let hasExistingImage = hasImage(
             previewImage: previewImage,
             remoteURLString: remoteURLString
@@ -433,9 +432,9 @@ struct ProfileEditorSheet: View {
                         .font(uploadButtonFont)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(uploadButtonBackground)
+                        .haloNativeGlass(
+                            interactive: true,
+                            in: Capsule(style: .continuous)
                         )
                     }
                     .buttonStyle(.plain)
@@ -452,14 +451,11 @@ struct ProfileEditorSheet: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
                             .foregroundStyle(.red)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(appSettings.themePalette.secondaryBackground)
+                            .haloNativeGlass(
+                                tint: Color.red.opacity(0.08),
+                                interactive: true,
+                                in: Capsule(style: .continuous)
                             )
-                            .overlay {
-                                Capsule(style: .continuous)
-                                    .stroke(appSettings.themePalette.separator.opacity(0.22), lineWidth: 0.8)
-                            }
                         }
                         .buttonStyle(.plain)
                         .disabled(isBusy)
@@ -1055,10 +1051,7 @@ private struct ProfileEditorPreviewCard: View {
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(appSettings.themePalette.foreground)
             .frame(width: 42, height: 40)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(appSettings.themePalette.tertiaryFill)
-            )
+            .haloNativeGlass(in: Capsule(style: .continuous))
     }
 
     private func previewPrimaryActionCapsule(text: String) -> some View {

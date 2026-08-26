@@ -395,17 +395,7 @@ struct MainTabShellView: View {
             }
         } else {
             bottomNavigationItems
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay {
-                    Capsule()
-                        .stroke(appSettings.themePalette.foreground.opacity(0.12), lineWidth: 0.7)
-                }
-                .shadow(
-                    color: Color.black.opacity(0.12),
-                    radius: 14,
-                    x: 0,
-                    y: 7
-                )
+                .haloNativeGlass(interactive: true, in: Capsule())
         }
     }
 

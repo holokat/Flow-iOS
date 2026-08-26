@@ -58,7 +58,7 @@ struct ComposeMediaAttachmentStrip: View {
                                     }
                                     .foregroundStyle(appSettings.themePalette.foreground)
                                     .frame(width: 40, height: 40)
-                                    .background(.regularMaterial, in: Circle())
+                                    .haloNativeGlass(interactive: true, in: Circle())
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(preparingEditAttachmentID != nil)
@@ -74,7 +74,7 @@ struct ComposeMediaAttachmentStrip: View {
                                         .font(.system(size: 15, weight: .semibold))
                                         .foregroundStyle(appSettings.themePalette.foreground)
                                         .frame(width: 40, height: 40)
-                                        .background(.regularMaterial, in: Circle())
+                                        .haloNativeGlass(interactive: true, in: Circle())
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel(attachment.altText == nil ? "Add alt text" : "Edit alt text")

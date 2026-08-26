@@ -793,22 +793,12 @@ private struct HaloLinkReactionCircle: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Circle()
-                .fill(
-                    isHighlighted
-                        ? appSettings.primaryColor.opacity(0.16)
-                        : appSettings.themePalette.secondaryGroupedBackground
-                )
+            Color.clear
                 .frame(width: 36, height: 36)
-                .overlay {
-                    Circle()
-                        .stroke(
-                            isHighlighted
-                                ? appSettings.primaryColor.opacity(0.4)
-                                : appSettings.themePalette.separator,
-                            lineWidth: 0.8
-                        )
-                }
+                .haloNativeGlass(
+                    tint: isHighlighted ? appSettings.primaryColor.opacity(0.16) : nil,
+                    in: Circle()
+                )
 
             Text(summary.emoji)
                 .font(.system(size: 20))
@@ -859,14 +849,7 @@ private struct HaloLinkMessageReactionPickerSheet: View {
                             Text(emoji)
                                 .font(.system(size: 28))
                                 .frame(width: 56, height: 56)
-                                .background(
-                                    Circle()
-                                        .fill(appSettings.themePalette.secondaryGroupedBackground)
-                                )
-                                .overlay {
-                                    Circle()
-                                        .stroke(appSettings.themePalette.separator, lineWidth: 0.7)
-                                }
+                                .haloNativeGlass(interactive: true, in: Circle())
                         }
                         .buttonStyle(.plain)
                     }

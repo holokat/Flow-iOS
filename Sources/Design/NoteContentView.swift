@@ -595,8 +595,7 @@ struct NoteContentView: View {
                 .foregroundStyle(appSettings.themePalette.secondaryForeground)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(Capsule().fill(appSettings.themePalette.tertiaryFill))
-                .overlay(Capsule().stroke(appSettings.themeSeparator(defaultOpacity: 0.3), lineWidth: 0.6))
+                .haloNativeGlass(interactive: true, in: Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Show full note")

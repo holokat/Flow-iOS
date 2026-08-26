@@ -1015,7 +1015,8 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(source.contains("feedContent(\n                    contentPadding.bottom,\n                    0,\n                    safeAreaBottom\n                )"))
         XCTAssertTrue(source.contains("feedTopAnchor\n                .homeFeedListRow()"))
         XCTAssertTrue(source.contains("HomeFeedTopNavigationChromeView(\n                    safeAreaTop: safeAreaTop,\n                    topNavigationBar: topNavigationBar\n                )"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)\n            .background(topNavigationBarBackground)"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)"))
+        XCTAssertFalse(topNavChromeSource.contains(".background("))
         XCTAssertFalse(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
         XCTAssertFalse(source.contains("let safeAreaTop = max(max(0, topSafeAreaInset), geometry.safeAreaInsets.top)"))
@@ -1065,20 +1066,17 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertTrue(rootSource.contains(".ignoresSafeArea(edges: [.top, .bottom])"))
     }
 
-    func testHomeTopChromeUsesStaticThemeBackground() throws {
+    func testHomeTopChromeHasNoBackgroundPlate() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
         let topNavChromeStart = try XCTUnwrap(source.range(of: "private struct HomeFeedTopNavigationChromeView"))
         let topNavChromeEnd = try XCTUnwrap(source.range(of: "private struct HomeFeedNewNotesChromeOverlay"))
         let topNavChromeSource = source[topNavChromeStart.lowerBound..<topNavChromeEnd.lowerBound]
 
-        XCTAssertFalse(source.contains(".background(topNavigationBackground)"))
-        XCTAssertFalse(source.contains("private var topNavigationBackground"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)\n            .background(topNavigationBarBackground)"))
-        XCTAssertTrue(source.contains(".background(topNavigationBarBackground)"))
-        XCTAssertTrue(source.contains("private var topNavigationBarBackground: some View"))
-        XCTAssertTrue(source.contains("appSettings.themePalette.background"))
-        XCTAssertTrue(topNavChromeSource.contains(".ignoresSafeArea(edges: .top)"))
-        XCTAssertTrue(source.contains(".fill(topNavigationControlFill)"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)"))
+        XCTAssertFalse(topNavChromeSource.contains(".background("))
+        XCTAssertFalse(source.contains("topNavigationBarBackground"))
+        XCTAssertFalse(source.contains("topNavigationControlFill"))
+        XCTAssertTrue(source.contains(".haloNativeGlass("))
     }
 
     func testHomeTopChromeDoesNotFadeWithHiddenOffset() throws {
@@ -1297,16 +1295,20 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains("HomeFeedScrollMetrics"))
     }
 
-    func testFeedSourcePickerCanOpenFeedsSettingsForCreateFeed() throws {
+    func testFeedSourceUsesNativeMenuAndCanOpenFeedsSettingsForCreateFeed() throws {
         let source = try sourceText(at: "Sources/Home/HomeFeedView.swift")
-        let pickerRange = try XCTUnwrap(source.range(of: "private var feedSourcePickerSheet"))
-        let optionRange = try XCTUnwrap(source.range(of: "private func feedSourceOptionButton", range: pickerRange.upperBound..<source.endIndex))
-        let pickerSource = source[pickerRange.lowerBound..<optionRange.lowerBound]
+        let menuRange = try XCTUnwrap(source.range(of: "private var feedSourceMenu"))
+        let sideMenuRange = try XCTUnwrap(source.range(of: "private var sideMenuContent", range: menuRange.upperBound..<source.endIndex))
+        let menuSource = source[menuRange.lowerBound..<sideMenuRange.lowerBound]
 
-        XCTAssertTrue(pickerSource.contains("Label(\"Create Feed\", systemImage: \"plus.circle.fill\")"))
-        XCTAssertTrue(source.contains("private func openFeedsSettingsFromFeedSourcePicker()"))
+        XCTAssertTrue(menuSource.contains("Menu {"))
+        XCTAssertTrue(menuSource.contains(".haloNativeGlass("))
+        XCTAssertTrue(menuSource.contains("Label(\"Create Feed\", systemImage: \"plus.circle.fill\")"))
+        XCTAssertTrue(source.contains("private func openFeedsSettingsFromFeedSourceMenu()"))
         XCTAssertTrue(source.contains("settingsSheetState.show(.feeds)"))
         XCTAssertTrue(source.contains("isShowingSettings = true"))
+        XCTAssertFalse(source.contains("private var feedSourcePickerSheet"))
+        XCTAssertFalse(source.contains("isShowingFeedSourcePicker"))
     }
 
     func testFeedsSettingsShowsCustomFeedsInline() throws {
@@ -1374,7 +1376,7 @@ final class AppThemeOptionTests: XCTestCase {
         XCTAssertFalse(source.contains("private func tabBarLabel"))
         XCTAssertTrue(source.contains("GlassEffectContainer(spacing: 8)"))
         XCTAssertTrue(source.contains(".glassEffect(.regular.interactive(), in: Capsule())"))
-        XCTAssertTrue(source.contains(".background(.ultraThinMaterial, in: Capsule())"))
+        XCTAssertTrue(source.contains(".haloNativeGlass(interactive: true, in: Capsule())"))
         XCTAssertTrue(source.contains("Image(isSelected ? tab.selectedPhosphorIconName : tab.phosphorIconName)"))
     }
 

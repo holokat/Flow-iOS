@@ -87,42 +87,7 @@ struct NoteBlurRevealContainer: View {
             .foregroundStyle(revealPillForeground)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(
-                ZStack {
-                    Capsule(style: .continuous)
-                        .fill(Color.white.opacity(0.94))
-
-                    Capsule(style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.44),
-                                    Color.white.opacity(0.16),
-                                    Color.clear
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-
-                    Capsule(style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.black.opacity(0.08),
-                                    Color.clear
-                                ],
-                                startPoint: .bottom,
-                                endPoint: .top
-                            )
-                        )
-                }
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(revealPillStroke, lineWidth: 0.5)
-            )
-            .shadow(color: Color.black.opacity(0.22), radius: 16, x: 0, y: 9)
+            .haloNativeGlass(interactive: true, in: Capsule(style: .continuous))
         }
         .aspectRatio(aspectRatio, contentMode: .fit)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -133,10 +98,6 @@ struct NoteBlurRevealContainer: View {
     }
 
     private var revealPillForeground: Color {
-        Color.black.opacity(0.82)
-    }
-
-    private var revealPillStroke: Color {
-        Color.black.opacity(0.14)
+        appSettings.themePalette.foreground
     }
 }

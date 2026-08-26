@@ -210,12 +210,14 @@ final class ComposeNoteSheetModeTests: XCTestCase {
         XCTAssertTrue(threadSource.contains("composeSheetCoordinator.presentQuote("))
     }
 
-    func testComposerControlsKeepLitSurfacesWhenInactive() throws {
+    func testComposerControlsUseNativeGlassAndStayVisibleWhenInactive() throws {
         let source = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheetAccessoryViews.swift")
 
         XCTAssertTrue(source.contains("static let lightBorderOpacity = 0.10"))
-        XCTAssertTrue(source.contains("static func controlShadow(for colorScheme: ColorScheme)"))
-        XCTAssertTrue(source.contains("AnyShapeStyle(ComposeSurfaceStyle.background(for: colorScheme))"))
+        XCTAssertTrue(source.contains(".haloNativeGlass("))
+        XCTAssertTrue(source.contains("tint: isActive ? appSettings.primaryColor.opacity(0.16) : nil"))
+        XCTAssertFalse(source.contains("static func controlShadow(for colorScheme: ColorScheme)"))
+        XCTAssertFalse(source.contains("ComposeSurfaceStyle.controlShadow"))
         XCTAssertTrue(source.contains("isEnabled || isPublishing"))
         XCTAssertFalse(source.contains(".opacity(isEnabled ? 1 : 0.45)"))
     }

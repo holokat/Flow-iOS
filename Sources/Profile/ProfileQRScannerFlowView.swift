@@ -219,12 +219,12 @@ struct ProfileQRScannerFlowView: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(
-                            Capsule().fill(Color.white.opacity(followStore.isFollowing(profile.pubkey) ? 0.16 : 0.12))
-                        )
-                        .overlay(
-                            Capsule()
-                                .stroke(Color.white.opacity(0.18), lineWidth: 0.9)
+                        .haloNativeGlass(
+                            tint: Color.white.opacity(
+                                followStore.isFollowing(profile.pubkey) ? 0.16 : 0.10
+                            ),
+                            interactive: true,
+                            in: Capsule()
                         )
                     }
                     .buttonStyle(.plain)

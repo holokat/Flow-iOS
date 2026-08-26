@@ -10,6 +10,7 @@
 		01155B992E225A9653EEA147 /* SearchViewComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDD34AFC463D6093EDDBD992 /* SearchViewComponents.swift */; };
 		0292A13AA7AF6B7B8FD3C2D7 /* SettingsFeedsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E1013C51262B3CCECCD3F2C /* SettingsFeedsView.swift */; };
 		0407D100155DCC5BB9C49A4E /* AppHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925F46E0FC75C191103D09E9 /* AppHaptics.swift */; };
+		049EC68ABF16ECD30144DB4F /* HaloNativeGlass.swift in Sources */ = {isa = PBXBuildFile; fileRef = F89AA3A96CF6DCEF464C0A29 /* HaloNativeGlass.swift */; };
 		05F3C2317C5060669F301158 /* CrawlCursorStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D184F3FC887A7A2C896C4C51 /* CrawlCursorStore.swift */; };
 		0627B86CB55C015CC15C16D3 /* ComposeNotePublishService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB9619AA2B74AE8DE02E11D9 /* ComposeNotePublishService.swift */; };
 		064EA2E56841A005EFBA1B89 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98FAC17906D393F287394FBD /* AuthStore.swift */; };
@@ -541,6 +542,7 @@
 		F745B0E0C0E6590C3A09BE26 /* ReshareActionSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReshareActionSheetView.swift; sourceTree = "<group>"; };
 		F79B3D104E32A2F61E6771B2 /* PollNoteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollNoteView.swift; sourceTree = "<group>"; };
 		F7D8015688B1D51344FFFCB7 /* TimelineKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineKey.swift; sourceTree = "<group>"; };
+		F89AA3A96CF6DCEF464C0A29 /* HaloNativeGlass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HaloNativeGlass.swift; sourceTree = "<group>"; };
 		FB5DA9CD86A2BCCAA2A6947D /* NostrRelayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NostrRelayClient.swift; sourceTree = "<group>"; };
 		FB8E0B2EBA2BA6A0BA1C44D8 /* ImageRemixEditorControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageRemixEditorControls.swift; sourceTree = "<group>"; };
 		FD5F2FDF4162E904B34044AD /* WelcomeArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeArtwork.swift; sourceTree = "<group>"; };
@@ -946,6 +948,7 @@
 				88E10288F9317E8E9959E77E /* FeedRowView.swift */,
 				1ED5C6EF9F220A3E121ECE2E /* FlowCapsuleTabBar.swift */,
 				51845B2B52C7FA719299524C /* HaloAudioPlaybackCoordinator.swift */,
+				F89AA3A96CF6DCEF464C0A29 /* HaloNativeGlass.swift */,
 				E4518BE49B2C27718F7B43E8 /* HaloSubjectSegmentation.swift */,
 				FB8E0B2EBA2BA6A0BA1C44D8 /* ImageRemixEditorControls.swift */,
 				BD4A3A69CDBE8348D50E5A7D /* ImageRemixEditorModels.swift */,
@@ -1238,6 +1241,7 @@
 				A0EA6C6AC32C2824CF83CAB3 /* HaloLinkModels.swift in Sources */,
 				97B6720D10BEEA901409A302 /* HaloLinkStore.swift in Sources */,
 				4BC2FFFAC8379D8E310409DF /* HaloLinkThreadView.swift in Sources */,
+				049EC68ABF16ECD30144DB4F /* HaloNativeGlass.swift in Sources */,
 				D2140E82AFF14CDF03189502 /* HaloOnDeviceAssistant.swift in Sources */,
 				24BBEAEEE5AEAD64145CC476 /* HaloPerformanceMonitoring.swift in Sources */,
 				ED93BF572F9FF52D017108A8 /* HaloReactionBonus.swift in Sources */,

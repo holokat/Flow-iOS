@@ -50,10 +50,7 @@ struct HaloFeedCatchUpSheet: View {
             .foregroundStyle(appSettings.themePalette.secondaryForeground)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
-            .background(
-                appSettings.themePalette.navigationControlBackground,
-                in: Capsule(style: .continuous)
-            )
+            .haloNativeGlass(in: Capsule(style: .continuous))
     }
 
     private var generatingState: some View {
@@ -128,8 +125,8 @@ struct HaloFeedCatchUpSheet: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
                 .foregroundStyle(appSettings.themePalette.foreground)
-                .background(
-                    appSettings.themePalette.navigationControlBackground,
+                .haloNativeGlass(
+                    interactive: true,
                     in: RoundedRectangle(cornerRadius: 14, style: .continuous)
                 )
         }

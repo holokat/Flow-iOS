@@ -541,7 +541,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(accessorySource.contains(".glassEffect("))
         XCTAssertFalse(accessorySource.contains(".buttonStyle(.glass)"))
         XCTAssertFalse(accessorySource.contains(".buttonStyle(.glassProminent)"))
-        XCTAssertTrue(accessorySource.contains(".background(.ultraThinMaterial, in: Capsule())"))
+        XCTAssertTrue(accessorySource.contains(".haloNativeGlass(interactive: true, in: Capsule())"))
     }
 
     func testComposePlaceholderUsesTheTextViewFontAndInsets() throws {
@@ -849,46 +849,87 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertEqual(BreakReminderChoiceLayout.surfaceBottomInset, 0, accuracy: 0.0001)
     }
 
-    func testManageAccountsGlassUsesWhiteTintWithReadableText() {
-        XCTAssertGreaterThanOrEqual(ManageAccountsGlassStyle.darkSurfaceWhiteOpacity, 0.44)
-        XCTAssertGreaterThanOrEqual(ManageAccountsGlassStyle.lightSurfaceWhiteOpacity, 0.86)
-        XCTAssertGreaterThanOrEqual(ManageAccountsGlassStyle.darkBorderWhiteOpacity, 0.24)
-        XCTAssertGreaterThanOrEqual(ManageAccountsGlassStyle.primaryTextWhiteOpacity, 0.94)
-        XCTAssertGreaterThanOrEqual(ManageAccountsGlassStyle.secondaryTextWhiteOpacity, 0.76)
-        XCTAssertGreaterThanOrEqual(ManageAccountsGlassStyle.controlWhiteTintOpacity, 0.42)
-        XCTAssertTrue(ManageAccountsGlassStyle.deleteIconUsesPrimaryTextColor)
-        XCTAssertGreaterThan(ManageAccountsGlassStyle.textShadowOpacity, 0)
+    func testManageAccountsUsesNativeGlassWithReadableText() throws {
+        let source = try Self.sourceText(at: "Sources/Auth/AuthSheetView.swift")
+
+        XCTAssertTrue(source.contains(".haloNativeGlass("))
+        XCTAssertFalse(source.contains("ManageAccountsGlassStyle"))
+        XCTAssertFalse(source.contains(".fill(.ultraThinMaterial)"))
+        XCTAssertGreaterThanOrEqual(ManageAccountsAppearance.primaryTextWhiteOpacity, 0.94)
+        XCTAssertGreaterThanOrEqual(ManageAccountsAppearance.secondaryTextWhiteOpacity, 0.76)
+        XCTAssertGreaterThanOrEqual(ManageAccountsAppearance.controlWhiteTintOpacity, 0.42)
+        XCTAssertTrue(ManageAccountsAppearance.deleteIconUsesPrimaryTextColor)
+        XCTAssertGreaterThan(ManageAccountsAppearance.textShadowOpacity, 0)
     }
 
-    func testSignInSurfacesMatchAccountsGlassOpacity() {
-        XCTAssertEqual(
-            ManageAccountsGlassStyle.signInCardDarkSurfaceWhiteOpacity,
-            ManageAccountsGlassStyle.darkSurfaceWhiteOpacity,
-            accuracy: 0.0001
-        )
-        XCTAssertEqual(
-            ManageAccountsGlassStyle.signInCardLightSurfaceWhiteOpacity,
-            ManageAccountsGlassStyle.lightSurfaceWhiteOpacity,
-            accuracy: 0.0001
-        )
-        XCTAssertEqual(
-            ManageAccountsGlassStyle.signInTabContainerDarkSurfaceWhiteOpacity,
-            ManageAccountsGlassStyle.darkSurfaceWhiteOpacity,
-            accuracy: 0.0001
-        )
-        XCTAssertEqual(
-            ManageAccountsGlassStyle.signInTabContainerLightSurfaceWhiteOpacity,
-            ManageAccountsGlassStyle.lightSurfaceWhiteOpacity,
-            accuracy: 0.0001
-        )
-        XCTAssertTrue(ManageAccountsGlassStyle.signInPrivateKeyLabelUsesInkColor)
+    func testSignInSurfacesUseSharedNativeGlassAdapter() throws {
+        let source = try Self.sourceText(at: "Sources/Auth/AuthSheetView.swift")
+
+        XCTAssertTrue(source.contains("private func authCardBackground"))
+        XCTAssertTrue(source.contains(".haloNativeGlass(in: shape)"))
+        XCTAssertTrue(ManageAccountsAppearance.signInPrivateKeyLabelUsesInkColor)
+    }
+
+    func testNativeGlassAdapterPreservesOlderDeploymentTargets() throws {
+        let source = try Self.sourceText(at: "Sources/Design/HaloNativeGlass.swift")
+
+        XCTAssertTrue(source.contains("if #available(iOS 26.0, *)"))
+        XCTAssertTrue(source.contains("content.glassEffect(nativeGlass, in: shape)"))
+        XCTAssertTrue(source.contains("content.background(.ultraThinMaterial, in: shape)"))
+        XCTAssertTrue(source.contains("Glass.regular.interactive(isInteractive)"))
+    }
+
+    func testOnlySharedAdapterUsesLegacySwiftUIMaterial() throws {
+        let allSources = try Self.sourceTexts(under: "Sources")
+        let adapterSource = try Self.sourceText(at: "Sources/Design/HaloNativeGlass.swift")
+
+        XCTAssertEqual(allSources.components(separatedBy: ".ultraThinMaterial").count - 1, 1)
+        XCTAssertTrue(adapterSource.contains(".ultraThinMaterial"))
+        XCTAssertFalse(allSources.contains(".thinMaterial"))
+        XCTAssertFalse(allSources.contains(".regularMaterial"))
+        XCTAssertFalse(allSources.contains(".thickMaterial"))
+        XCTAssertFalse(allSources.contains(".ultraThickMaterial"))
+    }
+
+    func testProfileChromeUsesSharedNativeGlassAcrossProfileFlows() throws {
+        let controlsSource = try Self.sourceText(at: "Sources/Profile/ProfileControls.swift")
+        let profileSource = try Self.sourceText(at: "Sources/Profile/ProfileView.swift")
+        let headerSource = try Self.sourceText(at: "Sources/Profile/ProfileHeaderSection.swift")
+        let followingSource = try Self.sourceText(at: "Sources/Profile/FollowingListView.swift")
+        let editorSource = try Self.sourceText(at: "Sources/Profile/ProfileEditorSheet.swift")
+        let qrSource = try Self.sourceText(at: "Sources/Profile/ProfileQRCodeSheet.swift")
+        let scannerSource = try Self.sourceText(at: "Sources/Profile/ProfileQRScannerFlowView.swift")
+
+        XCTAssertTrue(controlsSource.contains(".haloNativeGlass(interactive: true, in: Capsule"))
+        XCTAssertTrue(controlsSource.contains(".haloNativeGlass(interactive: true, in: Circle())"))
+        XCTAssertTrue(profileSource.contains(".haloNativeGlass(interactive: true, in: Circle())"))
+        XCTAssertTrue(headerSource.contains(".haloNativeGlass(interactive: true, in: Capsule"))
+        XCTAssertTrue(followingSource.contains(".haloNativeGlass("))
+        XCTAssertTrue(editorSource.contains(".haloNativeGlass("))
+        XCTAssertTrue(qrSource.contains(".haloNativeGlass(interactive: true, in: Capsule())"))
+        XCTAssertTrue(scannerSource.contains(".haloNativeGlass("))
+    }
+
+    func testSharedOverlayAndToolbarControlsUseNativeGlass() throws {
+        let settingsSource = try Self.sourceText(at: "Sources/Home/SettingsComponents.swift")
+        let composeSource = try Self.sourceText(at: "Sources/Compose/ComposeNoteSheetAccessoryViews.swift")
+        let breakSource = try Self.sourceText(at: "Sources/App/BreakReminderOverlay.swift")
+        let directMessageSource = try Self.sourceText(at: "Sources/DMs/HaloLinkThreadView.swift")
+        let noteSource = try Self.sourceText(at: "Sources/Design/NoteContentView.swift")
+
+        XCTAssertTrue(settingsSource.contains(".haloNativeGlass(interactive: true, in: Circle())"))
+        XCTAssertTrue(composeSource.contains(".haloNativeGlass("))
+        XCTAssertFalse(composeSource.contains("ComposeSurfaceStyle.controlShadow"))
+        XCTAssertTrue(breakSource.contains("tint: role.glassTint(colorScheme: colorScheme)"))
+        XCTAssertTrue(directMessageSource.contains(".haloNativeGlass("))
+        XCTAssertTrue(noteSource.contains(".haloNativeGlass(interactive: true, in: Capsule())"))
     }
 
     func testCreateAccountCloseButtonUsesGlassInsteadOfPrimaryFill() {
-        XCTAssertTrue(ManageAccountsGlassStyle.closeButtonUsesGlassSurface)
-        XCTAssertFalse(ManageAccountsGlassStyle.closeButtonUsesPrimaryColorFill)
-        XCTAssertGreaterThan(ManageAccountsGlassStyle.closeButtonLightWhiteTintOpacity, 0.24)
-        XCTAssertLessThanOrEqual(ManageAccountsGlassStyle.closeButtonDarkWhiteTintOpacity, 0.24)
+        XCTAssertTrue(ManageAccountsAppearance.closeButtonUsesGlassSurface)
+        XCTAssertFalse(ManageAccountsAppearance.closeButtonUsesPrimaryColorFill)
+        XCTAssertGreaterThan(ManageAccountsAppearance.closeButtonLightWhiteTintOpacity, 0.24)
+        XCTAssertLessThanOrEqual(ManageAccountsAppearance.closeButtonDarkWhiteTintOpacity, 0.24)
     }
 
     func testManageAccountSwitchMotionUsesLivelyButContainedFeedback() {
@@ -901,13 +942,14 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertNil(ManageAccountSwitchMotion.selectionAnimation(reduceMotion: true))
     }
 
-    func testSearchBarUsesFloatingThemeAwareGlassField() {
-        XCTAssertFalse(SearchBarGlassStyle.usesSolidBarBackground)
-        XCTAssertGreaterThanOrEqual(SearchBarGlassStyle.lightFieldWhiteOpacity, 0.84)
-        XCTAssertLessThanOrEqual(SearchBarGlassStyle.darkFieldWhiteOverlayOpacity, 0.14)
-        XCTAssertGreaterThan(SearchBarGlassStyle.rimHighlightLineWidth, SearchBarGlassStyle.innerBorderLineWidth)
-        XCTAssertGreaterThan(SearchBarGlassStyle.lightDropShadowOpacity, SearchBarGlassStyle.darkDropShadowOpacity)
-        XCTAssertEqual(SearchBarGlassStyle.fieldCornerRadius, 22, accuracy: 0.0001)
+    func testSearchBarUsesNativeGlassField() throws {
+        let source = try Self.sourceText(at: "Sources/Search/SearchViewComponents.swift")
+
+        XCTAssertEqual(SearchBarLayout.fieldCornerRadius, 22, accuracy: 0.0001)
+        XCTAssertEqual(SearchBarLayout.fieldHeight, 44, accuracy: 0.0001)
+        XCTAssertTrue(source.contains(".haloNativeGlass("))
+        XCTAssertFalse(source.contains("searchFieldGlassRim"))
+        XCTAssertFalse(source.contains("SearchBarGlassStyle"))
     }
 
     func testSideMenuTransitionUsesInteractiveFeedPushDrawer() {
@@ -1368,7 +1410,8 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(source.contains("private var showsFeedModeHeader: Bool {"))
         XCTAssertTrue(source.contains("feedContent(\n                    contentPadding.bottom,\n                    0,\n                    safeAreaBottom\n                )"))
         XCTAssertTrue(source.contains("safeAreaTop: safeAreaTop"))
-        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)\n            .background(topNavigationBarBackground)"))
+        XCTAssertTrue(topNavChromeSource.contains("topNavigationBar()\n            .padding(.top, safeAreaTop)"))
+        XCTAssertFalse(topNavChromeSource.contains(".background("))
         XCTAssertFalse(topNavChromeSource.contains("ScrollChromeLayout.chromeOpacity("))
         XCTAssertFalse(source.contains("pullToRefreshDistance"))
         XCTAssertFalse(source.contains("isPullToRefreshActive"))
@@ -1377,7 +1420,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertFalse(source.contains("HomeFeedTopNavigationBarHeightPreferenceKey"))
         XCTAssertFalse(source.contains("topHiddenOffset"))
         XCTAssertFalse(source.contains("topSafeAreaInset: max(0, navigationGeometry.safeAreaInsets.top)"))
-        XCTAssertTrue(topNavChromeSource.contains(".ignoresSafeArea(edges: .top)"))
+        XCTAssertFalse(topNavChromeSource.contains(".ignoresSafeArea(edges: .top)"))
         XCTAssertFalse(topNavChromeSource.contains("topBarOffset"))
         XCTAssertTrue(topNavChromeSource.contains("safeAreaTop"))
         XCTAssertFalse(topNavChromeSource.contains(".offset(y:"))

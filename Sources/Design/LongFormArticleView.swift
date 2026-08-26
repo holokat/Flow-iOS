@@ -467,18 +467,7 @@ struct LongFormArticleReaderView: View {
                     width: LongFormArticleReaderLayout.shareButtonDiameter,
                     height: LongFormArticleReaderLayout.shareButtonDiameter
                 )
-                .background {
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .overlay {
-                            Circle()
-                                .fill(appSettings.themePalette.background.opacity(0.24))
-                        }
-                }
-                .overlay {
-                    Circle()
-                        .stroke(appSettings.themeSeparator(defaultOpacity: 0.8), lineWidth: 0.8)
-                }
+                .haloNativeGlass(interactive: true, in: Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Share article")
@@ -757,18 +746,7 @@ struct LongFormArticleReaderView: View {
         .foregroundStyle(appSettings.themePalette.secondaryForeground)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background {
-            Capsule()
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    Capsule()
-                        .fill(appSettings.themePalette.background.opacity(0.24))
-                }
-        }
-        .overlay {
-            Capsule()
-                .stroke(appSettings.themeSeparator(defaultOpacity: 0.8), lineWidth: 0.7)
-        }
+        .haloNativeGlass(in: Capsule())
     }
 
     private func headingFont(for level: Int) -> Font {

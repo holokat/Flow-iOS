@@ -903,12 +903,10 @@ private struct AppToastBanner: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(maxWidth: 460)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(toast.style.accentColor.opacity(0.22), lineWidth: 0.8)
-        }
-        .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 4)
+        .haloNativeGlass(
+            tint: toast.style.accentColor.opacity(0.08),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
         .accessibilityElement(children: .combine)
     }
 }

@@ -16,44 +16,29 @@ struct ProfileActionIconButton: View {
         let foreground = isPrimary
             ? appSettings.buttonTextColor
             : (style?.foreground ?? (isDisabled ? appSettings.themePalette.mutedForeground : appSettings.themePalette.foreground))
-        let background = isPrimary
-            ? appSettings.primaryColor
-            : (style?.background ?? appSettings.themePalette.secondaryGroupedBackground)
-        let borderColor = isPrimary ? appSettings.primaryColor : style?.border
 
         Button(action: action) {
-            Image(systemName: systemImage)
+            let label = Image(systemName: systemImage)
                 .font(.subheadline.weight(.semibold))
                 .frame(width: 18, height: 18)
                 .padding(.vertical, 10)
                 .padding(.horizontal, 12)
                 .foregroundStyle(foreground.opacity(disabledOpacity))
-                .background {
-                    if usesHolographicPrimaryGradient {
+
+            if isPrimary {
+                label
+                    .background {
                         Capsule()
-                            .fill(appSettings.primaryGradient)
-                    } else {
-                        Capsule()
-                            .fill(background.opacity(isDisabled && style != nil ? 0.72 : 1))
+                            .fill(
+                                usesHolographicPrimaryGradient
+                                    ? AnyShapeStyle(appSettings.primaryGradient)
+                                    : AnyShapeStyle(appSettings.primaryColor)
+                            )
                     }
-                }
-                .overlay {
-                    if let borderColor {
-                        Capsule()
-                            .stroke(borderColor.opacity(disabledOpacity), lineWidth: 0.8)
-                    } else if !isPrimary {
-                        Capsule()
-                            .stroke(appSettings.themePalette.separator.opacity(0.7), lineWidth: 0.8)
-                    }
-                }
-                .shadow(
-                    color: usesHolographicPrimaryGradient
-                        ? (appSettings.activeButtonGradientOption?.accentPalette(for: appSettings.activeTheme).shadow.opacity(0.18) ?? .clear)
-                        : .clear,
-                    radius: usesHolographicPrimaryGradient ? 10 : 0,
-                    x: 0,
-                    y: usesHolographicPrimaryGradient ? 6 : 0
-                )
+            } else {
+                label
+                    .haloNativeGlass(interactive: true, in: Capsule(style: .continuous))
+            }
         }
         .buttonStyle(FlowPressScaleButtonStyle())
         .disabled(isDisabled)
@@ -82,52 +67,34 @@ struct ProfileActionTextButton: View {
         } else {
             style?.foreground ?? appSettings.themePalette.foreground
         }
-        let background: Color = if isPrimary {
-            appSettings.primaryColor
-        } else if isSelected {
-            appSettings.primaryColor.opacity(0.14)
-        } else {
-            style?.background ?? appSettings.themePalette.secondaryGroupedBackground
-        }
-        let borderColor: Color? = if isPrimary {
-            appSettings.primaryColor
-        } else if isSelected {
-            appSettings.primaryColor.opacity(0.32)
-        } else {
-            style?.border ?? appSettings.themePalette.separator.opacity(0.7)
-        }
 
         Button(action: action) {
-            Text(title)
+            let label = Text(title)
                 .font(appSettings.appFont(.subheadline, weight: .semibold))
                 .lineLimit(1)
                 .contentTransition(.opacity)
                 .frame(minWidth: minimumWidth, minHeight: 40)
                 .padding(.horizontal, 8)
                 .foregroundStyle(foreground.opacity(disabledOpacity))
-                .background {
-                    if usesHolographicPrimaryGradient {
+
+            if isPrimary {
+                label
+                    .background {
                         Capsule(style: .continuous)
-                            .fill(appSettings.primaryGradient)
-                    } else {
-                        Capsule(style: .continuous)
-                            .fill(background.opacity(isDisabled && style != nil ? 0.72 : 1))
+                            .fill(
+                                usesHolographicPrimaryGradient
+                                    ? AnyShapeStyle(appSettings.primaryGradient)
+                                    : AnyShapeStyle(appSettings.primaryColor)
+                            )
                     }
-                }
-                .overlay {
-                    if let borderColor {
-                        Capsule(style: .continuous)
-                            .stroke(borderColor.opacity(disabledOpacity), lineWidth: 0.8)
-                    }
-                }
-                .shadow(
-                    color: usesHolographicPrimaryGradient
-                        ? (appSettings.activeButtonGradientOption?.accentPalette(for: appSettings.activeTheme).shadow.opacity(0.18) ?? .clear)
-                        : .clear,
-                    radius: usesHolographicPrimaryGradient ? 10 : 0,
-                    x: 0,
-                    y: usesHolographicPrimaryGradient ? 6 : 0
-                )
+            } else {
+                label
+                    .haloNativeGlass(
+                        tint: isSelected ? appSettings.primaryColor.opacity(0.14) : nil,
+                        interactive: true,
+                        in: Capsule(style: .continuous)
+                    )
+            }
         }
         .buttonStyle(ProfileActionPressButtonStyle())
         .disabled(isDisabled)
@@ -149,22 +116,13 @@ private struct ProfileActionPressButtonStyle: ButtonStyle {
 struct ProfileBannerCircleIcon: View {
     let systemImage: String
     let foreground: Color
-    let border: Color
-    let background: Color
 
     var body: some View {
         Image(systemName: systemImage)
             .font(.headline.weight(.semibold))
             .foregroundStyle(foreground)
-            .frame(width: 36, height: 36)
-            .background(
-                Circle()
-                    .fill(background)
-            )
-            .overlay {
-                Circle()
-                    .stroke(border, lineWidth: 1)
-            }
+            .frame(width: 44, height: 44)
+            .haloNativeGlass(interactive: true, in: Circle())
     }
 }
 

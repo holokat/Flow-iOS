@@ -22,8 +22,6 @@ enum ComposeSurfaceStyle {
     static let borderWidth: CGFloat = 0.8
     static let lightBorderOpacity = 0.10
     static let darkBorderOpacity = 0.16
-    static let controlShadowRadius: CGFloat = 4
-    static let controlShadowY: CGFloat = 2
 
     static func background(for colorScheme: ColorScheme) -> Color {
         colorScheme == .dark ? .black : .white
@@ -35,11 +33,6 @@ enum ComposeSurfaceStyle {
             : Color.black.opacity(lightBorderOpacity)
     }
 
-    static func controlShadow(for colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark
-            ? Color.black.opacity(0.34)
-            : Color.black.opacity(0.10)
-    }
 }
 
 enum ComposeEditorLayout {
@@ -62,7 +55,6 @@ enum ComposeEditorLayout {
 
 struct ComposeDraftLibraryToolbarButton: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     let savedDraftCount: Int
@@ -94,20 +86,7 @@ struct ComposeDraftLibraryToolbarButton: View {
             } else {
                 Button(action: action) {
                     label
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay {
-                            Capsule()
-                                .stroke(
-                                    ComposeSurfaceStyle.border(for: colorScheme),
-                                    lineWidth: ComposeSurfaceStyle.borderWidth
-                                )
-                        }
-                        .shadow(
-                            color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
-                            radius: ComposeSurfaceStyle.controlShadowRadius,
-                            x: 0,
-                            y: ComposeSurfaceStyle.controlShadowY
-                        )
+                        .haloNativeGlass(interactive: true, in: Capsule())
                 }
                 .buttonStyle(FlowPressScaleButtonStyle())
             }
@@ -148,7 +127,6 @@ struct ComposeDraftLibraryToolbarButton: View {
 }
 
 struct ComposeCancelToolbarButton: View {
-    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     let action: () -> Void
@@ -164,20 +142,7 @@ struct ComposeCancelToolbarButton: View {
             } else {
                 Button(action: action) {
                     label
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .overlay {
-                            Capsule()
-                                .stroke(
-                                    ComposeSurfaceStyle.border(for: colorScheme),
-                                    lineWidth: ComposeSurfaceStyle.borderWidth
-                                )
-                        }
-                        .shadow(
-                            color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
-                            radius: ComposeSurfaceStyle.controlShadowRadius,
-                            x: 0,
-                            y: ComposeSurfaceStyle.controlShadowY
-                        )
+                        .haloNativeGlass(interactive: true, in: Capsule())
                 }
                 .buttonStyle(FlowPressScaleButtonStyle())
             }
@@ -429,25 +394,11 @@ struct ComposeAttachmentToolbarBar: View {
             Text("GIF")
                 .font(.footnote.weight(.semibold))
                 .padding(.horizontal, 9)
-                .frame(height: 32)
-                .background {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(ComposeSurfaceStyle.background(for: colorScheme))
-                        .shadow(
-                            color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
-                            radius: ComposeSurfaceStyle.controlShadowRadius,
-                            x: 0,
-                            y: ComposeSurfaceStyle.controlShadowY
-                        )
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(
-                            ComposeSurfaceStyle.border(for: colorScheme),
-                            lineWidth: ComposeSurfaceStyle.borderWidth
-                        )
-                }
                 .frame(minHeight: 40)
+                .haloNativeGlass(
+                    interactive: true,
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
         }
         .buttonStyle(FlowPressScaleButtonStyle())
         .foregroundStyle(appSettings.primaryColor)
@@ -478,31 +429,14 @@ struct ComposeAttachmentToolbarBar: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         content()
-            .foregroundStyle(isActive ? Color.white : appSettings.primaryColor)
-            .tint(isActive ? Color.white : appSettings.primaryColor)
-            .frame(width: 32, height: 32)
-            .background {
-                Circle()
-                    .fill(
-                        isActive
-                            ? AnyShapeStyle(appSettings.primaryColor)
-                            : AnyShapeStyle(ComposeSurfaceStyle.background(for: colorScheme))
-                    )
-                    .shadow(
-                        color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
-                        radius: ComposeSurfaceStyle.controlShadowRadius,
-                        x: 0,
-                        y: ComposeSurfaceStyle.controlShadowY
-                    )
-            }
-            .overlay {
-                Circle()
-                    .stroke(
-                        isActive ? appSettings.primaryColor.opacity(0.24) : ComposeSurfaceStyle.border(for: colorScheme),
-                        lineWidth: ComposeSurfaceStyle.borderWidth
-                    )
-            }
+            .foregroundStyle(appSettings.primaryColor)
+            .tint(appSettings.primaryColor)
             .frame(width: 40, height: 40)
+            .haloNativeGlass(
+                tint: isActive ? appSettings.primaryColor.opacity(0.16) : nil,
+                interactive: true,
+                in: Circle()
+            )
     }
 
     private func cameraAttachmentButton(symbolFont: Font) -> some View {
@@ -527,7 +461,6 @@ struct ComposeAttachmentToolbarBar: View {
 }
 
 struct ComposePublishToolbarButton: View {
-    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     let title: String
@@ -558,31 +491,14 @@ struct ComposePublishToolbarButton: View {
                 )
             } else {
                 Button(action: action) {
-                    label(
-                        foreground: isProminent
-                            ? appSettings.buttonTextColor
-                            : appSettings.primaryColor
-                    )
-                    .background {
-                        Capsule()
-                            .fill(
-                                isProminent
-                                    ? AnyShapeStyle(appSettings.primaryGradient)
-                                    : AnyShapeStyle(.ultraThinMaterial)
-                            )
-                            .shadow(
-                                color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
-                                radius: ComposeSurfaceStyle.controlShadowRadius,
-                                x: 0,
-                                y: ComposeSurfaceStyle.controlShadowY
-                            )
-                    }
-                    .overlay {
-                        Capsule()
-                            .stroke(
-                                ComposeSurfaceStyle.border(for: colorScheme),
-                                lineWidth: ComposeSurfaceStyle.borderWidth
-                            )
+                    Group {
+                        if isProminent {
+                            label(foreground: appSettings.buttonTextColor)
+                                .background(appSettings.primaryGradient, in: Capsule())
+                        } else {
+                            label(foreground: appSettings.primaryColor)
+                                .haloNativeGlass(interactive: true, in: Capsule())
+                        }
                     }
                 }
                 .buttonStyle(FlowPressScaleButtonStyle())
@@ -635,7 +551,6 @@ struct ComposeToolbarAvatarView: View {
 }
 
 struct ComposeCharacterCountRing: View {
-    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appSettings: AppSettingsStore
 
     let characterCount: Int
@@ -682,16 +597,7 @@ struct ComposeCharacterCountRing: View {
                 .minimumScaleFactor(0.72)
         }
         .frame(width: 36, height: 36)
-        .background {
-            Circle()
-                .fill(ComposeSurfaceStyle.background(for: colorScheme))
-                .shadow(
-                    color: ComposeSurfaceStyle.controlShadow(for: colorScheme),
-                    radius: ComposeSurfaceStyle.controlShadowRadius,
-                    x: 0,
-                    y: ComposeSurfaceStyle.controlShadowY
-                )
-        }
+        .haloNativeGlass(in: Circle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(characterCount) of \(characterLimit) characters")
     }
@@ -947,8 +853,8 @@ private struct ComposeDraftLibraryRow: View {
                         .foregroundStyle(appSettings.themePalette.foreground)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(
-                            appSettings.themePalette.navigationControlBackground,
+                        .haloNativeGlass(
+                            interactive: true,
                             in: Capsule(style: .continuous)
                         )
                 }

@@ -166,8 +166,8 @@ struct ComposeImageAltTextSheet: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                     .foregroundStyle(appSettings.themePalette.foreground)
-                    .background(
-                        appSettings.themePalette.navigationControlBackground,
+                    .haloNativeGlass(
+                        interactive: true,
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous)
                     )
                 }

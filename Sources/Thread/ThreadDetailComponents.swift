@@ -745,23 +745,13 @@ struct ThreadDetailArticleBody: View {
             appSettings.themePalette.profileActionStyle?.bannerForeground ?? appSettings.themePalette.foreground
         }
 
-        private var articleBackButtonBorder: Color {
-            appSettings.themePalette.profileActionStyle?.bannerBorder ?? appSettings.themePalette.separator.opacity(0.88)
-        }
-
-        private var articleBackButtonBackground: Color {
-            appSettings.themePalette.profileActionStyle?.bannerBackground ?? appSettings.themePalette.modalBackground
-        }
-
         private func articleBackButton(topSafeAreaInset: CGFloat) -> some View {
             Button {
                 dismiss()
             } label: {
                 ProfileBannerCircleIcon(
                     systemImage: "chevron.left",
-                    foreground: articleBackButtonForeground,
-                    border: articleBackButtonBorder,
-                    background: articleBackButtonBackground
+                    foreground: articleBackButtonForeground
                 )
             }
             .buttonStyle(.plain)

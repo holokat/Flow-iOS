@@ -116,14 +116,6 @@ struct ProfileView: View {
         appSettings.themePalette.profileActionStyle?.bannerForeground ?? appSettings.themePalette.foreground
     }
 
-    private var profileBannerButtonBorder: Color {
-        appSettings.themePalette.profileActionStyle?.bannerBorder ?? appSettings.themePalette.separator.opacity(0.88)
-    }
-
-    private var profileBannerButtonBackground: Color {
-        appSettings.themePalette.profileActionStyle?.bannerBackground ?? appSettings.themePalette.modalBackground
-    }
-
     private var isProfileMuted: Bool {
         muteStore.isMuted(viewModel.pubkey)
     }
@@ -637,9 +629,7 @@ struct ProfileView: View {
         } label: {
             ProfileBannerCircleIcon(
                 systemImage: "chevron.left",
-                foreground: profileBannerButtonForeground,
-                border: profileBannerButtonBorder,
-                background: profileBannerButtonBackground
+                foreground: profileBannerButtonForeground
             )
         }
         .buttonStyle(.plain)
@@ -660,6 +650,7 @@ struct ProfileView: View {
                         .foregroundStyle(appSettings.themePalette.foreground)
                         .frame(width: 40, height: 40)
                         .contentShape(Rectangle())
+                        .haloNativeGlass(interactive: true, in: Circle())
                 }
                 .buttonStyle(FlowPressScaleButtonStyle())
                 .accessibilityLabel("Back")
@@ -842,9 +833,7 @@ struct ProfileView: View {
         } label: {
             ProfileBannerCircleIcon(
                 systemImage: "ellipsis",
-                foreground: profileBannerButtonForeground,
-                border: profileBannerButtonBorder,
-                background: profileBannerButtonBackground
+                foreground: profileBannerButtonForeground
             )
         }
         .buttonStyle(.plain)

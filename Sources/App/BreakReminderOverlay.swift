@@ -343,11 +343,11 @@ struct BreakReminderSheet: View {
                 .frame(minWidth: 112)
                 .frame(height: 38)
                 .padding(.horizontal, 8)
-                .background(role.backgroundColor(colorScheme: colorScheme), in: Capsule(style: .continuous))
-                .overlay {
-                    Capsule(style: .continuous)
-                        .stroke(role.borderColor(colorScheme: colorScheme), lineWidth: 0.8)
-                }
+                .haloNativeGlass(
+                    tint: role.glassTint(colorScheme: colorScheme),
+                    interactive: true,
+                    in: Capsule(style: .continuous)
+                )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
@@ -430,21 +430,12 @@ enum BreakReminderButtonRole {
         }
     }
 
-    func backgroundColor(colorScheme: ColorScheme) -> Color {
+    func glassTint(colorScheme: ColorScheme) -> Color {
         switch self {
         case .primary:
-            return .white.opacity(colorScheme == .dark ? 0.84 : 0.88)
+            return .white.opacity(colorScheme == .dark ? 0.30 : 0.36)
         case .secondary:
-            return .black.opacity(colorScheme == .dark ? 0.22 : 0.24)
-        }
-    }
-
-    func borderColor(colorScheme: ColorScheme) -> Color {
-        switch self {
-        case .primary:
-            return .white.opacity(colorScheme == .dark ? 0.52 : 0.64)
-        case .secondary:
-            return .white.opacity(colorScheme == .dark ? 0.22 : 0.38)
+            return .black.opacity(colorScheme == .dark ? 0.16 : 0.20)
         }
     }
 }

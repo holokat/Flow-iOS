@@ -1332,7 +1332,7 @@ struct SignupOnboardingView: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(themePalette.foreground)
                 .frame(width: 38, height: 36)
-                .background(themePalette.tertiaryFill, in: Capsule(style: .continuous))
+                .haloNativeGlass(in: Capsule(style: .continuous))
         }
 
         private var previewFollowCapsule: some View {

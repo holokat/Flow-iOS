@@ -118,7 +118,7 @@ struct CompactMediaAttachmentPreview: View {
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
-                .background(.ultraThinMaterial, in: Capsule())
+                .haloNativeGlass(in: Capsule())
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .padding(6)
             }
@@ -155,8 +155,9 @@ struct CompactMediaAttachmentPreview: View {
                 VideoThumbnailView(url: url)
 
                 Circle()
-                    .fill(.ultraThinMaterial)
+                    .fill(Color.clear)
                     .frame(width: 32, height: 32)
+                    .haloNativeGlass(in: Circle())
                     .overlay {
                         Image(systemName: "play.fill")
                             .font(.system(size: 12, weight: .semibold))
@@ -213,7 +214,7 @@ struct CompactMediaAttachmentPreview: View {
             .lineLimit(1)
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
-            .background(.ultraThinMaterial, in: Capsule())
+            .haloNativeGlass(in: Capsule())
     }
 }
 

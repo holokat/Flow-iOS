@@ -296,48 +296,15 @@ struct ActivityView: View {
                     Image(systemName: "slider.horizontal.3")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(appSettings.themePalette.mutedForeground)
-                        .frame(width: 34, height: 34)
-                        .background(topNavigationControlFill)
-                        .clipShape(Circle())
+                        .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
+                .haloNativeGlass(interactive: true, in: Circle())
                 .accessibilityLabel("Notification settings")
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(topNavigationBackground)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(appSettings.themePalette.chromeBorder)
-                .frame(height: 0.7)
-        }
-    }
-
-    @ViewBuilder
-    private var topNavigationBackground: some View {
-        if effectiveChromeColorScheme == .light {
-            Color.white
-        } else if appSettings.activeTheme == .gamer {
-            appSettings.themePalette.background
-        } else if appSettings.activeTheme == .dracula {
-            appSettings.themePalette.background
-        } else {
-            appSettings.themePalette.chromeBackground
-        }
-    }
-
-    private var topNavigationControlFill: Color {
-        if effectiveChromeColorScheme == .light {
-            return Color.black.opacity(0.045)
-        } else if appSettings.activeTheme == .gamer {
-            return appSettings.themePalette.chromeBackground.opacity(0.84)
-        }
-        return appSettings.themePalette.navigationControlBackground
-    }
-
-    private var effectiveChromeColorScheme: ColorScheme {
-        appSettings.preferredColorScheme ?? colorScheme
     }
 
     private var topNavAccountIcon: some View {

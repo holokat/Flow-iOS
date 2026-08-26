@@ -15,7 +15,6 @@ struct HomeFeedView: View {
     private static let feedHorizontalInset: CGFloat = 14
     private static let autoMergeTopThreshold: CGFloat = 56
 
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var auth: AuthManager
     @EnvironmentObject private var appSettings: AppSettingsStore
@@ -36,7 +35,6 @@ struct HomeFeedView: View {
     @State private var isShowingAuthSheet = false
     @State private var authSheetInitialTab: AuthSheetTab = .signIn
     @State private var authSheetPresentationID = UUID()
-    @State private var isShowingFeedSourcePicker = false
     @State private var isShowingFilterSheet = false
     @State private var isShowingSettings = false
     @State private var isShowingCatchUp = false
@@ -95,7 +93,6 @@ struct HomeFeedView: View {
     private var sheetsModifier: HomeFeedSheets {
         HomeFeedSheets(
             isShowingAuthSheet: $isShowingAuthSheet,
-            isShowingFeedSourcePicker: $isShowingFeedSourcePicker,
             isShowingFilterSheet: $isShowingFilterSheet,
             isShowingSettings: $isShowingSettings,
             onSettingsDismiss: {
@@ -103,9 +100,6 @@ struct HomeFeedView: View {
             },
             authSheet: {
                 AnyView(authSheet)
-            },
-            feedSourcePickerSheet: {
-                AnyView(feedSourcePickerSheet)
             },
             filterSheet: {
                 AnyView(filterSheet)
@@ -473,8 +467,8 @@ struct HomeFeedView: View {
             .foregroundStyle(appSettings.themePalette.foreground)
             .padding(.horizontal, 11)
             .padding(.vertical, 8)
-            .background(
-                appSettings.themePalette.navigationControlBackground,
+            .haloNativeGlass(
+                interactive: true,
                 in: Capsule(style: .continuous)
             )
         }
@@ -738,13 +732,7 @@ struct HomeFeedView: View {
 
             Spacer()
 
-            Button {
-                isShowingFeedSourcePicker = true
-            } label: {
-                feedSourcePickerLabel
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Choose feed source")
+            feedSourceMenu
 
             Spacer()
 
@@ -765,50 +753,63 @@ struct HomeFeedView: View {
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.footnote.weight(.semibold))
-                    .rotationEffect(.degrees(isShowingFeedSourcePicker ? 180 : 0))
             }
             .id(viewModel.feedSource.id)
             .transition(FlowTransitionMotion.textStateSwapTransition(reduceMotion: accessibilityReduceMotion))
         }
         .animation(FlowTransitionMotion.textSwapAnimation(reduceMotion: accessibilityReduceMotion), value: viewModel.feedSource.id)
-        .animation(FlowTransitionMotion.iconSwapAnimation(reduceMotion: accessibilityReduceMotion), value: isShowingFeedSourcePicker)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(
-            Capsule(style: .continuous)
-                .fill(feedSourcePickerFill)
+    }
+
+    private var feedSourceMenu: some View {
+        Menu {
+            ForEach(viewModel.feedSourceOptions) { source in
+                Button {
+                    viewModel.selectFeedSource(source)
+                } label: {
+                    Label(
+                        feedSourceLabel(for: source),
+                        systemImage: viewModel.feedSource == source
+                            ? "checkmark"
+                            : feedSourceIconName(for: source)
+                    )
+                }
+            }
+
+            let removableSources = viewModel.feedSourceOptions.filter(isRemovableFeedSource)
+            if !removableSources.isEmpty {
+                Divider()
+
+                Menu {
+                    ForEach(removableSources) { source in
+                        Button(role: .destructive) {
+                            removeFeedSourceFavorite(source)
+                        } label: {
+                            Label(feedSourceLabel(for: source), systemImage: "bookmark.slash")
+                        }
+                    }
+                } label: {
+                    Label("Remove Feed Source", systemImage: "bookmark.slash")
+                }
+            }
+
+            Divider()
+
+            Button {
+                openFeedsSettingsFromFeedSourceMenu()
+            } label: {
+                Label("Create Feed", systemImage: "plus.circle.fill")
+            }
+        } label: {
+            feedSourcePickerLabel
+        }
+        .buttonStyle(.plain)
+        .haloNativeGlass(
+            interactive: true,
+            in: Capsule(style: .continuous)
         )
-    }
-
-    private var topNavigationControlFill: Color {
-        if effectiveChromeColorScheme == .light {
-            return Color.black.opacity(0.045)
-        } else if appSettings.activeTheme == .gamer {
-            return appSettings.themePalette.chromeBackground.opacity(0.88)
-        }
-        return appSettings.themePalette.navigationControlBackground
-    }
-
-    private var feedSourcePickerFill: Color {
-        if effectiveChromeColorScheme == .light {
-            return Color.black.opacity(0.035)
-        } else if appSettings.activeTheme == .gamer {
-            return appSettings.themePalette.chromeBackground.opacity(0.82)
-        }
-        return appSettings.themePalette.navigationControlBackground
-    }
-
-    private var effectiveChromeColorScheme: ColorScheme {
-        appSettings.preferredColorScheme ?? colorScheme
-    }
-
-    private var feedSourcePickerBackground: Color {
-        effectiveChromeColorScheme == .light ? .white : appSettings.themePalette.sheetBackground
-    }
-
-    private var feedSourcePickerSurfaceStyle: SettingsFormSurfaceStyle {
-        let effectiveColorScheme = appSettings.preferredColorScheme ?? colorScheme
-        return appSettings.settingsFormSurfaceStyle(for: effectiveColorScheme)
+        .accessibilityLabel("Choose feed source")
     }
 
     private var sideMenuContent: some View {
@@ -849,19 +850,22 @@ struct HomeFeedView: View {
                 Button {
                     isShowingFilterSheet = true
                 } label: {
-                    ZStack {
-                        Circle()
-                            .fill(topNavigationControlFill)
-                            .frame(width: 36, height: 36)
-
-                        Image(systemName: "line.3.horizontal.decrease")
-                            .font(.system(size: 21, weight: .regular))
-                            .foregroundStyle(appSettings.themePalette.mutedForeground)
-                    }
-                    .frame(width: 46, height: 46)
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .font(.system(size: 19, weight: .medium))
+                        .foregroundStyle(
+                            viewModel.isUsingCustomFilters
+                                ? appSettings.primaryColor
+                                : appSettings.themePalette.mutedForeground
+                        )
+                        .frame(width: 44, height: 44)
                     .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .haloNativeGlass(
+                    tint: viewModel.isUsingCustomFilters ? appSettings.primaryColor.opacity(0.14) : nil,
+                    interactive: true,
+                    in: Circle()
+                )
                 .accessibilityLabel("Feed filters")
                 .accessibilityAddTraits(viewModel.isUsingCustomFilters ? [.isSelected] : [])
             }
@@ -931,8 +935,8 @@ struct HomeFeedView: View {
                     .foregroundStyle(appSettings.themePalette.foreground)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(
-                        appSettings.themePalette.navigationControlBackground,
+                    .haloNativeGlass(
+                        interactive: true,
                         in: Capsule(style: .continuous)
                     )
             }
@@ -1020,8 +1024,8 @@ struct HomeFeedView: View {
                 .foregroundStyle(appSettings.themePalette.foreground)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(
-                    appSettings.themePalette.navigationControlBackground,
+                .haloNativeGlass(
+                    interactive: true,
                     in: Capsule(style: .continuous)
                 )
                 .buttonStyle(.plain)
@@ -1477,17 +1481,9 @@ struct HomeFeedView: View {
             .padding(.leading, 8)
             .padding(.trailing, 12)
             .padding(.vertical, 6)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(.regularMaterial)
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(appSettings.themeSeparator(defaultOpacity: 0.35), lineWidth: 0.5)
-            )
+            .haloNativeGlass(interactive: true, in: Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
-        .shadow(color: Color.black.opacity(0.09), radius: 6, y: 2)
         .accessibilityLabel("Show latest notes")
     }
 
@@ -1543,128 +1539,9 @@ struct HomeFeedView: View {
         viewModel.showBufferedNewItems()
     }
 
-    private var feedSourcePickerSheet: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Array(viewModel.feedSourceOptions.enumerated()), id: \.element.id) { index, source in
-                        feedSourceOptionButton(source)
-
-                        if index < viewModel.feedSourceOptions.count - 1 {
-                            Divider()
-                                .overlay(appSettings.themeSeparator(defaultOpacity: 0.18))
-                                .padding(.leading, 44)
-                        }
-                    }
-                }
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(feedSourcePickerSurfaceStyle.cardBackground)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(appSettings.themeSeparator(defaultOpacity: 0.18), lineWidth: 0.8)
-                )
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-
-                Button {
-                    openFeedsSettingsFromFeedSourcePicker()
-                } label: {
-                    Label("Create Feed", systemImage: "plus.circle.fill")
-                        .font(appSettings.appFont(.body, weight: .semibold))
-                        .foregroundStyle(appSettings.primaryColor)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(feedSourcePickerSurfaceStyle.cardBackground)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(appSettings.themeSeparator(defaultOpacity: 0.18), lineWidth: 0.8)
-                        )
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 44)
-            }
-            .background(feedSourcePickerBackground)
-            .navigationTitle("Feed Source")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    ThemedToolbarDoneButton {
-                        isShowingFeedSourcePicker = false
-                    }
-                }
-            }
-            .toolbarBackground(feedSourcePickerBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-        }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-        .presentationBackground(feedSourcePickerBackground)
-    }
-
-    private func openFeedsSettingsFromFeedSourcePicker() {
-        isShowingFeedSourcePicker = false
+    private func openFeedsSettingsFromFeedSourceMenu() {
         settingsSheetState.show(.feeds)
-
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 260_000_000)
-            isShowingSettings = true
-        }
-    }
-
-    private func feedSourceOptionButton(_ source: HomePrimaryFeedSource) -> some View {
-        HStack(alignment: .center, spacing: 10) {
-            Button {
-                viewModel.selectFeedSource(source)
-                isShowingFeedSourcePicker = false
-            } label: {
-                HStack(alignment: .center, spacing: 12) {
-                    Image(systemName: feedSourceIconName(for: source))
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(appSettings.primaryColor)
-                        .frame(width: 22, alignment: .center)
-
-                    Text(feedSourceLabel(for: source))
-                        .font(appSettings.appFont(.body, weight: .medium))
-                        .foregroundStyle(appSettings.themePalette.foreground)
-                        .lineLimit(1)
-
-                    Spacer()
-
-                    if viewModel.feedSource == source {
-                        Image(systemName: "checkmark")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(appSettings.primaryColor)
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .frame(maxWidth: .infinity)
-            .buttonStyle(.plain)
-
-            if isRemovableFeedSource(source) {
-                Button {
-                    removeFeedSourceFavorite(source)
-                } label: {
-                    Image(systemName: "bookmark.slash")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(appSettings.themePalette.secondaryForeground)
-                        .frame(width: 34, height: 34)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(removeFeedSourceAccessibilityLabel(for: source))
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        isShowingSettings = true
     }
 
     private func isRemovableFeedSource(_ source: HomePrimaryFeedSource) -> Bool {
@@ -1691,16 +1568,6 @@ struct HomeFeedView: View {
         }
     }
 
-    private func removeFeedSourceAccessibilityLabel(for source: HomePrimaryFeedSource) -> String {
-        switch source {
-        case .hashtag(let hashtag):
-            return "Remove #\(HomePrimaryFeedSource.normalizeHashtag(hashtag)) from Feed Sources"
-        case .relay:
-            return "Remove \(feedSourceLabel(for: source)) from Feed Sources"
-        default:
-            return "Remove from Feed Sources"
-        }
-    }
 }
 
 private struct HomeFeedRootContent<
@@ -1782,20 +1649,12 @@ private struct HomeFeedRootContent<
 }
 
 private struct HomeFeedTopNavigationChromeView<TopNavigationBar: View>: View {
-    @EnvironmentObject private var appSettings: AppSettingsStore
-
     let safeAreaTop: CGFloat
     let topNavigationBar: () -> TopNavigationBar
 
     var body: some View {
         topNavigationBar()
             .padding(.top, safeAreaTop)
-            .background(topNavigationBarBackground)
-    }
-
-    private var topNavigationBarBackground: some View {
-        appSettings.themePalette.background
-            .ignoresSafeArea(edges: .top)
     }
 }
 
@@ -1963,13 +1822,11 @@ private struct HomeFeedNavigationDestinations: ViewModifier {
 
 private struct HomeFeedSheets: ViewModifier {
     @Binding var isShowingAuthSheet: Bool
-    @Binding var isShowingFeedSourcePicker: Bool
     @Binding var isShowingFilterSheet: Bool
     @Binding var isShowingSettings: Bool
 
     let onSettingsDismiss: () -> Void
     let authSheet: () -> AnyView
-    let feedSourcePickerSheet: () -> AnyView
     let filterSheet: () -> AnyView
     let settingsSheet: () -> AnyView
 
@@ -1977,9 +1834,6 @@ private struct HomeFeedSheets: ViewModifier {
         content
             .sheet(isPresented: $isShowingAuthSheet) {
                 authSheet()
-            }
-            .sheet(isPresented: $isShowingFeedSourcePicker) {
-                feedSourcePickerSheet()
             }
             .sheet(isPresented: $isShowingFilterSheet) {
                 filterSheet()

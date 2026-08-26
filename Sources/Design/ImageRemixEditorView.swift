@@ -186,11 +186,7 @@ struct ImageRemixEditorView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(.white.opacity(0.12), lineWidth: 1)
-                    )
+                    .haloNativeGlass(in: Capsule())
                     .padding(.top, 86)
 
                     Spacer()
@@ -236,7 +232,7 @@ struct ImageRemixEditorView: View {
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(chromePrimaryColor)
                     .frame(width: 38, height: 38)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .haloNativeGlass(interactive: true, in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close editor")
@@ -262,7 +258,7 @@ struct ImageRemixEditorView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(chromePrimaryColor)
                     .frame(width: 42, height: 42)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .haloNativeGlass(interactive: true, in: Circle())
             }
             .buttonStyle(.plain)
             .disabled(isBusy)
@@ -341,19 +337,9 @@ struct ImageRemixEditorView: View {
             .buttonStyle(.plain)
         }
         .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(postOptionsBackgroundColor)
-                .background(
-                    .ultraThinMaterial,
-                    in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-                )
+        .haloNativeGlass(
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(controlBorderColor, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.24), radius: 16, x: 0, y: 10)
     }
 
     private func postOptionRow(title: String, subtitle: String, systemImage: String) -> some View {
@@ -455,19 +441,8 @@ struct ImageRemixEditorView: View {
             }
         }
         .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(.regularMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(toolPanelTint)
-                .allowsHitTesting(false)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .stroke(toolPanelBorder, lineWidth: 1)
-                .allowsHitTesting(false)
+        .haloNativeGlass(
+            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
         )
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -943,7 +918,9 @@ struct ImageRemixEditorView: View {
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 20)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .haloNativeGlass(
+                in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+            )
         }
     }
 
@@ -1131,26 +1108,8 @@ struct ImageRemixEditorView: View {
         colorScheme == .dark ? Color.white.opacity(0.04) : Color.black.opacity(0.04)
     }
 
-    private var controlBorderColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.10)
-    }
-
     private var edgeFadeColor: Color {
         colorScheme == .dark ? Color.black.opacity(0.22) : Color.white.opacity(0.55)
-    }
-
-    private var postOptionsBackgroundColor: Color {
-        colorScheme == .dark
-            ? Color(red: 0.12, green: 0.12, blue: 0.14).opacity(0.94)
-            : Color(.systemBackground).opacity(0.94)
-    }
-
-    private var toolPanelTint: Color {
-        colorScheme == .dark ? Color.black.opacity(0.34) : Color.white.opacity(0.28)
-    }
-
-    private var toolPanelBorder: Color {
-        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.10)
     }
 
     private var progressTitle: String {

@@ -222,7 +222,7 @@ struct FollowingListView: View {
                 followStore.follow(row.pubkey)
             }
         } label: {
-            Text(title)
+            let label = Text(title)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
                 .padding(.vertical, 7)
@@ -232,20 +232,18 @@ struct FollowingListView: View {
                         ? appSettings.themePalette.foreground
                         : Color.white
                 )
-                .background(
-                    Capsule()
-                        .fill(
-                            isFollowing
-                                ? appSettings.themePalette.secondaryBackground
-                                : appSettings.primaryColor
-                        )
-                )
-                .overlay {
-                    if isFollowing {
-                        Capsule()
-                            .stroke(appSettings.themePalette.separator.opacity(0.35), lineWidth: 0.8)
-                    }
-                }
+
+            if isFollowing {
+                label
+                    .haloNativeGlass(
+                        tint: appSettings.primaryColor.opacity(0.10),
+                        interactive: true,
+                        in: Capsule()
+                    )
+            } else {
+                label
+                    .background(appSettings.primaryColor, in: Capsule())
+            }
         }
         .buttonStyle(.plain)
         .followCelebration(

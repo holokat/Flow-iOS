@@ -757,14 +757,7 @@ private struct ProfileIdentityBlock: View {
                 .foregroundStyle(appSettings.themePalette.mutedForeground)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(appSettings.themePalette.secondaryFill.opacity(0.5))
-                )
-                .overlay {
-                    Capsule(style: .continuous)
-                        .stroke(appSettings.themePalette.separator.opacity(0.45), lineWidth: 0.8)
-                }
+                .haloNativeGlass(interactive: true, in: Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("View following list")

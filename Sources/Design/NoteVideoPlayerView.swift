@@ -108,15 +108,15 @@ struct NoteVideoPlayerView: View {
     private var previewPlayAffordance: some View {
         ZStack {
             Circle()
-                .fill(.ultraThinMaterial)
+                .fill(Color.clear)
                 .frame(width: 66, height: 66)
+                .haloNativeGlass(in: Circle())
 
             Image(systemName: "play.fill")
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(.white)
                 .offset(x: 2)
         }
-        .shadow(color: .black.opacity(0.24), radius: 14, y: 6)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .transition(.opacity)
