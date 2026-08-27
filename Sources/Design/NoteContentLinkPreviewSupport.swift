@@ -167,7 +167,7 @@ struct WebsiteLinkCardView: View {
 
     private var cardBorderColor: Color {
         colorScheme == .dark
-            ? Color.white.opacity(0.05)
+            ? Color.white.opacity(0.08)
             : Color.black.opacity(0.05)
     }
 

@@ -95,7 +95,7 @@ private struct ReferencedNoteCardChromeModifier: ViewModifier {
             .overlay {
                 shape.strokeBorder(
                     colorScheme == .dark
-                        ? Color.white.opacity(0.05)
+                        ? Color.white.opacity(0.08)
                         : Color.black.opacity(0.05),
                     lineWidth: 1
                 )

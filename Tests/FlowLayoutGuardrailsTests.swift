@@ -2022,7 +2022,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
 
         XCTAssertTrue(modifierSource.contains("@Environment(\\.colorScheme) private var colorScheme"))
         XCTAssertTrue(modifierSource.contains("shape.strokeBorder("))
-        XCTAssertTrue(modifierSource.contains("Color.white.opacity(0.05)"))
+        XCTAssertTrue(modifierSource.contains("Color.white.opacity(0.08)"))
         XCTAssertTrue(modifierSource.contains("Color.black.opacity(0.05)"))
         XCTAssertFalse(modifierSource.contains(".background"))
         XCTAssertFalse(modifierSource.contains(".fill("))
@@ -2044,7 +2044,7 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
 
         XCTAssertTrue(cardSource.contains("@Environment(\\.colorScheme) private var colorScheme"))
         XCTAssertTrue(cardSource.contains("cardShape.strokeBorder(cardBorderColor, lineWidth: 1)"))
-        XCTAssertTrue(cardSource.contains("Color.white.opacity(0.05)"))
+        XCTAssertTrue(cardSource.contains("Color.white.opacity(0.08)"))
         XCTAssertTrue(cardSource.contains("Color.black.opacity(0.05)"))
         XCTAssertTrue(cardSource.contains(".contentShape(cardShape)"))
         XCTAssertFalse(cardSource.contains("let backgroundColor: Color"))
