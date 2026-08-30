@@ -2057,6 +2057,72 @@ final class ThreadDetailViewModelTests: XCTestCase {
         )
     }
 
+    func testInvalidatedSpamScoreIsRescoredWithoutRevealingReply() async {
+        let settings = AppSettingsStore.shared
+        let previousSpamReplyFilterEnabled = settings.spamReplyFilterEnabled
+        settings.spamReplyFilterEnabled = true
+        defer {
+            settings.spamReplyFilterEnabled = previousSpamReplyFilterEnabled
+        }
+
+        let rootAuthorPubkey = makeHexID(9_100)
+        let replyAuthorPubkey = makeHexID(9_101)
+        let rootEvent = makeEvent(
+            id: makeHexID(9_102),
+            pubkey: rootAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Thread root",
+            createdAt: 1_700_000_300
+        )
+        let replyEvent = makeEvent(
+            id: makeHexID(9_103),
+            pubkey: replyAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [
+                ["e", rootEvent.id, "", "root"],
+                ["e", rootEvent.id, "", "reply"]
+            ],
+            content: "Reply classified as spam",
+            createdAt: 1_700_000_301
+        )
+        let scorer = ThreadSpamTestScorer(score: 0.9)
+        let viewModel = ThreadDetailViewModel(
+            rootItem: FeedItem(event: rootEvent, profile: nil),
+            relayURL: defaultHomeRelayURL,
+            service: NostrFeedService(
+                relayClient: HomeFeedTestRelayClient(eventsByRelay: [
+                    defaultHomeRelayURL: [replyEvent]
+                ])
+            ),
+            spamScorer: scorer
+        )
+        viewModel.configureSpamFilter(
+            currentUserPubkey: rootAuthorPubkey,
+            followedPubkeys: []
+        )
+
+        await viewModel.refresh()
+        await waitForSpamScoreCallCount(1, scorer: scorer)
+        await waitForSpamReply(id: replyEvent.id, in: viewModel)
+        viewModel.toggleSpamRepliesExpanded()
+
+        await scorer.invalidateAndHoldNextScore(pubkey: replyAuthorPubkey)
+        await viewModel.refresh()
+        await waitForSpamScoreCallCount(2, scorer: scorer)
+
+        XCTAssertFalse(viewModel.replies.contains { $0.id == replyEvent.id })
+        XCTAssertTrue(viewModel.spamReplies.contains { $0.id == replyEvent.id })
+        XCTAssertTrue(viewModel.isSpamRepliesExpanded)
+
+        await scorer.releaseHeldScores()
+        await waitForPostRescoreCacheRead(scorer: scorer)
+
+        XCTAssertFalse(viewModel.replies.contains { $0.id == replyEvent.id })
+        XCTAssertTrue(viewModel.spamReplies.contains { $0.id == replyEvent.id })
+        XCTAssertTrue(viewModel.isSpamRepliesExpanded)
+    }
+
     private func waitForReply(
         id: String,
         in viewModel: ThreadDetailViewModel,
@@ -2071,10 +2137,119 @@ final class ThreadDetailViewModelTests: XCTestCase {
         }
         XCTFail("Timed out waiting for local reply to appear.", file: file, line: line)
     }
+
+    private func waitForSpamReply(
+        id: String,
+        in viewModel: ThreadDetailViewModel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<50 {
+            if viewModel.spamReplies.contains(where: { $0.id == id }) {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTFail("Timed out waiting for the reply to enter the spam bucket.", file: file, line: line)
+    }
+
+    private func waitForSpamScoreCallCount(
+        _ expectedCount: Int,
+        scorer: ThreadSpamTestScorer,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<50 {
+            if await scorer.scoreCallCount() >= expectedCount {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTFail("Timed out waiting for spam rescoring.", file: file, line: line)
+    }
+
+    private func waitForPostRescoreCacheRead(
+        scorer: ThreadSpamTestScorer,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<50 {
+            if await scorer.cachedScoreHitCount() > 0 {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTFail("Timed out waiting for the post-rescore bucket rebuild.", file: file, line: line)
+    }
 }
 
 private let defaultHomeRelayURL = URL(string: "wss://relay.example.com")!
 private let secondaryHomeRelayURL = URL(string: "wss://relay-two.example.com")!
+
+private actor ThreadSpamTestScorer: NSpamAuthorScoring {
+    private let score: Float
+    private var cachedScores: [String: Float] = [:]
+    private var callCount = 0
+    private var cacheHitCount = 0
+    private var shouldHoldNextScore = false
+    private var heldScoreContinuations: [CheckedContinuation<Void, Never>] = []
+
+    init(score: Float) {
+        self.score = score
+    }
+
+    func cachedScore(
+        for pubkey: String,
+        markedSpamPubkeys: [String],
+        notSpamPubkeys: [String]
+    ) async -> Float? {
+        guard let score = cachedScores[normalized(pubkey)] else { return nil }
+        cacheHitCount += 1
+        return score
+    }
+
+    func scoreAuthor(
+        pubkey: String,
+        markedSpamPubkeys: [String],
+        notSpamPubkeys: [String],
+        seedNotes: [NSpamNoteInput]
+    ) async -> Float? {
+        callCount += 1
+        if shouldHoldNextScore {
+            shouldHoldNextScore = false
+            await withCheckedContinuation { continuation in
+                heldScoreContinuations.append(continuation)
+            }
+        }
+
+        cachedScores[normalized(pubkey)] = score
+        return score
+    }
+
+    func invalidateAndHoldNextScore(pubkey: String) {
+        cachedScores[normalized(pubkey)] = nil
+        cacheHitCount = 0
+        shouldHoldNextScore = true
+    }
+
+    func releaseHeldScores() {
+        let continuations = heldScoreContinuations
+        heldScoreContinuations = []
+        continuations.forEach { $0.resume() }
+    }
+
+    func scoreCallCount() -> Int {
+        callCount
+    }
+
+    func cachedScoreHitCount() -> Int {
+        cacheHitCount
+    }
+
+    private func normalized(_ pubkey: String) -> String {
+        pubkey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
 
 private actor HomeFeedTestRelayClient: NostrRelayEventFetching {
     private var eventsByRelay: [String: [Flow.NostrEvent]]

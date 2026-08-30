@@ -2,6 +2,11 @@ import Foundation
 
 @MainActor
 final class ThreadDetailViewModel: ObservableObject {
+    private struct SpamScoreTaskState {
+        let token: UUID
+        let task: Task<Void, Never>
+    }
+
     @Published private(set) var rootItem: FeedItem
     @Published private(set) var replies: [FeedItem] = []
     @Published private(set) var spamReplies: [FeedItem] = []
@@ -16,14 +21,15 @@ final class ThreadDetailViewModel: ObservableObject {
     let readRelayURLs: [URL]
 
     private let service: NostrFeedService
+    private let spamScorer: any NSpamAuthorScoring
     private var hasLoadedInitialState = false
     private var hasLoadedNoteActivityState = false
     private var rootHydrationTask: Task<Void, Never>?
     private var itemHydrationTask: Task<Void, Never>?
     private var replyRefreshTask: Task<Void, Never>?
     private var noteActivityRefreshTask: Task<Void, Never>?
-    private var spamScoreTasks: [String: Task<Void, Never>] = [:]
-    private var spamScoreAttemptedPubkeys = Set<String>()
+    private var spamScoreTasks: [String: SpamScoreTaskState] = [:]
+    private var replyBucketRevision: UInt64 = 0
     private var rawReplies: [FeedItem] = []
     private var spamFilterCurrentUserPubkey: String?
     private var spamFilterFollowedPubkeys = Set<String>()
@@ -40,13 +46,15 @@ final class ThreadDetailViewModel: ObservableObject {
         rootItem: FeedItem,
         relayURL: URL,
         readRelayURLs: [URL]? = nil,
-        service: NostrFeedService = NostrFeedService()
+        service: NostrFeedService = NostrFeedService(),
+        spamScorer: any NSpamAuthorScoring = NSpamAuthorScorer.shared
     ) {
         self.rootItem = rootItem
         let normalizedReadRelays = Self.normalizedRelayURLs(readRelayURLs ?? [relayURL])
         self.readRelayURLs = normalizedReadRelays.isEmpty ? [relayURL] : normalizedReadRelays
         self.relayURL = self.readRelayURLs.first ?? relayURL
         self.service = service
+        self.spamScorer = spamScorer
     }
 
     deinit {
@@ -54,7 +62,7 @@ final class ThreadDetailViewModel: ObservableObject {
         itemHydrationTask?.cancel()
         replyRefreshTask?.cancel()
         noteActivityRefreshTask?.cancel()
-        spamScoreTasks.values.forEach { $0.cancel() }
+        spamScoreTasks.values.forEach { $0.task.cancel() }
     }
 
     var repliesHeaderText: String {
@@ -102,18 +110,13 @@ final class ThreadDetailViewModel: ObservableObject {
 
         spamFilterCurrentUserPubkey = normalizedUser
         spamFilterFollowedPubkeys = normalizedFollowed
-        Task { [weak self] in
-            await self?.rebuildReplyBuckets()
-        }
+        scheduleReplyBucketRebuild()
     }
 
     func spamPreferencesChanged() {
-        spamScoreTasks.values.forEach { $0.cancel() }
+        spamScoreTasks.values.forEach { $0.task.cancel() }
         spamScoreTasks = [:]
-        spamScoreAttemptedPubkeys = []
-        Task { [weak self] in
-            await self?.rebuildReplyBuckets()
-        }
+        scheduleReplyBucketRebuild()
     }
 
     func toggleSpamRepliesExpanded() {
@@ -122,9 +125,7 @@ final class ThreadDetailViewModel: ObservableObject {
 
     func markSpamReplyAuthorAsNotSpam(_ pubkey: String) {
         AppSettingsStore.shared.addSpamReplySafelistedPubkey(pubkey)
-        Task { [weak self] in
-            await self?.rebuildReplyBuckets()
-        }
+        scheduleReplyBucketRebuild()
     }
 
     func refresh(includeNoteActivity: Bool = false) async {
@@ -153,7 +154,7 @@ final class ThreadDetailViewModel: ObservableObject {
                 relayFetchMode: Self.fastThreadRelayFetchMode,
                 moderationSnapshot: muteFilterSnapshot
             ))
-            await rebuildReplyBuckets()
+            await rebuildReplyBucketsNow()
             scheduleItemHydration(for: rawReplies)
         } catch {
             if replies.isEmpty {
@@ -208,9 +209,7 @@ final class ThreadDetailViewModel: ObservableObject {
         LocalPublicationStore.shared.registerPublishing(item: item)
         rawReplies.append(item)
         rawReplies = Self.sortedReplies(rawReplies)
-        Task { [weak self] in
-            await self?.rebuildReplyBuckets()
-        }
+        scheduleReplyBucketRebuild()
     }
 
     private func scheduleRootHydration() {
@@ -290,9 +289,7 @@ final class ThreadDetailViewModel: ObservableObject {
                     guard !visibleReplies.isEmpty || self.rawReplies.isEmpty else { return }
                     self.errorMessage = nil
                     self.rawReplies = visibleReplies
-                    Task { [weak self] in
-                        await self?.rebuildReplyBuckets()
-                    }
+                    self.scheduleReplyBucketRebuild()
                     self.scheduleItemHydration(for: visibleReplies)
                 }
             } catch {
@@ -359,9 +356,7 @@ final class ThreadDetailViewModel: ObservableObject {
             byID[item.id.lowercased()] = item
         }
         rawReplies = pruneMutedItems(Self.sortedReplies(Array(byID.values)))
-        Task { [weak self] in
-            await self?.rebuildReplyBuckets()
-        }
+        scheduleReplyBucketRebuild()
     }
 
     private func mergeWithLocalPublicationReplies(
@@ -392,11 +387,25 @@ final class ThreadDetailViewModel: ObservableObject {
         .map(\.item)
     }
 
-    private func rebuildReplyBuckets() async {
+    private func scheduleReplyBucketRebuild() {
+        replyBucketRevision &+= 1
+        let currentRevision = replyBucketRevision
+
+        Task { [weak self] in
+            await self?.rebuildReplyBuckets(revision: currentRevision)
+        }
+    }
+
+    private func rebuildReplyBucketsNow() async {
+        replyBucketRevision &+= 1
+        let currentRevision = replyBucketRevision
+        await rebuildReplyBuckets(revision: currentRevision)
+    }
+
+    private func rebuildReplyBuckets(revision currentRevision: UInt64) async {
         let allReplies = Self.sortedReplies(rawReplies)
         guard !allReplies.isEmpty else {
-            replies = []
-            spamReplies = []
+            commitReplyBuckets(visible: [], hidden: [], revision: currentRevision)
             return
         }
 
@@ -419,19 +428,20 @@ final class ThreadDetailViewModel: ObservableObject {
             }
 
             if !settings.spamReplyFilterEnabled {
-                replies = visibleReplies
-                spamReplies = hiddenReplies
+                commitReplyBuckets(
+                    visible: visibleReplies,
+                    hidden: hiddenReplies,
+                    revision: currentRevision
+                )
                 return
             }
         } else if !settings.spamReplyFilterEnabled {
-            replies = allReplies
-            spamReplies = []
+            commitReplyBuckets(visible: allReplies, hidden: [], revision: currentRevision)
             return
         }
 
         guard settings.spamReplyFilterEnabled else {
-            replies = allReplies
-            spamReplies = []
+            commitReplyBuckets(visible: allReplies, hidden: [], revision: currentRevision)
             return
         }
 
@@ -454,36 +464,50 @@ final class ThreadDetailViewModel: ObservableObject {
                 continue
             }
 
-            if let score = await NSpamAuthorScorer.shared.cachedScore(
+            let cachedScore = await spamScorer.cachedScore(
                 for: pubkey,
                 markedSpamPubkeys: markedSpamPubkeys,
                 notSpamPubkeys: notSpamPubkeys
-            ) {
+            )
+            guard currentRevision == replyBucketRevision else { return }
+
+            if let score = cachedScore {
                 if score >= Self.spamThreshold {
                     hiddenReplies.append(item)
                 } else {
                     visibleReplies.append(item)
                 }
             } else {
-                if spamScoreTasks[pubkey] != nil || !spamScoreAttemptedPubkeys.contains(pubkey) {
-                    hiddenReplies.append(item)
-                    if !spamScoreAttemptedPubkeys.contains(pubkey) {
-                        seedNotesByPubkey[pubkey, default: []].append(Self.spamNoteInput(for: item))
-                    }
-                } else {
-                    visibleReplies.append(item)
+                hiddenReplies.append(item)
+                if spamScoreTasks[pubkey] == nil {
+                    seedNotesByPubkey[pubkey, default: []].append(Self.spamNoteInput(for: item))
                 }
             }
         }
 
-        replies = visibleReplies
-        spamReplies = hiddenReplies
-
-        if hiddenReplies.isEmpty, isSpamRepliesExpanded {
-            isSpamRepliesExpanded = false
-        }
+        guard commitReplyBuckets(
+            visible: visibleReplies,
+            hidden: hiddenReplies,
+            revision: currentRevision
+        ) else { return }
 
         scheduleSpamScoring(seedNotesByPubkey: seedNotesByPubkey)
+    }
+
+    @discardableResult
+    private func commitReplyBuckets(
+        visible: [FeedItem],
+        hidden: [FeedItem],
+        revision: UInt64
+    ) -> Bool {
+        guard revision == replyBucketRevision else { return false }
+
+        replies = visible
+        spamReplies = hidden
+        if hidden.isEmpty, isSpamRepliesExpanded {
+            isSpamRepliesExpanded = false
+        }
+        return true
     }
 
     private func isLocallyPublished(_ item: FeedItem) -> Bool {
@@ -513,23 +537,25 @@ final class ThreadDetailViewModel: ObservableObject {
         let notSpamPubkeys = settings.spamReplyFilterSafelistedPubkeys
         for (pubkey, seedNotes) in seedNotesByPubkey where !pubkey.isEmpty {
             guard spamScoreTasks[pubkey] == nil else { continue }
-            spamScoreAttemptedPubkeys.insert(pubkey)
+            let token = UUID()
+            let spamScorer = self.spamScorer
             let task = Task { [weak self] in
-                _ = await NSpamAuthorScorer.shared.scoreAuthor(
+                let score = await spamScorer.scoreAuthor(
                     pubkey: pubkey,
                     markedSpamPubkeys: markedSpamPubkeys,
                     notSpamPubkeys: notSpamPubkeys,
                     seedNotes: seedNotes
                 )
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard let self else { return }
+                    guard self.spamScoreTasks[pubkey]?.token == token else { return }
                     self.spamScoreTasks[pubkey] = nil
-                    Task { [weak self] in
-                        await self?.rebuildReplyBuckets()
-                    }
+                    guard score != nil else { return }
+                    self.scheduleReplyBucketRebuild()
                 }
             }
-            spamScoreTasks[pubkey] = task
+            spamScoreTasks[pubkey] = SpamScoreTaskState(token: token, task: task)
         }
     }
 

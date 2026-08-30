@@ -6,6 +6,21 @@ struct NSpamNoteInput: Sendable {
     let createdAt: Int
 }
 
+protocol NSpamAuthorScoring: Sendable {
+    func cachedScore(
+        for pubkey: String,
+        markedSpamPubkeys: [String],
+        notSpamPubkeys: [String]
+    ) async -> Float?
+
+    func scoreAuthor(
+        pubkey: String,
+        markedSpamPubkeys: [String],
+        notSpamPubkeys: [String],
+        seedNotes: [NSpamNoteInput]
+    ) async -> Float?
+}
+
 extension NSpamNoteInput {
     init(event: NostrEvent) {
         self.init(
@@ -667,15 +682,20 @@ private enum NSpamLocalPersonalizer {
 }
 
 actor NSpamAuthorCache {
-    private struct Entry {
-        let score: Float
-        let noteCount: Int
+    private struct Key: Hashable {
+        let pubkey: String
         let personalizationSignature: String
     }
 
+    private struct Entry {
+        let score: Float
+        let noteCount: Int
+        let scoringRevision: UInt64
+    }
+
     private let maxEntries: Int
-    private var entries: [String: Entry] = [:]
-    private var order: [String] = []
+    private var entries: [Key: Entry] = [:]
+    private var order: [Key] = []
     private static let rescoreThreshold = 5
 
     init(maxEntries: Int = 2_000) {
@@ -687,33 +707,52 @@ actor NSpamAuthorCache {
         currentNoteCount: Int,
         personalizationSignature: String
     ) -> Float? {
-        guard let entry = entries[pubkey] else { return nil }
-        guard entry.personalizationSignature == personalizationSignature else { return nil }
+        let key = Key(pubkey: pubkey, personalizationSignature: personalizationSignature)
+        guard let entry = entries[key] else { return nil }
         if entry.noteCount < Self.rescoreThreshold, currentNoteCount >= Self.rescoreThreshold {
             return nil
         }
-        touch(pubkey)
+        touch(key)
         return entry.score
     }
 
+    @discardableResult
     func put(
         pubkey: String,
         score: Float,
         noteCount: Int,
-        personalizationSignature: String
-    ) {
-        entries[pubkey] = Entry(
+        personalizationSignature: String,
+        scoringRevision: UInt64 = 0
+    ) -> Bool {
+        guard !Task.isCancelled else { return false }
+        let key = Key(pubkey: pubkey, personalizationSignature: personalizationSignature)
+        if let existing = entries[key], existing.scoringRevision > scoringRevision {
+            return false
+        }
+        entries[key] = Entry(
             score: score,
             noteCount: noteCount,
-            personalizationSignature: personalizationSignature
+            scoringRevision: scoringRevision
         )
-        touch(pubkey)
+        touch(key)
         trimIfNeeded()
+        return true
     }
 
-    private func touch(_ pubkey: String) {
-        order.removeAll { $0 == pubkey }
-        order.append(pubkey)
+    func remove(
+        pubkey: String,
+        personalizationSignature: String,
+        scoringRevision: UInt64
+    ) {
+        let key = Key(pubkey: pubkey, personalizationSignature: personalizationSignature)
+        guard entries[key]?.scoringRevision == scoringRevision else { return }
+        entries.removeValue(forKey: key)
+        order.removeAll { $0 == key }
+    }
+
+    private func touch(_ key: Key) {
+        order.removeAll { $0 == key }
+        order.append(key)
     }
 
     private func trimIfNeeded() {
@@ -724,12 +763,13 @@ actor NSpamAuthorCache {
     }
 }
 
-actor NSpamAuthorScorer {
+actor NSpamAuthorScorer: NSpamAuthorScoring {
     static let shared = NSpamAuthorScorer()
 
     private let cache = NSpamAuthorCache()
     private var classifier: NSpamClassifier?
     private var didAttemptClassifierLoad = false
+    private var scoringRevision: UInt64 = 0
     private static let scorableKinds = [1, 1111, 1244]
     private static let maxCachedNotesPerAuthor = 10
 
@@ -765,48 +805,107 @@ actor NSpamAuthorScorer {
             markedSpamPubkeys: markedSpamPubkeys,
             notSpamPubkeys: notSpamPubkeys
         )
-        if let exactScore = labels.exactScore(for: normalized) {
-            await cache.put(
-                pubkey: normalized,
-                score: exactScore,
-                noteCount: 0,
-                personalizationSignature: labels.signature
+        scoringRevision &+= 1
+        let currentScoringRevision = scoringRevision
+        let personalizationSignature = labels.signature
+        let cache = self.cache
+
+        return await withTaskCancellationHandler {
+            await scoreAuthor(
+                normalizedPubkey: normalized,
+                labels: labels,
+                seedNotes: seedNotes,
+                scoringRevision: currentScoringRevision
             )
-            return exactScore
+        } onCancel: {
+            Task {
+                await cache.remove(
+                    pubkey: normalized,
+                    personalizationSignature: personalizationSignature,
+                    scoringRevision: currentScoringRevision
+                )
+            }
         }
-        let cachedNotes = await cachedNoteInputs(for: normalized)
+    }
+
+    private func scoreAuthor(
+        normalizedPubkey: String,
+        labels: NSpamPersonalizationLabels,
+        seedNotes: [NSpamNoteInput],
+        scoringRevision: UInt64
+    ) async -> Float? {
+        guard !Task.isCancelled else { return nil }
+        if let exactScore = labels.exactScore(for: normalizedPubkey) {
+            return await cacheScore(
+                exactScore,
+                pubkey: normalizedPubkey,
+                noteCount: 0,
+                personalizationSignature: labels.signature,
+                scoringRevision: scoringRevision
+            )
+        }
+        let cachedNotes = await cachedNoteInputs(for: normalizedPubkey)
+        guard !Task.isCancelled else { return nil }
         let notes = mergedNoteInputs(seedNotes: seedNotes, cachedNotes: cachedNotes)
         guard !notes.isEmpty, let classifier = classifierIfAvailable() else {
-            await cache.put(
-                pubkey: normalized,
-                score: 0,
+            return await cacheScore(
+                0,
+                pubkey: normalizedPubkey,
                 noteCount: notes.count,
-                personalizationSignature: labels.signature
+                personalizationSignature: labels.signature,
+                scoringRevision: scoringRevision
             )
-            return 0
         }
         guard let score = classifier.score(notes: notes) else {
-            await cache.put(
-                pubkey: normalized,
-                score: 0,
+            return await cacheScore(
+                0,
+                pubkey: normalizedPubkey,
                 noteCount: notes.count,
-                personalizationSignature: labels.signature
+                personalizationSignature: labels.signature,
+                scoringRevision: scoringRevision
             )
-            return 0
         }
         let adjustedScore = await personalizedScore(
             baseScore: score,
-            candidatePubkey: normalized,
+            candidatePubkey: normalizedPubkey,
             candidateNotes: notes,
             labels: labels
         )
-        await cache.put(
-            pubkey: normalized,
-            score: adjustedScore,
+        guard !Task.isCancelled else { return nil }
+        return await cacheScore(
+            adjustedScore,
+            pubkey: normalizedPubkey,
             noteCount: notes.count,
-            personalizationSignature: labels.signature
+            personalizationSignature: labels.signature,
+            scoringRevision: scoringRevision
         )
-        return adjustedScore
+    }
+
+    private func cacheScore(
+        _ score: Float,
+        pubkey: String,
+        noteCount: Int,
+        personalizationSignature: String,
+        scoringRevision: UInt64
+    ) async -> Float? {
+        guard !Task.isCancelled else { return nil }
+        let didCache = await cache.put(
+            pubkey: pubkey,
+            score: score,
+            noteCount: noteCount,
+            personalizationSignature: personalizationSignature,
+            scoringRevision: scoringRevision
+        )
+        guard didCache else { return nil }
+        guard !Task.isCancelled else {
+            await cache.remove(
+                pubkey: pubkey,
+                personalizationSignature: personalizationSignature,
+                scoringRevision: scoringRevision
+            )
+            return nil
+        }
+        return score
     }
 
     func cachedNoteCountForTesting(pubkey: String) async -> Int {
