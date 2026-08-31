@@ -7,6 +7,8 @@ actor SeenEventStore: SeenEventStoring {
     private var eventsByID: [String: NostrEvent] = [:]
     private var recency: [String] = []
     private var recentFeedEventIDsByKey: [String: [String]] = [:]
+    private var relayObservationsByEventID: [String: [String: EventRelayObservation]] = [:]
+    private static let maxRelayObservationsPerEvent = 32
 
     init(
         fileManager: FileManager = .default,
@@ -107,6 +109,56 @@ actor SeenEventStore: SeenEventStoring {
         return Array(filtered.prefix(max(limit, 0)))
     }
 
+    func recordRelayObservation(
+        relayURL: URL,
+        events: [NostrEvent],
+        observedAt: Date = Date()
+    ) async {
+        guard !events.isEmpty,
+              let normalizedRelayURL = RelayURLSupport.normalizedURL(from: relayURL.absoluteString) else {
+            return
+        }
+        let relayKey = normalizedRelayURL.absoluteString.lowercased()
+
+        for event in events {
+            let eventID = normalizeEventID(event.id)
+            guard !eventID.isEmpty, eventsByID[eventID] != nil else { continue }
+
+            var observations = relayObservationsByEventID[eventID] ?? [:]
+            let firstSeenAt = observations[relayKey]?.firstSeenAt ?? observedAt
+            observations[relayKey] = EventRelayObservation(
+                relayURL: normalizedRelayURL,
+                firstSeenAt: min(firstSeenAt, observedAt),
+                lastSeenAt: max(observations[relayKey]?.lastSeenAt ?? observedAt, observedAt)
+            )
+            if observations.count > Self.maxRelayObservationsPerEvent {
+                let retainedKeys = Set(
+                    observations
+                        .sorted { lhs, rhs in
+                            if lhs.value.lastSeenAt == rhs.value.lastSeenAt {
+                                return lhs.key < rhs.key
+                            }
+                            return lhs.value.lastSeenAt > rhs.value.lastSeenAt
+                        }
+                        .prefix(Self.maxRelayObservationsPerEvent)
+                        .map(\.key)
+                )
+                observations = observations.filter { retainedKeys.contains($0.key) }
+            }
+            relayObservationsByEventID[eventID] = observations
+        }
+    }
+
+    func relayObservations(eventID: String) async -> [EventRelayObservation] {
+        let normalizedID = normalizeEventID(eventID)
+        guard !normalizedID.isEmpty else { return [] }
+        return (relayObservationsByEventID[normalizedID] ?? [:])
+            .values
+            .sorted { lhs, rhs in
+                lhs.relayURL.absoluteString.lowercased() < rhs.relayURL.absoluteString.lowercased()
+            }
+    }
+
     private func storeEvent(_ event: NostrEvent, normalizedID: String? = nil) {
         let resolvedID = normalizedID ?? normalizeEventID(event.id)
         guard !resolvedID.isEmpty else { return }
@@ -124,6 +176,7 @@ actor SeenEventStore: SeenEventStoring {
         while recency.count > maxStoredEvents {
             let oldestID = recency.removeFirst()
             eventsByID.removeValue(forKey: oldestID)
+            relayObservationsByEventID.removeValue(forKey: oldestID)
             for key in recentFeedEventIDsByKey.keys {
                 recentFeedEventIDsByKey[key]?.removeAll { $0 == oldestID }
                 if recentFeedEventIDsByKey[key]?.isEmpty == true {

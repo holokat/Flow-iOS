@@ -26,11 +26,20 @@ struct RelayTimelineFetcher: Sendable {
     ) async throws -> [NostrEvent] {
         let events: [NostrEvent]
         let fetchOperation = {
-            try await fetchEventsEnforcingTimeout(
+            let fetchedEvents = try await fetchEventsEnforcingTimeout(
                 relayURL: relayURL,
                 filter: filter,
                 timeout: timeout
             )
+            if !fetchedEvents.isEmpty {
+                await seenEventStore.store(events: fetchedEvents)
+                await seenEventStore.recordRelayObservation(
+                    relayURL: relayURL,
+                    events: fetchedEvents,
+                    observedAt: Date()
+                )
+            }
+            return fetchedEvents
         }
         if !useCache {
             events = try await fetchOperation()

@@ -3,6 +3,63 @@ import NostrSDK
 @testable import Flow
 
 final class NostrFeedServiceTests: XCTestCase {
+    func testThreadFetchRecordsOnlyRelaysThatReturnedTheEventWithoutRefreshingOnCacheHit() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FlowRelayProvenance-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let rootEventID = hex("0")
+        let reply = makeEvent(
+            id: hex("1"),
+            pubkey: hex("a"),
+            kind: 1,
+            tags: [["e", rootEventID, "", "root"]],
+            content: "Reply observed on one relay"
+        )
+        let seenEventStore = SeenEventStore(fileManager: TestFileManager(rootURL: rootURL))
+        let relayClient = DelayedRelayClient(
+            eventsByRelay: [relayURL: [reply], relayURL2: []],
+            delaysByRelay: [:]
+        )
+        let service = makeFeedService(
+            relayClient: relayClient,
+            fileManager: TestFileManager(rootURL: rootURL),
+            seenEventStore: seenEventStore,
+            presentationCache: FeedPresentationCache()
+        )
+
+        let replies = try await service.fetchThreadReplies(
+            relayURLs: [relayURL, relayURL2],
+            rootEventID: rootEventID,
+            includeNestedReplies: false,
+            hydrationMode: .cachedProfilesOnly,
+            fetchTimeout: 1,
+            relayFetchMode: .allRelays
+        )
+        let observations = await seenEventStore.relayObservations(eventID: reply.id)
+        let fetchCountAfterRelayRead = await relayClient.fetchCount()
+
+        XCTAssertEqual(replies.map(\.id), [reply.id])
+        XCTAssertEqual(observations.map(\.relayURL.absoluteString), ["wss://relay.example.com/"])
+        XCTAssertEqual(fetchCountAfterRelayRead, 2)
+
+        try await Task.sleep(nanoseconds: 20_000_000)
+        _ = try await service.fetchThreadReplies(
+            relayURLs: [relayURL, relayURL2],
+            rootEventID: rootEventID,
+            includeNestedReplies: false,
+            hydrationMode: .cachedProfilesOnly,
+            fetchTimeout: 1,
+            relayFetchMode: .allRelays
+        )
+        let observationsAfterCacheHit = await seenEventStore.relayObservations(eventID: reply.id)
+        let fetchCountAfterCacheHit = await relayClient.fetchCount()
+
+        XCTAssertEqual(fetchCountAfterCacheHit, 2)
+        XCTAssertEqual(observationsAfterCacheHit, observations)
+    }
+
     func testRelayHashtagQueryValuesCoverCommonCaseVariantsWithoutDuplicates() {
         XCTAssertEqual(
             NostrEvent.relayHashtagQueryValues("#nOstrArmyKnife"),

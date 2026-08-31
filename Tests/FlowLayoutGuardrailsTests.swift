@@ -28,23 +28,53 @@ final class UserFacingCopyTests: XCTestCase {
 }
 
 final class NoteClipboardContentTests: XCTestCase {
-    func testRawContentPreservesWhitespaceLineEndingsAndMediaURL() {
-        let rawContent = "\nTest\r\nhttps://media.21media.to/image.jpg  \n"
+    func testRawContentCopiesSignedEventAndRelayObservationsAsJSON() throws {
+        let rawContent = "\nTest \u{1F30A}\r\nhttps://media.21media.to/image.jpg  \n"
         let event = NostrEvent(
             id: String(repeating: "1", count: 64),
             pubkey: String(repeating: "a", count: 64),
             createdAt: 1_700_000_000,
             kind: 1,
-            tags: [],
+            tags: [["e", String(repeating: "2", count: 64), "", "reply"]],
             content: rawContent,
             sig: String(repeating: "f", count: 128)
         )
+        let firstSeenAt = Date(timeIntervalSince1970: 1_700_000_010)
+        let lastSeenAt = Date(timeIntervalSince1970: 1_700_000_020)
+        let observations = [
+            EventRelayObservation(
+                relayURL: try XCTUnwrap(URL(string: "wss://relay.example.com/")),
+                firstSeenAt: firstSeenAt,
+                lastSeenAt: lastSeenAt
+            )
+        ]
 
-        XCTAssertEqual(NoteClipboardContent.rawContent(for: event), rawContent)
+        let rawJSON = try XCTUnwrap(
+            NoteClipboardContent.rawContent(for: event, relayObservations: observations)
+        )
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(rawJSON.utf8)) as? [String: Any]
+        )
+        let copiedEvent = try XCTUnwrap(root["event"] as? [String: Any])
+        let copiedTags = try XCTUnwrap(copiedEvent["tags"] as? [[String]])
+        let copiedObservations = try XCTUnwrap(root["relay_observations"] as? [[String: Any]])
+
+        XCTAssertEqual(copiedEvent["id"] as? String, event.id)
+        XCTAssertEqual(copiedEvent["pubkey"] as? String, event.pubkey)
+        XCTAssertEqual(copiedEvent["created_at"] as? Int, event.createdAt)
+        XCTAssertEqual(copiedEvent["kind"] as? Int, event.kind)
+        XCTAssertEqual(copiedTags, event.tags)
+        XCTAssertEqual(copiedEvent["content"] as? String, rawContent)
+        XCTAssertEqual(copiedEvent["sig"] as? String, event.sig)
+        XCTAssertEqual(copiedObservations.count, 1)
+        XCTAssertEqual(root["relay_observation_status"] as? String, "observed")
+        XCTAssertEqual(copiedObservations[0]["relay_url"] as? String, "wss://relay.example.com/")
+        XCTAssertNotNil(copiedObservations[0]["first_seen_at"] as? String)
+        XCTAssertNotNil(copiedObservations[0]["last_seen_at"] as? String)
         XCTAssertTrue(NoteClipboardContent.canCopyRawContent(from: event))
     }
 
-    func testEmptyRawContentCannotBeCopied() {
+    func testEmptyContentEventStillCopiesFullRawEventWithoutInventingRelayOrigins() throws {
         let event = NostrEvent(
             id: String(repeating: "2", count: 64),
             pubkey: String(repeating: "b", count: 64),
@@ -55,7 +85,68 @@ final class NoteClipboardContentTests: XCTestCase {
             sig: String(repeating: "e", count: 128)
         )
 
-        XCTAssertFalse(NoteClipboardContent.canCopyRawContent(from: event))
+        XCTAssertTrue(NoteClipboardContent.canCopyRawContent(from: event))
+        let rawJSON = try XCTUnwrap(NoteClipboardContent.rawContent(for: event))
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(rawJSON.utf8)) as? [String: Any]
+        )
+        let copiedEvent = try XCTUnwrap(root["event"] as? [String: Any])
+        XCTAssertEqual(copiedEvent["content"] as? String, "")
+        XCTAssertEqual(root["relay_observation_status"] as? String, "unavailable")
+        XCTAssertEqual((root["relay_observations"] as? [[String: Any]])?.count, 0)
+    }
+
+    @MainActor
+    func testDeferredRawCopyCannotOverwriteANewerClipboardAction() {
+        let originalClipboardValue = UIPasteboard.general.string
+        defer { UIPasteboard.general.string = originalClipboardValue }
+
+        let rawCopyGeneration = NoteClipboardWriter.beginDeferredCopy()
+        NoteClipboardWriter.copy("newer event ID")
+
+        XCTAssertFalse(
+            NoteClipboardWriter.completeDeferredCopy(
+                "older raw event JSON",
+                generation: rawCopyGeneration
+            )
+        )
+        XCTAssertEqual(UIPasteboard.general.string, "newer event ID")
+    }
+
+    func testRelayObservationsAreNormalizedDeduplicatedAndTimestamped() async throws {
+        let store = SeenEventStore()
+        let event = NostrEvent(
+            id: String(repeating: "3", count: 64),
+            pubkey: String(repeating: "c", count: 64),
+            createdAt: 1_700_000_000,
+            kind: 1,
+            tags: [],
+            content: "Observed event",
+            sig: String(repeating: "d", count: 128)
+        )
+        let relayURL = try XCTUnwrap(URL(string: "wss://relay.example.com"))
+        let firstSeenAt = Date(timeIntervalSince1970: 1_700_000_010)
+        let lastSeenAt = Date(timeIntervalSince1970: 1_700_000_020)
+
+        let initialObservations = await store.relayObservations(eventID: event.id)
+        XCTAssertEqual(initialObservations, [])
+        await store.store(events: [event])
+        await store.recordRelayObservation(
+            relayURL: relayURL,
+            events: [event],
+            observedAt: lastSeenAt
+        )
+        await store.recordRelayObservation(
+            relayURL: relayURL,
+            events: [event],
+            observedAt: firstSeenAt
+        )
+
+        let observations = await store.relayObservations(eventID: event.id)
+        XCTAssertEqual(observations.count, 1)
+        XCTAssertEqual(observations[0].relayURL.absoluteString, "wss://relay.example.com/")
+        XCTAssertEqual(observations[0].firstSeenAt, firstSeenAt)
+        XCTAssertEqual(observations[0].lastSeenAt, lastSeenAt)
     }
 }
 

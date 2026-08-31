@@ -2123,6 +2123,142 @@ final class ThreadDetailViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isSpamRepliesExpanded)
     }
 
+    func testNeverScoredReplyRemainsHiddenUntilFirstScoreResolves() async {
+        let settings = AppSettingsStore.shared
+        let previousSpamReplyFilterEnabled = settings.spamReplyFilterEnabled
+        settings.spamReplyFilterEnabled = true
+        defer {
+            settings.spamReplyFilterEnabled = previousSpamReplyFilterEnabled
+        }
+
+        let rootAuthorPubkey = makeHexID(9_150)
+        let replyAuthorPubkey = makeHexID(9_151)
+        let rootEvent = makeEvent(
+            id: makeHexID(9_152),
+            pubkey: rootAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Thread root",
+            createdAt: 1_700_000_350
+        )
+        let replyEvent = makeEvent(
+            id: makeHexID(9_153),
+            pubkey: replyAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [["e", rootEvent.id, "", "root"]],
+            content: "Reply awaiting its first spam score",
+            createdAt: 1_700_000_351
+        )
+        let scorer = ThreadSpamTestScorer(score: 0.1)
+        await scorer.invalidateAndHoldNextScore(pubkey: replyAuthorPubkey)
+        let viewModel = ThreadDetailViewModel(
+            rootItem: FeedItem(event: rootEvent, profile: nil),
+            relayURL: defaultHomeRelayURL,
+            service: NostrFeedService(
+                relayClient: HomeFeedTestRelayClient(eventsByRelay: [
+                    defaultHomeRelayURL: [replyEvent]
+                ])
+            ),
+            spamScorer: scorer
+        )
+        viewModel.configureSpamFilter(
+            currentUserPubkey: rootAuthorPubkey,
+            followedPubkeys: []
+        )
+
+        await viewModel.refresh()
+        await waitForSpamScoreCallCount(1, scorer: scorer)
+
+        XCTAssertFalse(viewModel.replies.contains { $0.id == replyEvent.id })
+        XCTAssertTrue(viewModel.spamReplies.contains { $0.id == replyEvent.id })
+
+        await scorer.releaseHeldScores()
+        await waitForPostRescoreCacheRead(scorer: scorer)
+
+        XCTAssertTrue(viewModel.replies.contains { $0.id == replyEvent.id })
+        XCTAssertFalse(viewModel.spamReplies.contains { $0.id == replyEvent.id })
+    }
+
+    func testSpamPreferenceChangeDoesNotSpeculativelyHidePreviouslyVisibleReply() async {
+        let settings = AppSettingsStore.shared
+        let previousSpamReplyFilterEnabled = settings.spamReplyFilterEnabled
+        let rootAuthorPubkey = makeHexID(9_200)
+        let visibleAuthorPubkey = makeHexID(9_201)
+        let markedAuthorPubkey = makeHexID(9_202)
+        settings.spamReplyFilterEnabled = true
+        settings.removeSpamFilterMarkedPubkey(markedAuthorPubkey)
+        defer {
+            settings.removeSpamFilterMarkedPubkey(markedAuthorPubkey)
+            settings.spamReplyFilterEnabled = previousSpamReplyFilterEnabled
+        }
+
+        let rootEvent = makeEvent(
+            id: makeHexID(9_203),
+            pubkey: rootAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [],
+            content: "Thread root",
+            createdAt: 1_700_000_400
+        )
+        let visibleReply = makeEvent(
+            id: makeHexID(9_204),
+            pubkey: visibleAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [["e", rootEvent.id, "", "root"]],
+            content: "Previously scored as not spam",
+            createdAt: 1_700_000_401
+        )
+        let replyToMark = makeEvent(
+            id: makeHexID(9_205),
+            pubkey: markedAuthorPubkey,
+            kind: FeedKindFilters.shortTextNote,
+            tags: [["e", rootEvent.id, "", "root"]],
+            content: "Author the user marks as spam",
+            createdAt: 1_700_000_402
+        )
+        let scorer = ThreadSpamTestScorer(score: 0.1)
+        let viewModel = ThreadDetailViewModel(
+            rootItem: FeedItem(event: rootEvent, profile: nil),
+            relayURL: defaultHomeRelayURL,
+            service: NostrFeedService(
+                relayClient: HomeFeedTestRelayClient(eventsByRelay: [
+                    defaultHomeRelayURL: [visibleReply, replyToMark]
+                ])
+            ),
+            spamScorer: scorer
+        )
+        viewModel.configureSpamFilter(
+            currentUserPubkey: rootAuthorPubkey,
+            followedPubkeys: []
+        )
+
+        await viewModel.refresh()
+        await waitForSpamScoreCallCount(2, scorer: scorer)
+        await waitForReply(id: visibleReply.id, in: viewModel)
+        await waitForReply(id: replyToMark.id, in: viewModel)
+
+        await scorer.invalidateAndHoldNextScore(pubkey: visibleAuthorPubkey)
+        settings.addSpamFilterMarkedPubkey(markedAuthorPubkey)
+        viewModel.spamPreferencesChanged()
+        await waitForSpamScoreCallCount(3, scorer: scorer)
+
+        XCTAssertTrue(viewModel.replies.contains { $0.id == visibleReply.id })
+        XCTAssertFalse(viewModel.spamReplies.contains { $0.id == visibleReply.id })
+        XCTAssertFalse(viewModel.replies.contains { $0.id == replyToMark.id })
+        XCTAssertTrue(viewModel.spamReplies.contains { $0.id == replyToMark.id })
+
+        await viewModel.refresh()
+        XCTAssertTrue(viewModel.replies.contains { $0.id == visibleReply.id })
+        XCTAssertTrue(viewModel.spamReplies.contains { $0.id == replyToMark.id })
+
+        await scorer.releaseHeldScores()
+        await waitForPostRescoreCacheRead(scorer: scorer)
+
+        XCTAssertTrue(viewModel.replies.contains { $0.id == visibleReply.id })
+        XCTAssertFalse(viewModel.spamReplies.contains { $0.id == visibleReply.id })
+        XCTAssertTrue(viewModel.spamReplies.contains { $0.id == replyToMark.id })
+    }
+
     private func waitForReply(
         id: String,
         in viewModel: ThreadDetailViewModel,

@@ -191,24 +191,23 @@ struct ThreadDetailView: View {
                 muteDisplayName: viewModel.rootItem.displayName,
                 canCopyText: rootHasCopyableNoteText,
                 onCopyText: {
-                    UIPasteboard.general.string = rootCopyableNoteText
+                    NoteClipboardWriter.copy(rootCopyableNoteText)
                     toastCenter.show("Copied text")
                 },
                 canCopyRawContent: NoteClipboardContent.canCopyRawContent(from: viewModel.rootItem.displayEvent),
                 onCopyRawContent: {
-                    UIPasteboard.general.string = NoteClipboardContent.rawContent(for: viewModel.rootItem.displayEvent)
-                    toastCenter.show("Copied raw content")
+                    copyRootRawEventToPasteboard()
                 },
                 onCopyEventID: {
-                    UIPasteboard.general.string = rootCopyableEventIdentifier
+                    NoteClipboardWriter.copy(rootCopyableEventIdentifier)
                     toastCenter.show("Copied event ID")
                 },
                 onCopyUserID: {
-                    UIPasteboard.general.string = rootCopyableAuthorIdentifier
+                    NoteClipboardWriter.copy(rootCopyableAuthorIdentifier)
                     toastCenter.show("Copied user ID")
                 },
                 onCopyLink: {
-                    UIPasteboard.general.string = rootNoteShareLink
+                    NoteClipboardWriter.copy(rootNoteShareLink)
                     toastCenter.show("Copied link")
                 },
                 showsTranslateAction: rootCanTranslateNote,
@@ -422,6 +421,28 @@ struct ThreadDetailView: View {
 
     private var rootCopyableAuthorIdentifier: String {
         npubIdentifier(for: viewModel.rootItem.displayAuthorPubkey) ?? viewModel.rootItem.displayAuthorPubkey
+    }
+
+    private func copyRootRawEventToPasteboard() {
+        let event = viewModel.rootItem.displayEvent
+        let copyGeneration = NoteClipboardWriter.beginDeferredCopy()
+        Task { @MainActor in
+            let relayObservations = await SeenEventStore.shared.relayObservations(eventID: event.id)
+            guard let rawEventJSON = NoteClipboardContent.rawContent(
+                for: event,
+                relayObservations: relayObservations
+            ) else {
+                if NoteClipboardWriter.isCurrent(generation: copyGeneration) {
+                    toastCenter.show("Couldn't copy raw event", style: .error)
+                }
+                return
+            }
+            guard NoteClipboardWriter.completeDeferredCopy(
+                rawEventJSON,
+                generation: copyGeneration
+            ) else { return }
+            toastCenter.show("Copied raw event JSON")
+        }
     }
 
     private var rootReactionCount: Int {

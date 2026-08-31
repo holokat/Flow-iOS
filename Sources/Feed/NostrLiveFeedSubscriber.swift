@@ -17,12 +17,14 @@ final class NostrLiveFeedSubscriber: NostrLiveEventSubscribing, @unchecked Senda
 
     private let session: URLSession
     private let connectionPool: NostrRelayPool
+    private let seenEventStore: any SeenEventStoring
     private let reconnectBaseDelayNanoseconds: UInt64
     private let reconnectMaximumDelayNanoseconds: UInt64
 
     init(
         session: URLSession = .shared,
         connectionPool: NostrRelayPool = .shared,
+        seenEventStore: any SeenEventStoring = SeenEventStore.shared,
         liveEventFallbackDelayNanoseconds: UInt64? = nil,
         receiveIdleTimeoutNanoseconds: UInt64? = nil,
         pingTimeoutNanoseconds: UInt64? = nil,
@@ -36,6 +38,7 @@ final class NostrLiveFeedSubscriber: NostrLiveEventSubscribing, @unchecked Senda
         _ = pingTimeoutNanoseconds
         self.session = session
         self.connectionPool = connectionPool
+        self.seenEventStore = seenEventStore
         self.reconnectBaseDelayNanoseconds = max(reconnectBaseDelayNanoseconds, 1)
         self.reconnectMaximumDelayNanoseconds = max(
             reconnectMaximumDelayNanoseconds,
@@ -112,6 +115,12 @@ final class NostrLiveFeedSubscriber: NostrLiveEventSubscribing, @unchecked Senda
             for try await event in stream {
                 guard !Task.isCancelled else { break }
                 receivedEvent = true
+                await seenEventStore.store(events: [event])
+                await seenEventStore.recordRelayObservation(
+                    relayURL: normalizedRelayURL,
+                    events: [event],
+                    observedAt: Date()
+                )
                 await onNewEvent(event)
             }
             return .ended(receivedEvent: receivedEvent)

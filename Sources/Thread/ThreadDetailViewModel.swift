@@ -29,6 +29,7 @@ final class ThreadDetailViewModel: ObservableObject {
     private var replyRefreshTask: Task<Void, Never>?
     private var noteActivityRefreshTask: Task<Void, Never>?
     private var spamScoreTasks: [String: SpamScoreTaskState] = [:]
+    private var resolvedSpamDispositionByPubkey: [String: Bool] = [:]
     private var replyBucketRevision: UInt64 = 0
     private var rawReplies: [FeedItem] = []
     private var spamFilterCurrentUserPubkey: String?
@@ -125,6 +126,7 @@ final class ThreadDetailViewModel: ObservableObject {
 
     func markSpamReplyAuthorAsNotSpam(_ pubkey: String) {
         AppSettingsStore.shared.addSpamReplySafelistedPubkey(pubkey)
+        resolvedSpamDispositionByPubkey[normalizedPubkey(pubkey)] = nil
         scheduleReplyBucketRebuild()
     }
 
@@ -472,13 +474,23 @@ final class ThreadDetailViewModel: ObservableObject {
             guard currentRevision == replyBucketRevision else { return }
 
             if let score = cachedScore {
-                if score >= Self.spamThreshold {
+                let shouldHide = score >= Self.spamThreshold
+                resolvedSpamDispositionByPubkey[pubkey] = shouldHide
+                if shouldHide {
                     hiddenReplies.append(item)
                 } else {
                     visibleReplies.append(item)
                 }
             } else {
-                hiddenReplies.append(item)
+                if let shouldHide = resolvedSpamDispositionByPubkey[pubkey] {
+                    if shouldHide {
+                        hiddenReplies.append(item)
+                    } else {
+                        visibleReplies.append(item)
+                    }
+                } else {
+                    hiddenReplies.append(item)
+                }
                 if spamScoreTasks[pubkey] == nil {
                     seedNotesByPubkey[pubkey, default: []].append(Self.spamNoteInput(for: item))
                 }
@@ -551,7 +563,8 @@ final class ThreadDetailViewModel: ObservableObject {
                     guard let self else { return }
                     guard self.spamScoreTasks[pubkey]?.token == token else { return }
                     self.spamScoreTasks[pubkey] = nil
-                    guard score != nil else { return }
+                    guard let score else { return }
+                    self.resolvedSpamDispositionByPubkey[pubkey] = score >= Self.spamThreshold
                     self.scheduleReplyBucketRebuild()
                 }
             }

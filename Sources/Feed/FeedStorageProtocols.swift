@@ -7,6 +7,12 @@ struct AuthorRelayDirectoryEntry: Equatable, Sendable {
     let refreshedAt: Date?
 }
 
+struct EventRelayObservation: Codable, Equatable, Sendable {
+    let relayURL: URL
+    let firstSeenAt: Date
+    let lastSeenAt: Date
+}
+
 protocol TimelineEventCaching: Actor, Sendable {
     func events(
         for key: String,
@@ -25,6 +31,29 @@ protocol SeenEventStoring: Actor, Sendable {
     func recentFeed(key: String) async -> [NostrEvent]?
     func events(ids: [String]) async -> [String: NostrEvent]
     func queryEvents(filter: NostrFilter) async -> [NostrEvent]
+    func recordRelayObservation(
+        relayURL: URL,
+        events: [NostrEvent],
+        observedAt: Date
+    ) async
+    func relayObservations(eventID: String) async -> [EventRelayObservation]
+}
+
+extension SeenEventStoring {
+    func recordRelayObservation(
+        relayURL: URL,
+        events: [NostrEvent],
+        observedAt: Date
+    ) async {
+        _ = relayURL
+        _ = events
+        _ = observedAt
+    }
+
+    func relayObservations(eventID: String) async -> [EventRelayObservation] {
+        _ = eventID
+        return []
+    }
 }
 
 protocol FollowListSnapshotStoring: Actor, Sendable {

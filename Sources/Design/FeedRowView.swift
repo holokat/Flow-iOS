@@ -6,12 +6,81 @@ import Translation
 #endif
 
 enum NoteClipboardContent {
-    static func rawContent(for event: NostrEvent) -> String {
-        event.content
+    private struct RawEventEnvelope: Encodable {
+        let event: NostrEvent
+        let relayObservations: [RelayObservationPayload]
+        let relayObservationStatus: String
+
+        enum CodingKeys: String, CodingKey {
+            case event
+            case relayObservations = "relay_observations"
+            case relayObservationStatus = "relay_observation_status"
+        }
+    }
+
+    private struct RelayObservationPayload: Encodable {
+        let relayURL: URL
+        let firstSeenAt: Date
+        let lastSeenAt: Date
+
+        enum CodingKeys: String, CodingKey {
+            case relayURL = "relay_url"
+            case firstSeenAt = "first_seen_at"
+            case lastSeenAt = "last_seen_at"
+        }
+    }
+
+    static func rawContent(
+        for event: NostrEvent,
+        relayObservations: [EventRelayObservation] = []
+    ) -> String? {
+        let envelope = RawEventEnvelope(
+            event: event,
+            relayObservations: relayObservations.map {
+                RelayObservationPayload(
+                    relayURL: $0.relayURL,
+                    firstSeenAt: $0.firstSeenAt,
+                    lastSeenAt: $0.lastSeenAt
+                )
+            },
+            relayObservationStatus: relayObservations.isEmpty ? "unavailable" : "observed"
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(envelope) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     static func canCopyRawContent(from event: NostrEvent) -> Bool {
-        !event.content.isEmpty
+        _ = event
+        return true
+    }
+}
+
+@MainActor
+enum NoteClipboardWriter {
+    private static var generation: UInt64 = 0
+
+    static func copy(_ value: String) {
+        generation &+= 1
+        UIPasteboard.general.string = value
+    }
+
+    static func beginDeferredCopy() -> UInt64 {
+        generation &+= 1
+        return generation
+    }
+
+    @discardableResult
+    static func completeDeferredCopy(_ value: String, generation expectedGeneration: UInt64) -> Bool {
+        guard expectedGeneration == generation else { return false }
+        UIPasteboard.general.string = value
+        return true
+    }
+
+    static func isCurrent(generation expectedGeneration: UInt64) -> Bool {
+        expectedGeneration == generation
     }
 }
 
@@ -355,24 +424,23 @@ struct FeedRowView: View {
                 muteDisplayName: item.displayName,
                 canCopyText: hasCopyableNoteText,
                 onCopyText: {
-                    UIPasteboard.general.string = copyableNoteText
+                    NoteClipboardWriter.copy(copyableNoteText)
                     toastCenter.show("Copied text")
                 },
                 canCopyRawContent: NoteClipboardContent.canCopyRawContent(from: item.displayEvent),
                 onCopyRawContent: {
-                    UIPasteboard.general.string = NoteClipboardContent.rawContent(for: item.displayEvent)
-                    toastCenter.show("Copied raw content")
+                    copyRawEventToPasteboard()
                 },
                 onCopyEventID: {
-                    UIPasteboard.general.string = copyableEventIdentifier
+                    NoteClipboardWriter.copy(copyableEventIdentifier)
                     toastCenter.show("Copied event ID")
                 },
                 onCopyUserID: {
-                    UIPasteboard.general.string = copyableAuthorIdentifier
+                    NoteClipboardWriter.copy(copyableAuthorIdentifier)
                     toastCenter.show("Copied user ID")
                 },
                 onCopyLink: {
-                    UIPasteboard.general.string = copyableNoteLink
+                    NoteClipboardWriter.copy(copyableNoteLink)
                     toastCenter.show("Copied link")
                 },
                 showsTranslateAction: canTranslateNote,
@@ -982,6 +1050,28 @@ struct FeedRowView: View {
 
     private var effectiveReadRelayURLs: [URL] {
         appSettings.effectiveReadRelayURLs(from: relaySettings.readRelayURLs)
+    }
+
+    private func copyRawEventToPasteboard() {
+        let event = item.displayEvent
+        let copyGeneration = NoteClipboardWriter.beginDeferredCopy()
+        Task { @MainActor in
+            let relayObservations = await SeenEventStore.shared.relayObservations(eventID: event.id)
+            guard let rawEventJSON = NoteClipboardContent.rawContent(
+                for: event,
+                relayObservations: relayObservations
+            ) else {
+                if NoteClipboardWriter.isCurrent(generation: copyGeneration) {
+                    toastCenter.show("Couldn't copy raw event", style: .error)
+                }
+                return
+            }
+            guard NoteClipboardWriter.completeDeferredCopy(
+                rawEventJSON,
+                generation: copyGeneration
+            ) else { return }
+            toastCenter.show("Copied raw event JSON")
+        }
     }
 
     private var effectiveWriteRelayURLs: [URL] {
