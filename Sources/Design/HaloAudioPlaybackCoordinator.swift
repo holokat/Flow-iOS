@@ -2,7 +2,9 @@ import AVFoundation
 import CryptoKit
 import Foundation
 import MediaPlayer
+#if canImport(NowPlaying)
 import NowPlaying
+#endif
 import Observation
 
 @MainActor
@@ -28,9 +30,11 @@ final class HaloAudioPlaybackCoordinator: ObservableObject {
         configureAudioInterruptionObserver()
         configureLegacyRemoteCommands()
 
+        #if canImport(NowPlaying)
         if #available(iOS 27.0, *) {
             nowPlayingBridge27 = HaloNowPlayingBridge27(coordinator: self)
         }
+        #endif
     }
 
     deinit {
@@ -70,12 +74,14 @@ final class HaloAudioPlaybackCoordinator: ObservableObject {
         player.play()
         publishPlaybackState()
 
+        #if canImport(NowPlaying)
         if #available(iOS 27.0, *),
            let bridge = nowPlayingBridge27 as? HaloNowPlayingBridge27 {
             Task {
                 await bridge.requestSystemPrimary()
             }
         }
+        #endif
     }
 
     func play() {
@@ -220,6 +226,7 @@ final class HaloAudioPlaybackCoordinator: ObservableObject {
     }
 
     private func publishNowPlayingState() {
+        #if canImport(NowPlaying)
         if #available(iOS 27.0, *),
            let bridge = nowPlayingBridge27 as? HaloNowPlayingBridge27 {
             bridge.update(
@@ -231,6 +238,7 @@ final class HaloAudioPlaybackCoordinator: ObservableObject {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
             return
         }
+        #endif
 
         guard let currentURL else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -297,6 +305,7 @@ final class HaloAudioPlaybackCoordinator: ObservableObject {
     }
 }
 
+#if canImport(NowPlaying)
 @available(iOS 27.0, *)
 @Observable
 @MainActor
@@ -388,3 +397,4 @@ private final class HaloNowPlayingBridge27 {
         try? await session.requestToBecomeSystemPrimary()
     }
 }
+#endif

@@ -92,6 +92,7 @@ struct ImageRemixEditorView: View {
 
     @ViewBuilder
     private var configuredEditorContent: some View {
+        #if compiler(>=6.4)
         if #available(iOS 27.0, *) {
             editorContent
                 .imagePlaygroundSheet(
@@ -105,7 +106,17 @@ struct ImageRemixEditorView: View {
                     in: [.animation, .illustration, .sketch]
                 )
                 .imagePlaygroundOptions(imagePlaygroundOptions27)
-        } else if #available(iOS 18.4, *) {
+        } else {
+            legacyConfiguredEditorContent
+        }
+        #else
+        legacyConfiguredEditorContent
+        #endif
+    }
+
+    @ViewBuilder
+    private var legacyConfiguredEditorContent: some View {
+        if #available(iOS 18.4, *) {
             editorContent
                 .imagePlaygroundSheet(
                     isPresented: $isShowingImagePlayground,
@@ -207,6 +218,7 @@ struct ImageRemixEditorView: View {
         }
     }
 
+    #if compiler(>=6.4)
     @available(iOS 27.0, *)
     private var imagePlaygroundOptions27: ImagePlaygroundOptions {
         var options = ImagePlaygroundOptions()
@@ -216,6 +228,7 @@ struct ImageRemixEditorView: View {
         options.sizeSpecification = .closest(to: workingBaseImage.size)
         return options
     }
+    #endif
 
     private var remixBackground: some View {
         Rectangle()

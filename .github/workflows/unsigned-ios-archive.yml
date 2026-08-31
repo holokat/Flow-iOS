@@ -1,0 +1,78 @@
+name: Create unsigned iOS archive
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: Unique CFBundleVersion for this archive
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    name: Archive on macOS 26 with Xcode 26.6
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      ARCHIVE_PATH: ${{ runner.temp }}/Halo.xcarchive
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify the selected Xcode and iOS SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$DEVELOPER_DIR"
+          test "$(xcodebuild -version | awk '/^Xcode / { print $2 }')" = '26.6'
+          test "$(xcodebuild -version | awk '/^Build version / { print $3 }')" = '17F113'
+          test "$(xcrun --sdk iphoneos --show-sdk-version)" = '26.5'
+
+      - name: Create an unsigned archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild archive \
+            -project Flow.xcodeproj \
+            -scheme Flow \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            CURRENT_PROJECT_VERSION='${{ inputs.build_number }}' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=''
+
+      - name: Validate archive provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata_plist="$ARCHIVE_PATH/Products/Applications/Flow.app/Info.plist"
+          test -f "$metadata_plist"
+
+          validate_value() {
+            local key="$1"
+            local expected="$2"
+            local actual
+            actual=$(/usr/libexec/PlistBuddy -c "Print :$key" "$metadata_plist")
+            if [[ "$actual" != "$expected" ]]; then
+              printf 'Expected %s=%s, got %s\n' "$key" "$expected" "$actual" >&2
+              exit 1
+            fi
+          }
+
+          validate_value BuildMachineOSBuild 25F84
+          validate_value DTXcodeBuild 17F113
+          validate_value DTSDKName iphoneos26.5
+
+      - name: Upload unsigned archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: halo-unsigned-xcarchive-${{ inputs.build_number }}
+          path: ${{ runner.temp }}/Halo.xcarchive
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,7 +1,9 @@
 import Foundation
 import MetricKit
 import OSLog
+#if canImport(StateReporting)
 import StateReporting
+#endif
 
 enum HaloPerformanceState: String, Sendable {
     case launching
@@ -39,6 +41,7 @@ final class HaloPerformanceMonitor {
     private init() {}
 
     func start(signedIn: Bool) {
+        #if canImport(StateReporting)
         if #available(iOS 27.0, *) {
             if reporter27 == nil {
                 reporter27 = HaloStateReporter27()
@@ -49,6 +52,7 @@ final class HaloPerformanceMonitor {
                 metricListener27 = listener
             }
         }
+        #endif
 
         transition(.launching, signedIn: signedIn)
     }
@@ -70,10 +74,12 @@ final class HaloPerformanceMonitor {
 
         logger.debug("App performance state: \(state.rawValue, privacy: .public)")
 
+        #if canImport(StateReporting)
         if #available(iOS 27.0, *),
            let reporter = reporter27 as? HaloStateReporter27 {
             reporter.transition(to: state, signedIn: signedIn)
         }
+        #endif
     }
 
     func sceneDidBecomeActive(signedIn: Bool) {
@@ -82,6 +88,7 @@ final class HaloPerformanceMonitor {
     }
 }
 
+#if canImport(StateReporting)
 @available(iOS 27.0, *)
 private struct HaloStateStableMetadata: ReportableMetadata {
     let signedIn: Bool
@@ -229,3 +236,4 @@ private actor HaloMetricReportArchive27 {
         }
     }
 }
+#endif

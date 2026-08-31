@@ -1,3 +1,4 @@
+#if canImport(AppIntentsTesting)
 import AppIntentsTesting
 import XCTest
 
@@ -26,3 +27,4 @@ final class HaloAppIntentsTests: XCTestCase {
         try await intent.run()
     }
 }
+#endif

@@ -41,9 +41,14 @@ enum HaloSubjectSegmentation {
         guard #available(iOS 27.0, *) else {
             throw HaloSubjectSegmentationError.unavailable
         }
+        #if compiler(>=6.4)
         return try await selectSubject27(in: image, at: canvasPoint)
+        #else
+        throw HaloSubjectSegmentationError.unavailable
+        #endif
     }
 
+    #if compiler(>=6.4)
     @available(iOS 27.0, *)
     private static func selectSubject27(in image: UIImage, at canvasPoint: CGPoint) async throws -> HaloSubjectSelection {
         let normalizedImage = image.flowNormalizedUp()
@@ -73,6 +78,7 @@ enum HaloSubjectSegmentation {
             scale: normalizedImage.scale
         )
     }
+    #endif
 
     private static func renderSelection(
         sourceCGImage: CGImage,

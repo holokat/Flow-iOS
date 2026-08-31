@@ -144,7 +144,7 @@ private enum NSpamPreprocessor {
             let host = nsSource.substring(with: match.range(at: 1)).lowercased()
             return "http://\(host)"
         }
-        stripped = stripped.lowercased()
+        stripped = UnicodeCasefold.fold(stripped)
         stripped = whitespacePattern.stringByReplacingMatches(
             in: stripped,
             options: [],
@@ -191,6 +191,9 @@ enum NSpamFeatures {
     private static let nonWhitespaceTokenPattern = try! NSRegularExpression(pattern: #"\S+"#)
     private static let digitPattern = try! NSRegularExpression(pattern: #"\p{N}"#)
     private static let punctuationPattern = try! NSRegularExpression(pattern: #"\p{P}"#)
+    private static let emojiPattern = try! NSRegularExpression(
+        pattern: #"[\p{Emoji_Presentation}\p{Extended_Pictographic}]"#
+    )
     private static let tokenizePattern = try! NSRegularExpression(
         pattern: #"\p{L}[\p{L}\p{M}\p{N}_]*|\p{N}+|https?://\S+|[#@][\w]+"#
     )
@@ -232,7 +235,7 @@ enum NSpamFeatures {
             for index in structural.indices {
                 structuralSums[index] += structural[index]
             }
-            charLengths.append(Float((raw as NSString).length))
+            charLengths.append(Float(raw.unicodeScalars.count))
         }
 
         let structuralOffset = charFeatureCount + wordFeatureCount
@@ -282,6 +285,17 @@ enum NSpamFeatures {
         return features
     }
 
+    static func extractHashedTextFeaturesForTesting(_ text: String) -> [Float] {
+        var features = Array(repeating: Float(0), count: charFeatureCount + wordFeatureCount)
+        hashCharWbNgrams(text, features: &features)
+        hashWordNgrams(text, features: &features)
+        return features
+    }
+
+    static func preprocessTextForTesting(_ text: String) -> String {
+        NSpamPreprocessor.preprocess(text).text
+    }
+
     private static func createdAtRange(for notes: [NSpamNoteInput]) -> (Int, Int)? {
         guard var minCreatedAt = notes.first?.createdAt else { return nil }
         var maxCreatedAt = minCreatedAt
@@ -319,10 +333,10 @@ enum NSpamFeatures {
             }
         }
 
-        let length = Float(nsRaw.length)
-        let emojiCount = Float(raw.unicodeScalars.filter { scalar in
-            scalar.properties.isEmojiPresentation || scalar.properties.isEmojiModifierBase
-        }.count)
+        // Python's model pipeline uses Unicode code points for len() and ICU's
+        // Emoji_Presentation/Extended_Pictographic properties for emoji counts.
+        let length = Float(raw.unicodeScalars.count)
+        let emojiCount = Float(matchCount(emojiPattern, in: raw, range: fullRange))
         let alphaCharacters: [UnicodeScalar] = raw.unicodeScalars.filter { CharacterSet.letters.contains($0) }
         let capsCount = alphaCharacters.filter { scalar in
             let value = String(scalar)
@@ -375,12 +389,12 @@ enum NSpamFeatures {
 
         for word in normalized.split(separator: " ") {
             let padded = " \(word) "
-            let codeUnits = Array(padded.utf16)
+            let scalars = Array(padded.unicodeScalars)
             for ngramLength in 3...5 {
-                guard codeUnits.count >= ngramLength else { continue }
-                for start in 0...(codeUnits.count - ngramLength) {
-                    let tokenSlice: ArraySlice<UInt16> = codeUnits[start..<(start + ngramLength)]
-                    let token = String(decoding: tokenSlice, as: UTF16.self)
+                guard scalars.count >= ngramLength else { continue }
+                for start in 0...(scalars.count - ngramLength) {
+                    var token = ""
+                    token.unicodeScalars.append(contentsOf: scalars[start..<(start + ngramLength)])
                     hashInto(token, features: &features, offset: 0, featureCount: charFeatureCount)
                 }
             }
@@ -422,114 +436,51 @@ enum NSpamFeatures {
 }
 
 final class NSpamWeights: @unchecked Sendable {
-    let coef: [Float]
-    let intercept: Float
-    let calibX: [Float]
-    let calibY: [Float]
+    let model: NSpamLightGBMModel
+    let calibration: NSpamCalibration
+    let configuration: NSpamModelConfiguration
 
-    init(coef: [Float], intercept: Float, calibX: [Float], calibY: [Float]) {
-        self.coef = coef
-        self.intercept = intercept
-        self.calibX = calibX
-        self.calibY = calibY
+    init(
+        model: NSpamLightGBMModel,
+        calibration: NSpamCalibration,
+        configuration: NSpamModelConfiguration
+    ) {
+        self.model = model
+        self.calibration = calibration
+        self.configuration = configuration
     }
 
     static func loadFromBundle(_ bundle: Bundle = .main) throws -> NSpamWeights {
-        let coef = try loadNpyResource(named: "effective_coef", bundle: bundle)
-        let intercept = try loadNpyResource(named: "intercept", bundle: bundle).first ?? 0
-        let calibX = try loadNpyResource(named: "calib_x", bundle: bundle)
-        let calibY = try loadNpyResource(named: "calib_y", bundle: bundle)
-        return NSpamWeights(coef: coef, intercept: intercept, calibX: calibX, calibY: calibY)
+        let configurationData = try Data(contentsOf: resourceURL(named: "config", extension: "json", bundle: bundle))
+        let configuration = try JSONDecoder().decode(NSpamModelConfiguration.self, from: configurationData)
+        try configuration.validate()
+
+        let modelData = try Data(contentsOf: resourceURL(named: "model", extension: "txt", bundle: bundle))
+        let calibrationData = try Data(
+            contentsOf: resourceURL(named: "calibration", extension: "npz", bundle: bundle)
+        )
+        return try NSpamWeights(
+            model: NSpamLightGBMModel.parse(data: modelData),
+            calibration: NSpamCalibration.load(data: calibrationData),
+            configuration: configuration
+        )
     }
 
-    private static func loadNpyResource(named name: String, bundle: Bundle) throws -> [Float] {
-        let url = bundle.url(forResource: name, withExtension: "npy", subdirectory: "nspam")
-            ?? bundle.url(forResource: name, withExtension: "npy")
+    private static func resourceURL(named name: String, extension fileExtension: String, bundle: Bundle) throws -> URL {
+        let url = bundle.url(forResource: name, withExtension: fileExtension, subdirectory: "nspam")
+            ?? bundle.url(forResource: name, withExtension: fileExtension)
         guard let url else {
-            throw NSpamWeightsError.missingResource(name)
+            throw NSpamWeightsError.missingResource("\(name).\(fileExtension)")
         }
-
-        return try parseNpy(Data(contentsOf: url))
-    }
-
-    private static func parseNpy(_ data: Data) throws -> [Float] {
-        guard data.count >= 10,
-              data[0] == 0x93,
-              data[1] == 0x4e,
-              data[2] == 0x55,
-              data[3] == 0x4d,
-              data[4] == 0x50,
-              data[5] == 0x59 else {
-            throw NSpamWeightsError.invalidNpy
-        }
-
-        let major = data[6]
-        let headerStart: Int
-        let headerLength: Int
-        if major <= 1 {
-            headerStart = 10
-            headerLength = Int(data[8]) | (Int(data[9]) << 8)
-        } else {
-            guard data.count >= 12 else { throw NSpamWeightsError.invalidNpy }
-            headerStart = 12
-            headerLength = Int(data[8])
-                | (Int(data[9]) << 8)
-                | (Int(data[10]) << 16)
-                | (Int(data[11]) << 24)
-        }
-
-        let dataStart = headerStart + headerLength
-        guard data.count >= dataStart else { throw NSpamWeightsError.invalidNpy }
-        let headerData = data[headerStart..<dataStart]
-        guard let header = String(data: headerData, encoding: .ascii) else {
-            throw NSpamWeightsError.invalidNpy
-        }
-        guard header.contains("'descr': '<f4'") || header.contains("\"descr\": \"<f4\"") else {
-            throw NSpamWeightsError.unsupportedNpy(header)
-        }
-
-        let count = npyElementCount(from: header)
-        guard data.count >= dataStart + count * MemoryLayout<Float>.size else {
-            throw NSpamWeightsError.invalidNpy
-        }
-
-        var values: [Float] = []
-        values.reserveCapacity(count)
-        for index in 0..<count {
-            let offset = dataStart + index * 4
-            let bitPattern = UInt32(data[offset])
-                | (UInt32(data[offset + 1]) << 8)
-                | (UInt32(data[offset + 2]) << 16)
-                | (UInt32(data[offset + 3]) << 24)
-            values.append(Float(bitPattern: bitPattern))
-        }
-        return values
-    }
-
-    private static func npyElementCount(from header: String) -> Int {
-        guard let shapeRange = header.range(of: #"'shape'\s*:\s*\(([^)]*)\)"#, options: .regularExpression) else {
-            return 1
-        }
-
-        let shape = String(header[shapeRange])
-        guard let open = shape.firstIndex(of: "("),
-              let close = shape.firstIndex(of: ")"),
-              open < close else {
-            return 1
-        }
-
-        let body = shape[shape.index(after: open)..<close]
-        let values = body
-            .split(separator: ",")
-            .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-        return values.isEmpty ? 1 : values.reduce(1, *)
+        return url
     }
 }
 
 enum NSpamWeightsError: Error {
     case missingResource(String)
-    case invalidNpy
-    case unsupportedNpy(String)
+    case incompatibleConfiguration
+    case invalidModel
+    case invalidCalibration
 }
 
 final class NSpamClassifier: @unchecked Sendable {
@@ -540,47 +491,22 @@ final class NSpamClassifier: @unchecked Sendable {
     }
 
     func score(notes: [NSpamNoteInput]) -> Float? {
+        guard let rawScore = rawScore(notes: notes) else { return nil }
+        return Float(weights.calibration.score(rawScore: rawScore))
+    }
+
+    func rawScore(notes: [NSpamNoteInput]) -> Double? {
         guard !notes.isEmpty else { return nil }
         let cappedNotes = notes.count > 10
             ? Array(notes.sorted { $0.createdAt > $1.createdAt }.prefix(10))
             : notes
         let features = NSpamFeatures.extractFeatures(notes: cappedNotes)
-        let rawScore = sigmoid(dotProduct(features, weights.coef) + weights.intercept)
-        return calibrate(raw: rawScore, calibX: weights.calibX, calibY: weights.calibY)
-    }
-
-    private func dotProduct(_ lhs: [Float], _ rhs: [Float]) -> Float {
-        let count = min(lhs.count, rhs.count)
-        var sum: Double = 0
-        for index in 0..<count {
-            sum += Double(lhs[index]) * Double(rhs[index])
+        let margin = weights.model.rawMargin(features: features)
+        if margin >= 0 {
+            return 1.0 / (1.0 + exp(-margin))
         }
-        return Float(sum)
-    }
-
-    private func sigmoid(_ value: Float) -> Float {
-        Float(1.0 / (1.0 + exp(-Double(value))))
-    }
-
-    private func calibrate(raw: Float, calibX: [Float], calibY: [Float]) -> Float {
-        guard !calibX.isEmpty, calibX.count == calibY.count else { return raw }
-        if raw <= calibX[0] {
-            return calibY[0]
-        }
-        if let lastX = calibX.last, let lastY = calibY.last, raw >= lastX {
-            return lastY
-        }
-
-        for index in 0..<(calibX.count - 1) {
-            if raw >= calibX[index], raw < calibX[index + 1] {
-                let denominator = calibX[index + 1] - calibX[index]
-                guard denominator != 0 else { return calibY[index] }
-                let t = (raw - calibX[index]) / denominator
-                return calibY[index] + t * (calibY[index + 1] - calibY[index])
-            }
-        }
-
-        return calibY.last ?? raw
+        let exponential = exp(margin)
+        return exponential / (1.0 + exponential)
     }
 }
 

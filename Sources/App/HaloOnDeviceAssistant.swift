@@ -123,11 +123,15 @@ enum HaloOnDeviceAssistant {
     static var imageDescriptionAvailability: HaloOnDeviceAssistantAvailability {
         guard #available(iOS 27.0, *) else { return .requiresIOS27 }
 
+        #if compiler(>=6.4)
         let model = SystemLanguageModel.default
         let baseAvailability = availability26(for: model)
         guard baseAvailability == .available else { return baseAvailability }
         guard model.capabilities.contains(.vision) else { return .visionUnavailable }
         return .available
+        #else
+        return .visionUnavailable
+        #endif
     }
 
     static func summarizeFeed(_ sources: [HaloFeedSummarySource]) async throws -> HaloFeedCatchUpSummary {
@@ -145,7 +149,11 @@ enum HaloOnDeviceAssistant {
         guard #available(iOS 27.0, *) else {
             throw HaloOnDeviceAssistantError.unavailable(.requiresIOS27)
         }
+        #if compiler(>=6.4)
         return try await draftAltText27(for: image)
+        #else
+        throw HaloOnDeviceAssistantError.unavailable(.visionUnavailable)
+        #endif
     }
 
     @available(iOS 26.0, *)
@@ -220,6 +228,7 @@ enum HaloOnDeviceAssistant {
         )
     }
 
+    #if compiler(>=6.4)
     @available(iOS 27.0, *)
     private static func draftAltText27(for image: UIImage) async throws -> String {
         let availability = imageDescriptionAvailability
@@ -250,6 +259,7 @@ enum HaloOnDeviceAssistant {
         guard !text.isEmpty else { throw HaloOnDeviceAssistantError.invalidResponse }
         return text
     }
+    #endif
 }
 
 @available(iOS 26.0, *)
@@ -272,9 +282,11 @@ private struct HaloGeneratedFeedHighlight {
     var detail: String
 }
 
+#if compiler(>=6.4)
 @available(iOS 27.0, *)
 @Generable(description: "A reviewable accessibility description for one image")
 private struct HaloGeneratedAltText {
     @Guide(description: "One concise sentence describing only clearly visible image content")
     var text: String
 }
+#endif
