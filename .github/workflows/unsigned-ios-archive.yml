@@ -47,6 +47,35 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=''
 
+      - name: Preserve app-group entitlement requirements
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$ARCHIVE_PATH/Products/Applications/Flow.app"
+          share_extension="$app/PlugIns/FlowShareExtension.appex"
+
+          codesign --force --sign - \
+            --entitlements Sources/ShareExtension/ShareExtension.entitlements \
+            --generate-entitlement-der \
+            "$share_extension"
+          codesign --force --sign - \
+            --entitlements Sources/App/Flow.entitlements \
+            --generate-entitlement-der \
+            "$app"
+          codesign --verify --deep --strict "$app"
+
+          verify_app_group() {
+            local target="$1"
+            local output="$2"
+            codesign -d --entitlements :- "$target" > "$output" 2>/dev/null
+            /usr/libexec/PlistBuddy \
+              -c 'Print :com.apple.security.application-groups' \
+              "$output" | grep -Fq 'group.com.21media.haloapp'
+          }
+
+          verify_app_group "$app" "$RUNNER_TEMP/halo-entitlements.plist"
+          verify_app_group "$share_extension" "$RUNNER_TEMP/share-entitlements.plist"
+
       - name: Validate archive provenance
         shell: bash
         run: |
