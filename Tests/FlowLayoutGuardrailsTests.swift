@@ -976,6 +976,18 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
         XCTAssertTrue(ManageAccountsAppearance.signInPrivateKeyLabelUsesInkColor)
     }
 
+    func testSignInSupportsDirectPasteAndKeyboardSubmission() throws {
+        let source = try Self.sourceText(at: "Sources/Auth/AuthSheetView.swift")
+
+        XCTAssertTrue(source.contains("PasteButton(payloadType: String.self"))
+        XCTAssertTrue(source.contains("handlePastedAccountAccess"))
+        XCTAssertTrue(source.contains(".accessibilityIdentifier(\"auth-private-key-paste\")"))
+        XCTAssertTrue(source.contains(".focused($isPrivateKeyFieldFocused)"))
+        XCTAssertTrue(source.contains(".submitLabel(.go)"))
+        XCTAssertTrue(source.contains(".onSubmit"))
+        XCTAssertTrue(source.contains(".scrollDismissesKeyboard(.immediately)"))
+    }
+
     func testNativeGlassAdapterPreservesOlderDeploymentTargets() throws {
         let source = try Self.sourceText(at: "Sources/Design/HaloNativeGlass.swift")
 

@@ -108,6 +108,7 @@ struct WelcomeOnboardingView: View {
                     )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("welcome-sign-in")
             .opacity(hasAnimatedIn ? 1 : 0)
             .offset(y: hasAnimatedIn ? 0 : 34)
         }

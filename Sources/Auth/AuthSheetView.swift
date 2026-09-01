@@ -170,6 +170,7 @@ struct AuthSheetView: View {
     private let onSelectedTabChange: (AuthSheetTab) -> Void
     @State private var selectedTab: AuthSheetTab
     @State private var privateKeyInput = ""
+    @FocusState private var isPrivateKeyFieldFocused: Bool
     @State private var signInError: String?
     @State private var accountProfiles: [String: NostrProfile] = [:]
     @State private var pendingAccountRemoval: AuthAccount?
@@ -310,6 +311,7 @@ struct AuthSheetView: View {
                     .padding(.horizontal, AuthSheetChromeLayout.contentHorizontalPadding(for: .signIn))
                     .padding(.bottom, AuthSheetChromeLayout.sharedContentBottomPadding)
                 }
+                .scrollDismissesKeyboard(.immediately)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     authSheetHeader
                         .padding(.horizontal, AuthSheetChromeLayout.headerHorizontalPadding)
@@ -552,15 +554,34 @@ struct AuthSheetView: View {
     }
 
     private var signInPrivateKeyField: some View {
-        SecureField("Account access", text: $privateKeyInput)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .padding(.horizontal, 16)
-            .padding(.vertical, 16)
-            .haloNativeGlass(
-                interactive: true,
-                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-            )
+        HStack(spacing: 8) {
+            SecureField("Account access", text: $privateKeyInput)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .frame(minHeight: 44)
+                .focused($isPrivateKeyFieldFocused)
+                .submitLabel(.go)
+                .onSubmit {
+                    handleSignIn()
+                }
+                .accessibilityIdentifier("auth-private-key-input")
+
+            PasteButton(payloadType: String.self, onPaste: handlePastedAccountAccess)
+                .labelStyle(.iconOnly)
+                .buttonBorderShape(.circle)
+                .controlSize(.large)
+                .tint(signInAccentColor)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityLabel("Paste account access")
+                .accessibilityIdentifier("auth-private-key-paste")
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 6)
+        .padding(.vertical, 6)
+        .haloNativeGlass(
+            interactive: true,
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
     }
 
     private var signInPrimaryButton: some View {
@@ -584,6 +605,7 @@ struct AuthSheetView: View {
                 )
                 .disabled(!canSubmitSignIn)
                 .opacity(canSubmitSignIn ? 1 : 0.78)
+                .accessibilityIdentifier("auth-sign-in-submit")
             } else {
                 Button {
                     handleSignIn()
@@ -611,6 +633,7 @@ struct AuthSheetView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSubmitSignIn)
+                .accessibilityIdentifier("auth-sign-in-submit")
             }
         }
     }
@@ -1078,6 +1101,9 @@ struct AuthSheetView: View {
                 in: Circle()
             )
             .accessibilityLabel("Remove account")
+            .accessibilityIdentifier(
+                auth.currentAccount?.id == account.id ? "remove-active-account" : "remove-saved-account"
+            )
         } else {
             Button(role: .destructive) {
                 pendingAccountRemoval = account
@@ -1087,6 +1113,9 @@ struct AuthSheetView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Remove account")
+            .accessibilityIdentifier(
+                auth.currentAccount?.id == account.id ? "remove-active-account" : "remove-saved-account"
+            )
         }
     }
 
@@ -1157,6 +1186,7 @@ struct AuthSheetView: View {
 
     private func handleSignIn() {
         guard canSubmitSignIn else { return }
+        isPrivateKeyFieldFocused = false
         signInError = nil
         do {
             _ = try auth.loginWithNsecOrHex(normalizedPrivateKeyInput)
@@ -1165,6 +1195,13 @@ struct AuthSheetView: View {
         } catch {
             signInError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    private func handlePastedAccountAccess(_ values: [String]) {
+        guard let value = values.first else { return }
+        privateKeyInput = value
+        signInError = nil
+        isPrivateKeyFieldFocused = false
     }
 
     private func handlePostAuthenticationCompletion() {
