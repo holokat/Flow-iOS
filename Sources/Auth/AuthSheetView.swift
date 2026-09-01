@@ -1,5 +1,6 @@
 import NostrSDK
 import SwiftUI
+import UIKit
 
 enum AuthSheetTab: String, CaseIterable, Identifiable {
     case signIn = "Sign In"
@@ -150,6 +151,108 @@ private struct AccountSwitchPulse: Equatable {
     }
 }
 
+private struct AccountAccessPasteField: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    let accentColor: UIColor
+    let foregroundColor: UIColor
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, isFocused: $isFocused, onSubmit: onSubmit)
+    }
+
+    func makeUIView(context: Context) -> UITextField {
+        let textField = UITextField()
+        textField.delegate = context.coordinator
+        textField.addTarget(
+            context.coordinator,
+            action: #selector(Coordinator.textDidChange(_:)),
+            for: .editingChanged
+        )
+        textField.isSecureTextEntry = true
+        textField.placeholder = "Account access"
+        textField.autocapitalizationType = .none
+        textField.autocorrectionType = .no
+        textField.returnKeyType = .go
+        textField.borderStyle = .none
+        textField.backgroundColor = .clear
+        textField.font = .preferredFont(forTextStyle: .body)
+        textField.adjustsFontForContentSizeCategory = true
+        textField.accessibilityIdentifier = "auth-private-key-input"
+        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        let configuration = UIPasteControl.Configuration()
+        configuration.displayMode = .iconOnly
+        configuration.cornerStyle = .capsule
+        configuration.baseBackgroundColor = accentColor
+        configuration.baseForegroundColor = foregroundColor
+
+        let pasteControl = UIPasteControl(configuration: configuration)
+        pasteControl.target = textField
+        pasteControl.frame = CGRect(x: 8, y: 0, width: 44, height: 44)
+        pasteControl.accessibilityLabel = "Paste account access"
+        pasteControl.accessibilityIdentifier = "auth-private-key-paste"
+
+        let pasteContainer = UIView(frame: CGRect(x: 0, y: 0, width: 52, height: 44))
+        pasteContainer.addSubview(pasteControl)
+        textField.rightView = pasteContainer
+        textField.rightViewMode = .always
+
+        return textField
+    }
+
+    func updateUIView(_ textField: UITextField, context: Context) {
+        context.coordinator.onSubmit = onSubmit
+
+        if textField.text != text {
+            textField.text = text
+        }
+
+        textField.tintColor = accentColor
+
+        if isFocused {
+            guard textField.window != nil, !textField.isFirstResponder else { return }
+            DispatchQueue.main.async {
+                if textField.window != nil && !textField.isFirstResponder {
+                    textField.becomeFirstResponder()
+                }
+            }
+        } else if textField.isFirstResponder {
+            textField.resignFirstResponder()
+        }
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        @Binding private var text: String
+        @Binding private var isFocused: Bool
+        var onSubmit: () -> Void
+
+        init(text: Binding<String>, isFocused: Binding<Bool>, onSubmit: @escaping () -> Void) {
+            _text = text
+            _isFocused = isFocused
+            self.onSubmit = onSubmit
+        }
+
+        @objc func textDidChange(_ textField: UITextField) {
+            text = textField.text ?? ""
+        }
+
+        func textFieldDidBeginEditing(_ textField: UITextField) {
+            isFocused = true
+        }
+
+        func textFieldDidEndEditing(_ textField: UITextField) {
+            isFocused = false
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            onSubmit()
+            return true
+        }
+    }
+}
+
 struct AuthSheetView: View {
     private enum PostAuthDestination {
         case dismiss
@@ -170,7 +273,7 @@ struct AuthSheetView: View {
     private let onSelectedTabChange: (AuthSheetTab) -> Void
     @State private var selectedTab: AuthSheetTab
     @State private var privateKeyInput = ""
-    @FocusState private var isPrivateKeyFieldFocused: Bool
+    @State private var isPrivateKeyFieldFocused = false
     @State private var signInError: String?
     @State private var accountProfiles: [String: NostrProfile] = [:]
     @State private var pendingAccountRemoval: AuthAccount?
@@ -554,27 +657,14 @@ struct AuthSheetView: View {
     }
 
     private var signInPrivateKeyField: some View {
-        HStack(spacing: 8) {
-            SecureField("Account access", text: $privateKeyInput)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .frame(minHeight: 44)
-                .focused($isPrivateKeyFieldFocused)
-                .submitLabel(.go)
-                .onSubmit {
-                    handleSignIn()
-                }
-                .accessibilityIdentifier("auth-private-key-input")
-
-            PasteButton(payloadType: String.self, onPaste: handlePastedAccountAccess)
-                .labelStyle(.iconOnly)
-                .buttonBorderShape(.circle)
-                .controlSize(.large)
-                .tint(signInAccentColor)
-                .frame(minWidth: 44, minHeight: 44)
-                .accessibilityLabel("Paste account access")
-                .accessibilityIdentifier("auth-private-key-paste")
-        }
+        AccountAccessPasteField(
+            text: $privateKeyInput,
+            isFocused: $isPrivateKeyFieldFocused,
+            accentColor: UIColor(signInAccentColor),
+            foregroundColor: UIColor(appSettings.buttonTextColor),
+            onSubmit: handleSignIn
+        )
+        .frame(maxWidth: .infinity, minHeight: 44)
         .padding(.leading, 16)
         .padding(.trailing, 6)
         .padding(.vertical, 6)
@@ -1195,13 +1285,6 @@ struct AuthSheetView: View {
         } catch {
             signInError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
-    }
-
-    private func handlePastedAccountAccess(_ values: [String]) {
-        guard let value = values.first else { return }
-        privateKeyInput = value
-        signInError = nil
-        isPrivateKeyFieldFocused = false
     }
 
     private func handlePostAuthenticationCompletion() {

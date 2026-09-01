@@ -177,7 +177,7 @@ final class NsecPasteSmokeUITests: XCTestCase {
         var stableSampleCount = 0
 
         return waitUntil(timeout: timeout, pollInterval: 0.15) {
-            guard element.exists, element.isHittable else {
+            guard element.exists, element.isEnabled, element.isHittable else {
                 previousFrame = nil
                 stableSampleCount = 0
                 return false

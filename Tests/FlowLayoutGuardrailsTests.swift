@@ -979,12 +979,13 @@ final class FlowLayoutGuardrailsTests: XCTestCase {
     func testSignInSupportsDirectPasteAndKeyboardSubmission() throws {
         let source = try Self.sourceText(at: "Sources/Auth/AuthSheetView.swift")
 
-        XCTAssertTrue(source.contains("PasteButton(payloadType: String.self"))
-        XCTAssertTrue(source.contains("handlePastedAccountAccess"))
-        XCTAssertTrue(source.contains(".accessibilityIdentifier(\"auth-private-key-paste\")"))
-        XCTAssertTrue(source.contains(".focused($isPrivateKeyFieldFocused)"))
-        XCTAssertTrue(source.contains(".submitLabel(.go)"))
-        XCTAssertTrue(source.contains(".onSubmit"))
+        XCTAssertTrue(source.contains("UIPasteControl(configuration:"))
+        XCTAssertTrue(source.contains("pasteControl.target = textField"))
+        XCTAssertTrue(source.contains("textField.isSecureTextEntry = true"))
+        XCTAssertTrue(source.contains("pasteControl.accessibilityIdentifier = \"auth-private-key-paste\""))
+        XCTAssertTrue(source.contains("textField.accessibilityIdentifier = \"auth-private-key-input\""))
+        XCTAssertTrue(source.contains("textField.returnKeyType = .go"))
+        XCTAssertTrue(source.contains("textFieldShouldReturn"))
         XCTAssertTrue(source.contains(".scrollDismissesKeyboard(.immediately)"))
     }
 
